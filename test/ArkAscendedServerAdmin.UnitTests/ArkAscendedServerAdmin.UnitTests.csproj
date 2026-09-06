@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Pure unit tests over Core: no filesystem, no Windows APIs. Runs anywhere, including WSL. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ArkAscendedServerAdmin.UnitTests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ArkAscendedServerAdmin.Core\ArkAscendedServerAdmin.Core.csproj" />
+  </ItemGroup>
+
+</Project>

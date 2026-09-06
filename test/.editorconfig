@@ -1,0 +1,15 @@
+# Test projects inherit the root .editorconfig and relax the rules that fight readable tests.
+
+[*.cs]
+# Test method names read as sentences: Method_Scenario_Expectation
+dotnet_naming_rule.async_suffix.severity = none
+dotnet_diagnostic.CA1707.severity = none     # identifiers should not contain underscores
+dotnet_diagnostic.CA1861.severity = none     # constant arrays as arguments — inline test data is fine
+dotnet_diagnostic.CA2007.severity = none     # ConfigureAwait
+dotnet_diagnostic.CA1515.severity = none     # test types can be public
+dotnet_diagnostic.CA1812.severity = none     # internal classes instantiated by the runner
+dotnet_diagnostic.CA1062.severity = none     # argument validation in tests
+dotnet_diagnostic.CA5394.severity = none     # Random in test data
+dotnet_diagnostic.CS1591.severity = none     # missing XML comments
+dotnet_diagnostic.IDE0058.severity = none    # unused expression values (fluent assertions)
+csharp_style_expression_bodied_methods = false:none

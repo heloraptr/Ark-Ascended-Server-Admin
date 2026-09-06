@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Integration tests against Infrastructure on a real temp filesystem (junctions, INI generation, backup round
+       trip, process reconciliation). Windows only — cannot build or run from WSL. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>ArkAscendedServerAdmin.Infrastructure.IntegrationTests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ArkAscendedServerAdmin.Infrastructure\ArkAscendedServerAdmin.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

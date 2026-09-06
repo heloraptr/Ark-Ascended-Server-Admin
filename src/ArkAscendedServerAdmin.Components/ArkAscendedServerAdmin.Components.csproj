@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <!-- Razor Class Library holding every page, layout, and component (Radzen). Shared by the Blazor
+       Server host now and a WPF/BlazorWebView host later. Talks only to Core interfaces. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ArkAscendedServerAdmin.Components</RootNamespace>
+    <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Radzen.Blazor" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ArkAscendedServerAdmin.Core\ArkAscendedServerAdmin.Core.csproj" />
+  </ItemGroup>
+
+</Project>

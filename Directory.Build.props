@@ -1,0 +1,41 @@
+<Project>
+
+  <!-- Applies to every project in the repo. Test-specific overrides live in test/Directory.Build.props. -->
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- Required for IDE0005 (unnecessary usings) to run at build time; CS1591 (missing XML comment) is
+         suppressed because we do not document every public member. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Package metadata">
+    <Authors>zman88a</Authors>
+    <Product>Ark Ascended Server Admin</Product>
+    <Description>Self-hosted ARK: Survival Ascended dedicated-server manager for Windows.</Description>
+    <Copyright>Copyright © $([System.DateTime]::UtcNow.Year)</Copyright>
+    <RepositoryType>git</RepositoryType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- MinVer: version comes from git tags (v1.2.3). Untagged commits become 0.0.0-preview.0.N. -->
+  <PropertyGroup Label="MinVer">
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <MinVerDefaultPreReleaseIdentifiers>preview.0</MinVerDefaultPreReleaseIdentifiers>
+    <MinVerVerbosity>minimal</MinVerVerbosity>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>
