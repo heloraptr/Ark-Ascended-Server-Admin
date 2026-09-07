@@ -6,16 +6,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
     <link rel="icon" type="image/png" href="favicon.png" />
-    <RadzenTheme Theme="material-dark" @rendermode="InteractiveServer" />
+    <RadzenTheme Theme="material-dark" @rendermode="PageRenderMode" />
     <link rel="stylesheet" href="@Assets["ArkAscendedServerAdmin.Server.styles.css"]" />
     <ImportMap />
-    <HeadOutlet @rendermode="InteractiveServer" />
+    <HeadOutlet @rendermode="PageRenderMode" />
 </head>
 
 <body>
-    <Routes @rendermode="InteractiveServer" />
+    <Routes @rendermode="PageRenderMode" />
     <script src="_framework/blazor.web.js"></script>
     <script src="_content/Radzen.Blazor/Radzen.Blazor.js?v=@(typeof(Colors).Assembly.GetName().Version)"></script>
 </body>
 
 </html>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    // The login page is rendered statically (no circuit) because signing in must write the cookie on the
+    // HTTP response; every other page runs as an interactive server circuit.
+    private IComponentRenderMode? PageRenderMode =>
+        HttpContext.Request.Path.StartsWithSegments("/login", StringComparison.OrdinalIgnoreCase) ? null : InteractiveServer;
+}

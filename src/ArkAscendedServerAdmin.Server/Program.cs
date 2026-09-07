@@ -1,8 +1,18 @@
+using System.Net;
+using ArkAscendedServerAdmin.Components.Layout;
+using ArkAscendedServerAdmin.Configuration;
+using ArkAscendedServerAdmin.Infrastructure;
 using ArkAscendedServerAdmin.Server;
 using ArkAscendedServerAdmin.Server.Components;
-using ArkAscendedServerAdmin.Components.Layout;
+using ArkAscendedServerAdmin.Server.Middleware;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Hosting.WindowsServices;
 using Radzen;
+
+var isWindowsService = WindowsServiceHelpers.IsWindowsService();
 
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
@@ -10,12 +20,36 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     // A Windows service starts with System32 as its working directory; anchor the content root to the
     // executable so appsettings.json and wwwroot resolve. Left alone under `dotnet run` so static web
     // assets keep working from the project directory.
-    ContentRootPath = WindowsServiceHelpers.IsWindowsService() ? AppContext.BaseDirectory : null,
+    ContentRootPath = isWindowsService ? AppContext.BaseDirectory : null,
 });
 
-builder.Services.AddWindowsService(options => options.ServiceName = "ArkAscendedServerAdmin");
+builder.Services.AddWindowsService(options => options.ServiceName = ServiceExtensions.ApplicationName);
 
-builder.Services.AddCurseForgeApi(builder.Configuration);
+// ---- appsettings.json (host settings; change requires a restart) ----------------------------------
+var arkOptions = builder.Configuration.GetSection(ArkAdminOptions.SectionName).Get<ArkAdminOptions>() ?? new ArkAdminOptions();
+builder.Services.Configure<ArkAdminOptions>(builder.Configuration.GetSection(ArkAdminOptions.SectionName));
+
+var layout = ServiceExtensions.ResolveDataRoot(arkOptions, builder.Environment.ContentRootPath);
+layout.EnsureDirectories(); // the Data Protection key ring needs its directory before the host builds
+
+var bindUrls = builder.Configuration.GetSection("Kestrel:Endpoints").GetChildren()
+    .Select(endpoint => endpoint["Url"])
+    .Where(url => !string.IsNullOrWhiteSpace(url))
+    .Select(url => url!)
+    .ToList();
+
+builder.Services.AddSingleton(new HostConfiguration(
+    layout.Root,
+    bindUrls,
+    arkOptions.KnownProxies,
+    arkOptions.AllowInsecureHttp,
+    !string.IsNullOrEmpty(arkOptions.Password),
+    isWindowsService));
+
+// ---- services ------------------------------------------------------------------------------------
+builder.Services.AddArkInfrastructure(layout);
+builder.Services.AddArkAuthentication(arkOptions, layout);
+builder.Services.AddArkCommands();
 
 builder.Services.AddRadzenComponents();
 builder.Services.AddRazorComponents()
@@ -23,16 +57,63 @@ builder.Services.AddRazorComponents()
 
 var app = builder.Build();
 
+var logger = app.Logger;
+logger.LogInformation("DataRoot: {DataRoot}", layout.Root);
+if (string.IsNullOrEmpty(arkOptions.Password))
+{
+    logger.LogError("No login password is configured (ArkAdmin:Password in appsettings.json). Every login will be refused.");
+}
+
+if (arkOptions.AllowInsecureHttp)
+{
+    logger.LogWarning("ArkAdmin:AllowInsecureHttp is enabled: plain-HTTP requests are accepted. Development only.");
+}
+
+// ---- pipeline ------------------------------------------------------------------------------------
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
 }
 
-// No HTTPS redirection/HSTS here: TLS is terminated by the reverse proxy (see PLAN.md step 8). Phase 1
-// adds forwarded-header handling and the HTTPS guard middleware.
+// 1. Trust X-Forwarded-* only from loopback and the configured proxies, so Request.IsHttps reflects the
+//    scheme the reverse proxy terminated.
+var forwarded = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost,
+};
+foreach (var proxy in arkOptions.KnownProxies)
+{
+    if (IPAddress.TryParse(proxy, out var address))
+    {
+        forwarded.KnownProxies.Add(address);
+    }
+    else
+    {
+        logger.LogWarning("Ignoring ArkAdmin:KnownProxies entry '{Proxy}': not an IP address.", proxy);
+    }
+}
+
+app.UseForwardedHeaders(forwarded);
+
+// 2. Fail closed on anything that is not HTTPS after forwarded-header processing.
+app.UseMiddleware<HttpsGuardMiddleware>(arkOptions.AllowInsecureHttp);
+
+// 3. Everything goes to /setup until the readiness pipeline reaches Ready (allowlist inside).
+app.UseMiddleware<ReadinessRedirectMiddleware>();
+
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseAntiforgery();
 
-app.MapStaticAssets();
+app.MapStaticAssets().AllowAnonymous();
+
+app.MapPost("/logout", async (HttpContext context, IAntiforgery antiforgery) =>
+{
+    await antiforgery.ValidateRequestAsync(context);
+    await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+    return Results.LocalRedirect("/login");
+});
+
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode()
     .AddAdditionalAssemblies(typeof(MainLayout).Assembly);

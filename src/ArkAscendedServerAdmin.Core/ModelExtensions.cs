@@ -1,4 +1,4 @@
-﻿using ArkAscendedServerAdmin.CurseForge.Models.Mods;
+using ArkAscendedServerAdmin.CurseForge.Models.Mods;
 
 namespace ArkAscendedServerAdmin;
 
@@ -13,8 +13,8 @@ public static class ModExtensions
         };
 
     public static List<ServerModCategory> FromCurseForgeCategories(this IEnumerable<Category> categories) =>
-        categories.Select(x => x.FromCurseForgeCategory()).ToList();
-    
+        [.. categories.Select(x => x.FromCurseForgeCategory())];
+
     public static ServerMod FromCurseForgeMod(this Mod mod) =>
         new()
         {
@@ -25,5 +25,5 @@ public static class ModExtensions
         };
 
     public static List<ServerMod> FromCurseForgeMods(this IEnumerable<Mod> mods) =>
-        mods.Select(x => x.FromCurseForgeMod()).ToList();
+        [.. mods.Select(x => x.FromCurseForgeMod())];
 }

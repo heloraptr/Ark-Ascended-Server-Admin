@@ -14,7 +14,7 @@ public class CurseForgeApi(HttpClient http, ApiOptions options) : ICurseForgeApi
 {
     private const int PageSize = 50;
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    private static readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
     };
@@ -23,7 +23,7 @@ public class CurseForgeApi(HttpClient http, ApiOptions options) : ICurseForgeApi
     {
         var endpoint = $"/v1/categories?gameId={options.ArkGameId}";
         using var res = await http.GetAsync(endpoint, cancellationToken);
-        return (await GetListResponse<Category>(res, cancellationToken)).Data;
+        return (await GetListResponseAsync<Category>(res, cancellationToken)).Data;
     }
 
     public async Task<List<Mod>> SearchModsAsync(string searchTerm, int? categoryId = null, CancellationToken cancellationToken = default)
@@ -48,7 +48,7 @@ public class CurseForgeApi(HttpClient http, ApiOptions options) : ICurseForgeApi
             }
 
             using var res = await http.GetAsync(endpoint, cancellationToken);
-            var response = await GetListResponse<Mod>(res, cancellationToken);
+            var response = await GetListResponseAsync<Mod>(res, cancellationToken);
             results.AddRange(response.Data);
 
             totalCount = response.Pagination?.TotalCount ?? results.Count;
@@ -65,7 +65,7 @@ public class CurseForgeApi(HttpClient http, ApiOptions options) : ICurseForgeApi
         using var content = JsonContent.Create(request);
 
         using var res = await http.PostAsync("/v1/mods", content, cancellationToken);
-        var data = await GetListResponse<Mod>(res, cancellationToken);
+        var data = await GetListResponseAsync<Mod>(res, cancellationToken);
         return data.Data;
     }
 
@@ -73,22 +73,22 @@ public class CurseForgeApi(HttpClient http, ApiOptions options) : ICurseForgeApi
     {
         var endpoint = $"/v1/mods/{id}";
         using var res = await http.GetAsync(endpoint, cancellationToken);
-        return (await GetItemResponse<Mod>(res, cancellationToken)).Data;
+        return (await GetItemResponseAsync<Mod>(res, cancellationToken)).Data;
     }
 
-    private static async Task<ApiListResponse<T>> GetListResponse<T>(HttpResponseMessage res, CancellationToken cancellationToken)
+    private static async Task<ApiListResponse<T>> GetListResponseAsync<T>(HttpResponseMessage res, CancellationToken cancellationToken)
     {
         res.EnsureSuccessStatusCode();
         var content = await res.Content.ReadAsStringAsync(cancellationToken);
-        return JsonSerializer.Deserialize<ApiListResponse<T>>(content, JsonOptions)
+        return JsonSerializer.Deserialize<ApiListResponse<T>>(content, _jsonOptions)
                ?? throw new InvalidOperationException("CurseForge returned an empty list response.");
     }
 
-    private static async Task<ApiItemResponse<T>> GetItemResponse<T>(HttpResponseMessage res, CancellationToken cancellationToken)
+    private static async Task<ApiItemResponse<T>> GetItemResponseAsync<T>(HttpResponseMessage res, CancellationToken cancellationToken)
     {
         res.EnsureSuccessStatusCode();
         var content = await res.Content.ReadAsStringAsync(cancellationToken);
-        return JsonSerializer.Deserialize<ApiItemResponse<T>>(content, JsonOptions)
+        return JsonSerializer.Deserialize<ApiItemResponse<T>>(content, _jsonOptions)
                ?? throw new InvalidOperationException("CurseForge returned an empty item response.");
     }
 }

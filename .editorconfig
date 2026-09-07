@@ -99,4 +99,5 @@ dotnet_naming_style.async_style.required_suffix = Async
 dotnet_diagnostic.IDE0005.severity = warning   # unnecessary using
 dotnet_diagnostic.IDE0055.severity = suggestion # formatting
 dotnet_diagnostic.CA1848.severity = none       # LoggerMessage delegates — not worth it here
+dotnet_diagnostic.CA1873.severity = none       # "expensive" log arguments (boxing, property reads) — same reasoning
 dotnet_diagnostic.CA2007.severity = none       # ConfigureAwait — app code, not a library

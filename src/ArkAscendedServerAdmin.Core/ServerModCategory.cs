@@ -1,4 +1,4 @@
-﻿namespace ArkAscendedServerAdmin;
+namespace ArkAscendedServerAdmin;
 
 public class ServerModCategory
 {

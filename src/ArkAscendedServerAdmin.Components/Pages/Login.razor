@@ -1,0 +1,77 @@
+@page "/login"
+@layout LoginLayout
+@attribute [AllowAnonymous]
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Http
+@inject ILoginService LoginService
+@inject NavigationManager Navigation
+
+<PageTitle>Sign in · Ark Ascended Server Admin</PageTitle>
+
+<RadzenCard Style="width: 100%; max-width: 24rem;">
+    <RadzenStack Gap="1rem">
+        <RadzenText TextStyle="TextStyle.H5" TagName="TagName.H1" class="rz-m-0">Ark Ascended Server Admin</RadzenText>
+        <RadzenText TextStyle="TextStyle.Body2">Enter the password from <code>appsettings.json</code> to continue.</RadzenText>
+
+        <EditForm Model="Input!" FormName="login" OnValidSubmit="SubmitAsync" method="post">
+            <DataAnnotationsValidator />
+            <RadzenStack Gap="0.75rem">
+                @if (_error is not null)
+                {
+                    <RadzenAlert AlertStyle="AlertStyle.Danger" Variant="Variant.Flat" AllowClose="false">@_error</RadzenAlert>
+                }
+                <RadzenFormField Text="Password" Style="width: 100%;">
+                    <InputText type="password" @bind-Value="Input!.Password" class="rz-textbox" autocomplete="current-password" autofocus />
+                </RadzenFormField>
+                <ValidationMessage For="() => Input!.Password" />
+                <RadzenButton ButtonType="ButtonType.Submit" Text="Sign in" Icon="login" Style="width: 100%;" />
+            </RadzenStack>
+        </EditForm>
+    </RadzenStack>
+</RadzenCard>
+
+@code {
+    private string? _error;
+
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromForm]
+    private LoginInput? Input { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    private string? ReturnUrl { get; set; }
+
+    protected override void OnInitialized()
+    {
+        Input ??= new LoginInput();
+        if (HttpContext?.User.Identity is { IsAuthenticated: true })
+        {
+            Navigation.NavigateTo(SafeReturnUrl());
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        var result = await LoginService.LoginAsync(Input?.Password ?? string.Empty);
+        if (result.Succeeded)
+        {
+            Navigation.NavigateTo(SafeReturnUrl());
+            return;
+        }
+
+        _error = result.Message;
+    }
+
+    // Only same-origin relative paths are honored; anything else lands on the dashboard.
+    private string SafeReturnUrl() =>
+        ReturnUrl is not null && ReturnUrl.StartsWith('/') && !ReturnUrl.StartsWith("//", StringComparison.Ordinal) && !ReturnUrl.StartsWith("/\\", StringComparison.Ordinal)
+            ? ReturnUrl
+            : "/";
+
+    private sealed class LoginInput
+    {
+        [Required(ErrorMessage = "Enter the password.")]
+        public string? Password { get; set; }
+    }
+}

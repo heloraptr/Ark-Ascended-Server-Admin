@@ -1,4 +1,4 @@
-﻿using ArkAscendedServerAdmin.CurseForge.Models.Mods;
+using ArkAscendedServerAdmin.CurseForge.Models.Mods;
 
 namespace ArkAscendedServerAdmin.CurseForge.Models.Services;
 

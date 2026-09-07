@@ -1,12 +1,25 @@
 @inherits LayoutComponentBase
+@implements IDisposable
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IReadinessMonitor Readiness
+@inject NavigationManager Navigation
 
 <RadzenComponents />
 
 <RadzenLayout>
     <RadzenHeader>
-        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" class="rz-pr-4">
             <RadzenSidebarToggle Click="@(() => _sidebarExpanded = !_sidebarExpanded)" />
             <RadzenText TextStyle="TextStyle.H6" class="rz-m-0">Ark Ascended Server Admin</RadzenText>
+            <span style="flex: 1"></span>
+            <AuthorizeView>
+                <Authorized>
+                    <form method="post" action="logout">
+                        <AntiforgeryToken />
+                        <RadzenButton ButtonType="ButtonType.Submit" Variant="Variant.Text" Icon="logout" Text="Sign out" Size="ButtonSize.Small" />
+                    </form>
+                </Authorized>
+            </AuthorizeView>
         </RadzenStack>
     </RadzenHeader>
 
@@ -27,4 +40,46 @@
 
 @code {
     private bool _sidebarExpanded = true;
+
+    protected override void OnInitialized()
+    {
+        // Visibility is not authorization (the command facades re-check), but a circuit whose
+        // revalidation failed must leave: forceLoad tears the circuit down and lands on the login page.
+        AuthenticationStateProvider.AuthenticationStateChanged += OnAuthenticationStateChanged;
+        Readiness.Changed += OnReadinessChanged;
+        RedirectToSetupIfNotReady(Readiness.Current);
+    }
+
+    private void OnAuthenticationStateChanged(Task<AuthenticationState> task) =>
+        _ = InvokeAsync(async () =>
+        {
+            var state = await task;
+            if (state.User.Identity is not { IsAuthenticated: true })
+            {
+                Navigation.NavigateTo("login", forceLoad: true);
+            }
+        });
+
+    private void OnReadinessChanged(ReadinessState state) =>
+        _ = InvokeAsync(() => RedirectToSetupIfNotReady(state));
+
+    private void RedirectToSetupIfNotReady(ReadinessState state)
+    {
+        if (state.IsReady)
+        {
+            return;
+        }
+
+        var path = Navigation.ToBaseRelativePath(Navigation.Uri);
+        if (!path.StartsWith("setup", StringComparison.OrdinalIgnoreCase))
+        {
+            Navigation.NavigateTo("setup");
+        }
+    }
+
+    public void Dispose()
+    {
+        AuthenticationStateProvider.AuthenticationStateChanged -= OnAuthenticationStateChanged;
+        Readiness.Changed -= OnReadinessChanged;
+    }
 }

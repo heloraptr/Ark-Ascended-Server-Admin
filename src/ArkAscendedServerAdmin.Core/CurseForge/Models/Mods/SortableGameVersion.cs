@@ -1,4 +1,4 @@
-﻿namespace ArkAscendedServerAdmin.CurseForge.Models.Mods;
+namespace ArkAscendedServerAdmin.CurseForge.Models.Mods;
 
 public class SortableGameVersion
 {

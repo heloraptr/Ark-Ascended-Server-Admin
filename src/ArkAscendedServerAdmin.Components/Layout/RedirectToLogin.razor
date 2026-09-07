@@ -1,0 +1,7 @@
+@inject NavigationManager Navigation
+
+@code {
+    // forceLoad: the login page is rendered statically, so leave the circuit and let the server render it.
+    protected override void OnInitialized() =>
+        Navigation.NavigateTo($"login?returnUrl={Uri.EscapeDataString("/" + Navigation.ToBaseRelativePath(Navigation.Uri))}", forceLoad: true);
+}

@@ -1,0 +1,79 @@
+namespace ArkAscendedServerAdmin.Configuration;
+
+/// <summary>
+/// App Settings: the runtime-editable values stored in the database (one row per key, see
+/// <see cref="AppSettingsCodec"/>). Every property has the MVP default from the plan so a fresh database
+/// is usable without touching the Settings page.
+/// </summary>
+public sealed record AppSettings
+{
+    /// <summary>Delay between consecutive game-server launches from the global launch queue.</summary>
+    public int StaggerDelaySeconds { get; init; } = 30;
+
+    /// <summary>Pass <c>validate</c> to SteamCMD on install/update.</summary>
+    public bool SteamCmdValidate { get; init; }
+
+    public int GamePortStart { get; init; } = 7777;
+
+    /// <summary>ASA uses the game port and port+1, so consecutive instances step by two.</summary>
+    public int GamePortStep { get; init; } = 2;
+
+    public int RconPortStart { get; init; } = 27020;
+
+    public int RconPortStep { get; init; } = 1;
+
+    public int DefaultBackupIntervalMinutes { get; init; } = 30;
+
+    public int DefaultBackupRetention { get; init; } = 10;
+
+    /// <summary>How long a backup waits for the world files to settle after <c>saveworld</c>.</summary>
+    public int BackupQuiescenceSeconds { get; init; } = 10;
+
+    /// <summary>Broadcast countdown before a stop; zero skips the countdown.</summary>
+    public int PreStopBroadcastMinutes { get; init; } = 1;
+
+    /// <summary>How long to wait for the process to exit after <c>doexit</c> before killing it.</summary>
+    public int GracefulStopTimeoutSeconds { get; init; } = 60;
+
+    public int RconCommandTimeoutSeconds { get; init; } = 10;
+
+    /// <summary>Lines read from <c>ShooterGame.log</c> into the console when re-attaching.</summary>
+    public int ConsoleBackfillLines { get; init; } = 200;
+
+    /// <summary>Stored in plain text by design (read-only key on the owner's box).</summary>
+    public string CurseForgeApiKey { get; init; } = string.Empty;
+
+    /// <summary>Returns the validation problems, or an empty list when the settings are usable.</summary>
+    public IReadOnlyList<string> Validate()
+    {
+        var errors = new List<string>();
+
+        RequireRange(errors, nameof(StaggerDelaySeconds), StaggerDelaySeconds, 0, 3600);
+        RequireRange(errors, nameof(GamePortStart), GamePortStart, 1, 65535);
+        RequireRange(errors, nameof(GamePortStep), GamePortStep, 1, 1000);
+        RequireRange(errors, nameof(RconPortStart), RconPortStart, 1, 65535);
+        RequireRange(errors, nameof(RconPortStep), RconPortStep, 1, 1000);
+        RequireRange(errors, nameof(DefaultBackupIntervalMinutes), DefaultBackupIntervalMinutes, 1, 10080);
+        RequireRange(errors, nameof(DefaultBackupRetention), DefaultBackupRetention, 1, 1000);
+        RequireRange(errors, nameof(BackupQuiescenceSeconds), BackupQuiescenceSeconds, 1, 600);
+        RequireRange(errors, nameof(PreStopBroadcastMinutes), PreStopBroadcastMinutes, 0, 60);
+        RequireRange(errors, nameof(GracefulStopTimeoutSeconds), GracefulStopTimeoutSeconds, 5, 3600);
+        RequireRange(errors, nameof(RconCommandTimeoutSeconds), RconCommandTimeoutSeconds, 1, 300);
+        RequireRange(errors, nameof(ConsoleBackfillLines), ConsoleBackfillLines, 0, 5000);
+
+        if (CurseForgeApiKey.Any(c => char.IsControl(c) || char.IsWhiteSpace(c)))
+        {
+            errors.Add($"{nameof(CurseForgeApiKey)} must not contain whitespace or control characters.");
+        }
+
+        return errors;
+    }
+
+    private static void RequireRange(List<string> errors, string name, int value, int min, int max)
+    {
+        if (value < min || value > max)
+        {
+            errors.Add($"{name} must be between {min} and {max} (was {value}).");
+        }
+    }
+}

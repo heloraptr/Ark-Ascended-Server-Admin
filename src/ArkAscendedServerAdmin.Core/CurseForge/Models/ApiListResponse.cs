@@ -1,4 +1,4 @@
-﻿namespace ArkAscendedServerAdmin.CurseForge.Models;
+namespace ArkAscendedServerAdmin.CurseForge.Models;
 
 public class ApiListResponse<T>
 {

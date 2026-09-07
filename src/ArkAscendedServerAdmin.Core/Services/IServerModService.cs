@@ -1,4 +1,4 @@
-﻿namespace ArkAscendedServerAdmin.Services;
+namespace ArkAscendedServerAdmin.Services;
 
 public interface IServerModService
 {

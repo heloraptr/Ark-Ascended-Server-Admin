@@ -1,4 +1,4 @@
-﻿namespace ArkAscendedServerAdmin.CurseForge.Models.Games;
+namespace ArkAscendedServerAdmin.CurseForge.Models.Games;
 
 public class GameAssets
 {
