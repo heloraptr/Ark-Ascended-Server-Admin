@@ -106,19 +106,3 @@ public sealed class StartupOrchestrator(
         }
     }
 }
-
-/// <summary>Phase 1 stand-ins for the recovery steps that need the process manager and SteamCMD runner.</summary>
-public sealed class NoOpRecoverySteps(ILogger<NoOpRecoverySteps> logger) : IProcessReconciler, ISteamCmdReconciler, IMaintenanceRecovery
-{
-    Task IProcessReconciler.ReconcileAsync(CancellationToken cancellationToken) => Skip("process reconciliation");
-
-    Task ISteamCmdReconciler.ReconcileAsync(CancellationToken cancellationToken) => Skip("SteamCMD reconciliation");
-
-    Task IMaintenanceRecovery.ResumeAsync(CancellationToken cancellationToken) => Skip("maintenance recovery");
-
-    private Task Skip(string step)
-    {
-        logger.LogDebug("{Step} is not implemented until Phase 4; skipping.", step);
-        return Task.CompletedTask;
-    }
-}

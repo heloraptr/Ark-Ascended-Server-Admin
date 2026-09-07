@@ -38,15 +38,3 @@ public sealed class GameInstallChecker(DataRootLayout layout) : IGameInstallChec
             : new GameInstallStatus(steamCmdPresent, false, $"The app manifest reports StateFlags {flags}; expected {AppManifest.StateFullyInstalled} (fully installed).");
     }
 }
-
-/// <summary>
-/// Phase 1 stand-in for the SteamCMD runner (plan step 20 lands in Phase 4). Reports a failure that the
-/// Setup page shows verbatim, so a fresh box is never left in a spinner.
-/// </summary>
-public sealed class PlaceholderGameInstaller : IGameInstaller
-{
-    public Task<InstallResult> InstallAsync(CancellationToken cancellationToken) =>
-        Task.FromResult(InstallResult.Failure(
-            "Automatic install is not available yet (SteamCMD runner arrives in Phase 4). " +
-            "Place SteamCMD under DataRoot\\SteamCMD and install app 2430930 into DataRoot\\Server, then retry."));
-}

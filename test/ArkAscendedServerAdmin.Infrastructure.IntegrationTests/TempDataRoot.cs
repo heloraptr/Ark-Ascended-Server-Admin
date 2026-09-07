@@ -1,5 +1,6 @@
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Infrastructure.Data;
+using ArkAscendedServerAdmin.Infrastructure.Provisioning;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -35,11 +36,16 @@ public sealed class TempDataRoot : IDisposable, IDbContextFactory<AppDbContext>
         SqliteConnection.ClearAllPools();
         try
         {
-            Directory.Delete(Layout.Root, recursive: true);
+            // Not Directory.Delete(recursive: true): that follows junctions badly (see JunctionSafeDirectory).
+            JunctionSafeDirectory.Delete(Layout.Root);
         }
         catch (IOException)
         {
             // Best effort; the OS temp cleaner takes the rest.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Same.
         }
     }
 }

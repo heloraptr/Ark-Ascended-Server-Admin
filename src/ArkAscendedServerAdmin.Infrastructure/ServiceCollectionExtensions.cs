@@ -1,9 +1,14 @@
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.CurseForge;
 using ArkAscendedServerAdmin.CurseForge.Models.Services;
+using ArkAscendedServerAdmin.Infrastructure.Backups;
+using ArkAscendedServerAdmin.Infrastructure.Consoles;
 using ArkAscendedServerAdmin.Infrastructure.CurseForge;
 using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Infrastructure.Install;
+using ArkAscendedServerAdmin.Infrastructure.Maintenance;
+using ArkAscendedServerAdmin.Infrastructure.Processes;
+using ArkAscendedServerAdmin.Infrastructure.Provisioning;
 using ArkAscendedServerAdmin.Infrastructure.Startup;
 using ArkAscendedServerAdmin.Install;
 using ArkAscendedServerAdmin.Startup;
@@ -35,11 +40,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IConfigBackupExporter, SqliteConfigBackupExporter>();
 
         services.AddSingleton<IGameInstallChecker, GameInstallChecker>();
-        services.TryAddSingleton<IGameInstaller, PlaceholderGameInstaller>();
-        services.AddSingleton<NoOpRecoverySteps>();
-        services.TryAddSingleton<IProcessReconciler>(sp => sp.GetRequiredService<NoOpRecoverySteps>());
-        services.TryAddSingleton<ISteamCmdReconciler>(sp => sp.GetRequiredService<NoOpRecoverySteps>());
-        services.TryAddSingleton<IMaintenanceRecovery>(sp => sp.GetRequiredService<NoOpRecoverySteps>());
+
+        // Phase 4 areas, each registered by its own extension. Order matters only in that the process
+        // manager and the maintenance services resolve the consoles, SteamCMD, and provisioning services.
+        services.AddArkConsoles();
+        services.AddArkSteamCmd();
+        services.AddArkProvisioning();
+        services.AddArkProcesses();
+        services.AddArkBackups();
+        services.AddArkMaintenance();
 
         services.AddSingleton<ReadinessMonitor>();
         services.AddSingleton<IReadinessMonitor>(sp => sp.GetRequiredService<ReadinessMonitor>());

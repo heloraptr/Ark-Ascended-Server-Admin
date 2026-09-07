@@ -1,0 +1,1065 @@
+using System.Collections.Concurrent;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Globalization;
+using System.Net.NetworkInformation;
+using ArkAscendedServerAdmin.Configuration;
+using ArkAscendedServerAdmin.Consoles;
+using ArkAscendedServerAdmin.Domain;
+using ArkAscendedServerAdmin.Firewall;
+using ArkAscendedServerAdmin.Infrastructure.Data;
+using ArkAscendedServerAdmin.Launch;
+using ArkAscendedServerAdmin.Ports;
+using ArkAscendedServerAdmin.Processes;
+using ArkAscendedServerAdmin.Provisioning;
+using ArkAscendedServerAdmin.Rcon;
+using ArkAscendedServerAdmin.Startup;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+namespace ArkAscendedServerAdmin.Infrastructure.Processes;
+
+/// <summary>
+/// The process manager (plan steps 19, 21–25): the only component that launches, attaches to, probes,
+/// stops, and kills game servers. Runtime state lives in memory and is mirrored best-effort into
+/// <see cref="Instance.State"/>. Game servers are detached children: every background loop (log tail,
+/// RCON probe, liveness poll) is tied to <see cref="IHostApplicationLifetime.ApplicationStopping"/>, never
+/// to a caller's token, and a service stop never kills the game.
+/// </summary>
+/// <remarks>
+/// Coordination between the stop job and the liveness loop: the liveness loop is the single owner of the
+/// "process exited" transition (console line, Stopped state, database identity clear, loop shutdown) and
+/// completes the session's exit signal last; the stop job only waits on that signal — after <c>doexit</c>
+/// for the graceful timeout, after <c>Kill</c> for the verification bound — so both paths return a
+/// verified exit. The job marks the stop as manager-initiated before <c>doexit</c>, which is how the
+/// liveness loop tells the normal exit code -1 from a crash.
+/// </remarks>
+public sealed class ProcessManager : IProcessManager, IProcessReconciler
+{
+    /// <summary>RCON <c>ListPlayers</c> cadence while a process is alive (plan step 22).</summary>
+    public static readonly TimeSpan ProbeInterval = TimeSpan.FromSeconds(15);
+
+    /// <summary><c>HasExited</c> polling cadence; the <c>Exited</c> event only fires for processes this service started.</summary>
+    public static readonly TimeSpan LivenessInterval = TimeSpan.FromSeconds(2);
+
+    /// <summary>Starting without a successful probe for this long becomes StartingUnconfirmed (launched) or Unreachable (attached).</summary>
+    public static readonly TimeSpan StartupBound = TimeSpan.FromMinutes(10);
+
+    /// <summary>How long a stop waits for <c>HasExited</c> after <c>Kill</c> before reporting an unverified exit.</summary>
+    public static readonly TimeSpan ExitVerificationBound = TimeSpan.FromSeconds(30);
+
+    /// <summary>Identity persistence: one attempt plus three retries over ~10 s (plan step 19).</summary>
+    public static readonly IReadOnlyList<TimeSpan> PersistRetryDelays =
+        [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(5)];
+
+    public const string OperationInProgress = "operation in progress";
+
+    private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly DataRootLayout _paths;
+    private readonly IAppSettingsStore _settings;
+    private readonly HostConfiguration _host;
+    private readonly IReadinessMonitor _readiness;
+    private readonly IInstanceLocks _locks;
+    private readonly IMaintenanceGate _gate;
+    private readonly LaunchQueue _queue;
+    private readonly IRconClient _rcon;
+    private readonly IGameProcessEnumerator _enumerator;
+    private readonly IFirewallRules _firewall;
+    private readonly IInstanceLayoutService _layout;
+    private readonly IGeneratedConfigWriter _configWriter;
+    private readonly IOutputSourceFactory _outputs;
+    private readonly IConsoleService _console;
+    private readonly TimeProvider _time;
+    private readonly CancellationToken _lifetime;
+    private readonly ILogger<ProcessManager> _logger;
+
+    private readonly ConcurrentDictionary<int, InstanceRuntime> _runtimes = new();
+    private readonly ConcurrentDictionary<int, Session> _sessions = new();
+
+    public ProcessManager(
+        IDbContextFactory<AppDbContext> dbFactory,
+        DataRootLayout paths,
+        IAppSettingsStore settings,
+        HostConfiguration host,
+        IReadinessMonitor readiness,
+        IInstanceLocks locks,
+        IMaintenanceGate gate,
+        LaunchQueue queue,
+        IRconClient rcon,
+        IGameProcessEnumerator enumerator,
+        IFirewallRules firewall,
+        IInstanceLayoutService layout,
+        IGeneratedConfigWriter configWriter,
+        IOutputSourceFactory outputs,
+        IConsoleService console,
+        TimeProvider time,
+        IHostApplicationLifetime lifetime,
+        ILogger<ProcessManager> logger)
+    {
+        ArgumentNullException.ThrowIfNull(lifetime);
+
+        _dbFactory = dbFactory;
+        _paths = paths;
+        _settings = settings;
+        _host = host;
+        _readiness = readiness;
+        _locks = locks;
+        _gate = gate;
+        _queue = queue;
+        _rcon = rcon;
+        _enumerator = enumerator;
+        _firewall = firewall;
+        _layout = layout;
+        _configWriter = configWriter;
+        _outputs = outputs;
+        _console = console;
+        _time = time;
+        _lifetime = lifetime.ApplicationStopping;
+        _logger = logger;
+    }
+
+    public event Action<InstanceRuntime>? RuntimeChanged;
+
+    public InstanceRuntime GetRuntime(int instanceId) =>
+        _runtimes.TryGetValue(instanceId, out var runtime) ? runtime : Default(instanceId);
+
+    public IReadOnlyList<InstanceRuntime> GetAllRuntimes() =>
+        _runtimes.Values.OrderBy(runtime => runtime.InstanceId).ToList();
+
+    // ---- start (plan steps 19, 25) ---------------------------------------------------------------
+
+    public async Task<OperationOutcome> StartAsync(int instanceId, LaunchKind kind, CancellationToken cancellationToken)
+    {
+        if (kind == LaunchKind.User && !_readiness.Current.IsReady)
+        {
+            return OperationOutcome.Rejected($"The service is not ready yet ({_readiness.Current.Phase}: {_readiness.Current.Message}).");
+        }
+
+        if (_gate.IsHeldExclusively)
+        {
+            return OperationOutcome.Rejected(MaintenanceGate.UpdateInProgress);
+        }
+
+        var instanceLock = _locks.TryAcquire(instanceId);
+        if (instanceLock is null)
+        {
+            return OperationOutcome.Rejected(OperationInProgress);
+        }
+
+        try
+        {
+            var runtime = GetRuntime(instanceId);
+            if (runtime.HasLiveProcess)
+            {
+                return OperationOutcome.Rejected($"The instance is already {Describe(runtime.State)}.");
+            }
+
+            return await _queue.EnqueueAsync(instanceId, kind, token => LaunchAsync(instanceId, token), cancellationToken);
+        }
+        finally
+        {
+            instanceLock.Dispose();
+        }
+    }
+
+    /// <summary>The launch callback run by the queue worker; the token is the queue's lifetime, not the caller's.</summary>
+    private async Task<OperationOutcome> LaunchAsync(int instanceId, CancellationToken cancellationToken)
+    {
+        var channel = ConsoleChannels.Instance(instanceId);
+        Instance? instance;
+        List<PortOwner> others;
+        await using (var db = await _dbFactory.CreateDbContextAsync(cancellationToken))
+        {
+            instance = await db.Instances
+                .AsNoTracking()
+                .Include(i => i.Cluster).ThenInclude(c => c!.Mods)
+                .Include(i => i.Mods)
+                .Include(i => i.Map)
+                .FirstOrDefaultAsync(i => i.Id == instanceId, cancellationToken);
+            if (instance is null)
+            {
+                return OperationOutcome.Rejected($"Instance {instanceId} no longer exists.");
+            }
+
+            others = await db.Instances
+                .AsNoTracking()
+                .Where(i => i.Id != instanceId)
+                .Select(i => new PortOwner(i.Name, i.GamePort, i.RconPort))
+                .ToListAsync(cancellationToken);
+        }
+
+        var slug = instance.Slug;
+        await _layout.EnsureAsync(slug, cancellationToken);
+
+        var generated = await _configWriter.WriteAsync(instanceId, cancellationToken);
+        foreach (var warning in generated.Warnings)
+        {
+            Append(channel, $"Config: {warning}", ConsoleLineKind.Warning);
+        }
+
+        var rconEndpoint = RconCredentials.TryRead(generated.GameUserSettingsIni, out var credentialProblem);
+        if (rconEndpoint is null)
+        {
+            return OperationOutcome.Rejected(credentialProblem ?? "RCON credentials could not be read from the generated GameUserSettings.ini.");
+        }
+
+        var settings = await _settings.GetAsync(cancellationToken);
+        var conflicts = FindPortConflicts(instance, others, settings);
+        if (conflicts.Count > 0)
+        {
+            return OperationOutcome.Rejected("Port conflict: " + string.Join(" ", conflicts.Select(conflict => conflict.Reason)));
+        }
+
+        try
+        {
+            _firewall.EnsureInstanceRules(instanceId, instance.GamePort);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Firewall rules for instance {InstanceId} could not be reconciled; launching anyway.", instanceId);
+            Append(channel, $"Firewall: {ex.Message} The server starts anyway; open UDP {instance.GamePort}-{instance.GamePort + 1} manually if players cannot join.", ConsoleLineKind.Warning);
+        }
+
+        LaunchArguments arguments;
+        try
+        {
+            arguments = LaunchArgumentBuilder.Build(BuildLaunchRequest(instance));
+        }
+        catch (LaunchValidationException ex)
+        {
+            return OperationOutcome.Rejected(ex.Message);
+        }
+
+        var lease = _gate.TryAcquireShared();
+        if (lease is null)
+        {
+            return OperationOutcome.Rejected(MaintenanceGate.UpdateInProgress);
+        }
+
+        try
+        {
+            var executable = _paths.InstanceExecutable(slug);
+            Process process;
+            try
+            {
+                process = StartProcess(executable, arguments);
+            }
+            catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException or UnauthorizedAccessException)
+            {
+                _logger.LogError(ex, "Process.Start failed for instance {InstanceId} ({Executable}).", instanceId, executable);
+                Append(channel, $"Process.Start failed: {ex.Message}", ConsoleLineKind.Error);
+                return OperationOutcome.Rejected($"Process.Start failed: {ex.Message}");
+            }
+
+            var startTime = ReadStartTime(process) ?? _time.GetUtcNow();
+            var session = Register(instance, process, startTime, attached: false, rconEndpoint);
+            session.LaunchedAt = _time.GetUtcNow();
+            Append(channel, $"Launched pid {process.Id}: {executable} {arguments.ToDisplayString()}", ConsoleLineKind.Info);
+            _logger.LogInformation("Instance {InstanceId} ({Slug}) launched as pid {Pid}.", instanceId, slug, process.Id);
+
+            var persistError = await PersistIdentityWithRetriesAsync(session, cancellationToken);
+            StartLoops(session);
+            if (persistError is not null)
+            {
+                Update(instanceId, runtime => runtime with { State = InstanceState.IdentityUnpersisted, Detail = persistError });
+                Append(channel, $"The server is running (pid {process.Id}) but its identity could not be saved: {persistError}", ConsoleLineKind.Error);
+                return OperationOutcome.Rejected($"The server started (pid {process.Id}) but its identity could not be saved after {PersistRetryDelays.Count} retries: {persistError} Use 'Retry persist'.");
+            }
+
+            return OperationOutcome.Success;
+        }
+        finally
+        {
+            lease.Dispose();
+        }
+    }
+
+    private Process StartProcess(string executable, LaunchArguments arguments)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = executable,
+            WorkingDirectory = Path.GetDirectoryName(executable) ?? _paths.Root,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var argument in arguments.Arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        return Process.Start(startInfo) ?? throw new InvalidOperationException("Process.Start returned no process.");
+    }
+
+    private LaunchRequest BuildLaunchRequest(Instance instance)
+    {
+        var cluster = instance.Cluster;
+        var map = instance.Map ?? throw new LaunchValidationException([$"Instance '{instance.Name}' has no map."]);
+        return new LaunchRequest(
+            map.Key,
+            instance.Slug,
+            instance.GamePort,
+            instance.MaxPlayers,
+            cluster?.ClusterKey,
+            cluster is null ? null : _paths.ClusterDirectory(cluster.Slug),
+            cluster is null ? [] : cluster.Mods.OrderBy(mod => mod.Order).Select(mod => mod.ModId).ToList(),
+            instance.Mods.OrderBy(mod => mod.Order).Select(mod => mod.ModId).ToList(),
+            LaunchFlagResolver.Resolve(cluster?.LaunchFlags, instance.LaunchFlags));
+    }
+
+    private IReadOnlyList<PortConflict> FindPortConflicts(Instance instance, IEnumerable<PortOwner> others, AppSettings settings)
+    {
+        var candidate = new PortOwner(instance.Name, instance.GamePort, instance.RconPort);
+        HashSet<int>? udp = null;
+        HashSet<int>? tcp = null;
+        try
+        {
+            var properties = IPGlobalProperties.GetIPGlobalProperties();
+            udp = properties.GetActiveUdpListeners().Select(endpoint => endpoint.Port).ToHashSet();
+            tcp = properties.GetActiveTcpListeners().Select(endpoint => endpoint.Port).ToHashSet();
+        }
+        catch (NetworkInformationException ex)
+        {
+            _logger.LogWarning(ex, "OS listener tables are unavailable; checking ports against defined instances only.");
+        }
+
+        var hostPorts = KestrelPorts.Parse(_host.BindUrls);
+        var conflicts = new PortAllocator(settings)
+            .FindConflicts(candidate, others, hostPorts.Count > 0 ? hostPorts[0] : 0, udp, tcp)
+            .ToList();
+
+        foreach (var hostPort in hostPorts.Skip(1))
+        {
+            foreach (var port in new[] { candidate.GamePort, candidate.GamePort + 1, candidate.RconPort })
+            {
+                if (port == hostPort)
+                {
+                    conflicts.Add(new PortConflict(port, $"Port {port} is used by the web UI."));
+                }
+            }
+        }
+
+        return conflicts;
+    }
+
+    // ---- identity persistence (plan step 19) ------------------------------------------------------
+
+    /// <summary>Returns null on success, else the last storage error after the bounded retries.</summary>
+    private async Task<string?> PersistIdentityWithRetriesAsync(Session session, CancellationToken cancellationToken)
+    {
+        string? lastError = null;
+        for (var attempt = 0; attempt <= PersistRetryDelays.Count; attempt++)
+        {
+            if (attempt > 0)
+            {
+                await Task.Delay(PersistRetryDelays[attempt - 1], _time, cancellationToken);
+            }
+
+            try
+            {
+                await PersistIdentityAsync(session, cancellationToken);
+                return null;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                lastError = ex.Message;
+                _logger.LogWarning(ex, "Persisting identity for instance {InstanceId} failed (attempt {Attempt}).", session.InstanceId, attempt + 1);
+            }
+        }
+
+        return lastError;
+    }
+
+    private async Task PersistIdentityAsync(Session session, CancellationToken cancellationToken)
+    {
+        var state = session.ProbeSucceeded ? InstanceState.Running : InstanceState.Starting;
+        int? pid = session.Pid;
+        DateTimeOffset? startTime = session.StartTime;
+        DateTimeOffset? launchedAt = session.LaunchedAt;
+
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        var updated = launchedAt is null
+            ? await db.Instances.Where(i => i.Id == session.InstanceId).ExecuteUpdateAsync(
+                set => set
+                    .SetProperty(i => i.LastPid, pid)
+                    .SetProperty(i => i.LastProcessStartTime, startTime)
+                    .SetProperty(i => i.State, state),
+                cancellationToken)
+            : await db.Instances.Where(i => i.Id == session.InstanceId).ExecuteUpdateAsync(
+                set => set
+                    .SetProperty(i => i.LastPid, pid)
+                    .SetProperty(i => i.LastProcessStartTime, startTime)
+                    .SetProperty(i => i.LastLaunchedAt, launchedAt)
+                    .SetProperty(i => i.State, state),
+                cancellationToken);
+        if (updated == 0)
+        {
+            throw new InvalidOperationException($"Instance {session.InstanceId} no longer exists in the database.");
+        }
+    }
+
+    public async Task<OperationOutcome> RetryPersistIdentityAsync(int instanceId, CancellationToken cancellationToken)
+    {
+        var instanceLock = _locks.TryAcquire(instanceId);
+        if (instanceLock is null)
+        {
+            return OperationOutcome.Rejected(OperationInProgress);
+        }
+
+        try
+        {
+            if (!_sessions.TryGetValue(instanceId, out var session) || GetRuntime(instanceId).State != InstanceState.IdentityUnpersisted)
+            {
+                return OperationOutcome.Rejected("The instance is not waiting for its identity to be persisted.");
+            }
+
+            var error = await PersistIdentityWithRetriesAsync(session, cancellationToken);
+            if (error is not null)
+            {
+                Update(instanceId, runtime => runtime with { Detail = error });
+                return OperationOutcome.Rejected(error);
+            }
+
+            var state = session.ProbeSucceeded ? InstanceState.Running : InstanceState.Starting;
+            Update(instanceId, runtime => runtime with { State = state, Detail = null });
+            Append(ConsoleChannels.Instance(instanceId), $"Identity persisted (pid {session.Pid}).", ConsoleLineKind.Info);
+            return OperationOutcome.Success;
+        }
+        finally
+        {
+            instanceLock.Dispose();
+        }
+    }
+
+    // ---- reconciliation (plan step 21) ------------------------------------------------------------
+
+    public async Task ReconcileAsync(CancellationToken cancellationToken)
+    {
+        List<Instance> instances;
+        await using (var db = await _dbFactory.CreateDbContextAsync(cancellationToken))
+        {
+            instances = await db.Instances.AsNoTracking().OrderBy(i => i.Id).ToListAsync(cancellationToken);
+        }
+
+        IReadOnlyList<GameProcessInfo> candidates;
+        try
+        {
+            candidates = _enumerator.Enumerate();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Process enumeration failed; every instance is marked Unknown.");
+            foreach (var instance in instances)
+            {
+                await SetStateAsync(instance.Id, InstanceState.Unknown, $"Process enumeration failed: {ex.Message}", cancellationToken);
+            }
+
+            return;
+        }
+
+        foreach (var instance in instances)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_sessions.ContainsKey(instance.Id))
+            {
+                continue;
+            }
+
+            var request = new ProcessMatchRequest(instance.Slug, _paths.Instances, instance.LastPid, instance.LastProcessStartTime);
+            switch (ProcessMatcher.Match(request, candidates))
+            {
+                case ProcessMatch.Attach attach:
+                    await AttachAsync(instance, attach.Process, cancellationToken);
+                    break;
+                case ProcessMatch.Ambiguous ambiguous:
+                    var pids = string.Join(", ", ambiguous.Candidates.Select(candidate => candidate.Pid.ToString(CultureInfo.InvariantCulture)));
+                    _logger.LogWarning("Instance {InstanceId} ({Slug}) matches {Count} processes (pids {Pids}); marked Unknown.", instance.Id, instance.Slug, ambiguous.Candidates.Count, pids);
+                    await SetStateAsync(instance.Id, InstanceState.Unknown, $"{ambiguous.Candidates.Count} running processes claim this instance (pids {pids}); stop the extra ones by hand and restart the service.", cancellationToken);
+                    break;
+                default:
+                    await SetStateAsync(instance.Id, InstanceState.Stopped, null, cancellationToken);
+                    break;
+            }
+        }
+    }
+
+    private async Task AttachAsync(Instance instance, GameProcessInfo info, CancellationToken cancellationToken)
+    {
+        var channel = ConsoleChannels.Instance(instance.Id);
+        Process process;
+        try
+        {
+            process = Process.GetProcessById(info.Pid);
+            if (process.HasExited)
+            {
+                process.Dispose();
+                await SetStateAsync(instance.Id, InstanceState.Stopped, null, cancellationToken);
+                return;
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception)
+        {
+            _logger.LogInformation(ex, "Pid {Pid} for instance {InstanceId} vanished before attach.", info.Pid, instance.Id);
+            await SetStateAsync(instance.Id, InstanceState.Stopped, null, cancellationToken);
+            return;
+        }
+
+        var startTime = ReadStartTime(process) ?? info.CreationTime;
+        RconEndpoint? rconEndpoint = null;
+        string? problem;
+        var generatedText = await _configWriter.ReadGeneratedGameUserSettingsAsync(instance.Slug, cancellationToken);
+        if (generatedText is null)
+        {
+            problem = "the generated GameUserSettings.ini is missing.";
+        }
+        else
+        {
+            rconEndpoint = RconCredentials.TryRead(generatedText, out problem);
+        }
+
+        var session = Register(instance, process, startTime, attached: true, rconEndpoint);
+        Append(channel, $"re-attached — log history (pid {process.Id}, started {startTime.ToLocalTime():yyyy-MM-dd HH:mm:ss})", ConsoleLineKind.Info);
+        _logger.LogInformation("Re-attached instance {InstanceId} ({Slug}) to pid {Pid}.", instance.Id, instance.Slug, process.Id);
+
+        if (rconEndpoint is null)
+        {
+            var detail = $"Cannot probe RCON: {problem} Check ServerAdminPassword / RCONPort; the process is still watched for exit.";
+            Append(channel, detail, ConsoleLineKind.Warning);
+            Update(instance.Id, runtime => runtime with { State = InstanceState.Unreachable, Detail = detail });
+        }
+
+        try
+        {
+            await PersistIdentityAsync(session, cancellationToken);
+            await MirrorStateAsync(instance.Id, GetRuntime(instance.Id).State, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Could not persist the re-attached identity of instance {InstanceId}.", instance.Id);
+        }
+
+        StartLoops(session);
+    }
+
+    // ---- stop (plan step 24) ----------------------------------------------------------------------
+
+    public async Task<OperationOutcome> StopAsync(int instanceId, StopOptions options, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        var instanceLock = _locks.TryAcquire(instanceId);
+        if (instanceLock is null)
+        {
+            return OperationOutcome.Rejected(OperationInProgress);
+        }
+
+        if (!_sessions.TryGetValue(instanceId, out var session) || !GetRuntime(instanceId).HasLiveProcess)
+        {
+            instanceLock.Dispose();
+            return OperationOutcome.Rejected("The instance is not running.");
+        }
+
+        // The job owns the lock and runs to completion on the host lifetime; the caller only waits.
+        var job = Task.Run(async () =>
+        {
+            try
+            {
+                return await RunStopJobAsync(session, options);
+            }
+            finally
+            {
+                instanceLock.Dispose();
+            }
+        });
+
+        return await job.WaitAsync(cancellationToken);
+    }
+
+    private async Task<OperationOutcome> RunStopJobAsync(Session session, StopOptions options)
+    {
+        var token = _lifetime;
+        var channel = ConsoleChannels.Instance(session.InstanceId);
+        try
+        {
+            var settings = await _settings.GetAsync(token);
+            var timeout = TimeSpan.FromSeconds(settings.RconCommandTimeoutSeconds);
+            await SetStateAsync(session.InstanceId, InstanceState.Stopping, null, token);
+
+            if (session.Rcon is { } rcon)
+            {
+                if (!options.SkipCountdown && settings.PreStopBroadcastMinutes > 0)
+                {
+                    await CountdownAsync(session, rcon, settings.PreStopBroadcastMinutes, timeout, token);
+                }
+
+                await TryRconAsync(session, rcon, RconCommands.SaveWorld, timeout, token);
+                session.StopRequested = true;
+                await TryRconAsync(session, rcon, RconCommands.DoExit, timeout, token);
+            }
+            else
+            {
+                session.StopRequested = true;
+                Append(channel, "No RCON credentials for this process; skipping saveworld/doexit and waiting for the graceful timeout before killing.", ConsoleLineKind.Warning);
+            }
+
+            var graceful = TimeSpan.FromSeconds(settings.GracefulStopTimeoutSeconds);
+            if (!await WaitForExitAsync(session, graceful, token))
+            {
+                Append(channel, $"The server did not exit within {settings.GracefulStopTimeoutSeconds} s; killing pid {session.Pid}.", ConsoleLineKind.Warning);
+                _logger.LogWarning("Instance {InstanceId} did not exit within {Seconds} s; killing pid {Pid}.", session.InstanceId, settings.GracefulStopTimeoutSeconds, session.Pid);
+                try
+                {
+                    session.Process.Kill(entireProcessTree: true);
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or AggregateException)
+                {
+                    _logger.LogError(ex, "Kill failed for pid {Pid}.", session.Pid);
+                    Append(channel, $"Kill failed: {ex.Message}", ConsoleLineKind.Error);
+                }
+
+                if (!await WaitForExitAsync(session, ExitVerificationBound, token))
+                {
+                    var detail = $"Pid {session.Pid} is still alive after kill; its exit could not be verified.";
+                    Update(session.InstanceId, runtime => runtime with { Detail = detail });
+                    return OperationOutcome.Rejected(detail);
+                }
+            }
+
+            return OperationOutcome.Success;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            return OperationOutcome.Rejected("The service is shutting down.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Stop job for instance {InstanceId} failed.", session.InstanceId);
+            Append(channel, $"Stop failed: {ex.Message}", ConsoleLineKind.Error);
+            return OperationOutcome.Rejected(ex.Message);
+        }
+    }
+
+    private async Task CountdownAsync(Session session, RconEndpoint rcon, int minutes, TimeSpan timeout, CancellationToken token)
+    {
+        using var skip = CancellationTokenSource.CreateLinkedTokenSource(token);
+        session.SkipCountdown = skip;
+        try
+        {
+            for (var remaining = minutes; remaining >= 1 && !skip.IsCancellationRequested; remaining--)
+            {
+                await TryRconAsync(session, rcon, RconCommands.Broadcast($"Server shutting down in {remaining} minute{(remaining == 1 ? string.Empty : "s")}."), timeout, token);
+                try
+                {
+                    await Task.Delay(TimeSpan.FromMinutes(1), _time, skip.Token);
+                }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested)
+                {
+                    Append(ConsoleChannels.Instance(session.InstanceId), "Countdown skipped.", ConsoleLineKind.Info);
+                    break;
+                }
+            }
+
+            await TryRconAsync(session, rcon, RconCommands.Broadcast("Server shutting down now."), timeout, token);
+        }
+        finally
+        {
+            session.SkipCountdown = null;
+        }
+    }
+
+    public bool TrySkipCountdown(int instanceId)
+    {
+        if (!_sessions.TryGetValue(instanceId, out var session) || session.SkipCountdown is not { } skip)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (skip.IsCancellationRequested)
+            {
+                return false;
+            }
+
+            skip.Cancel();
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
+    }
+
+    public async Task<OperationOutcome> RestartAsync(int instanceId, CancellationToken cancellationToken)
+    {
+        var stopped = await StopAsync(instanceId, new StopOptions(), cancellationToken);
+        return stopped.Succeeded ? await StartAsync(instanceId, LaunchKind.User, cancellationToken) : stopped;
+    }
+
+    /// <summary>Sends one command, logging and reporting a failure so the stop sequence falls through to its next step.</summary>
+    private async Task TryRconAsync(Session session, RconEndpoint rcon, string command, TimeSpan timeout, CancellationToken token)
+    {
+        var channel = ConsoleChannels.Instance(session.InstanceId);
+        Append(channel, $"RCON: {command}", ConsoleLineKind.Info);
+        try
+        {
+            var reply = await _rcon.ExecuteAsync(rcon, command, timeout, token);
+            if (!string.IsNullOrWhiteSpace(reply))
+            {
+                Append(channel, reply.Trim(), ConsoleLineKind.Output);
+            }
+        }
+        catch (RconException ex)
+        {
+            _logger.LogWarning(ex, "RCON '{Command}' failed for instance {InstanceId} ({Failure}).", command, session.InstanceId, ex.Failure);
+            Append(channel, $"RCON '{command}' failed ({ex.Failure}): {ex.Message} Continuing with the next step.", ConsoleLineKind.Warning);
+        }
+    }
+
+    private async Task<bool> WaitForExitAsync(Session session, TimeSpan bound, CancellationToken token)
+    {
+        try
+        {
+            await session.Exited.Task.WaitAsync(bound, _time, token);
+            return true;
+        }
+        catch (TimeoutException)
+        {
+            return false;
+        }
+    }
+
+    // ---- sessions and loops (plan step 22) --------------------------------------------------------
+
+    private Session Register(Instance instance, Process process, DateTimeOffset startTime, bool attached, RconEndpoint? rcon)
+    {
+        var session = new Session(instance.Id, instance.Slug, process, startTime, attached, rcon, _time.GetUtcNow(), _lifetime);
+        _sessions[instance.Id] = session;
+        Update(instance.Id, _ => new InstanceRuntime(instance.Id, InstanceState.Starting, process.Id, startTime, null, null, null));
+        return session;
+    }
+
+    private void StartLoops(Session session)
+    {
+        session.OutputTask = Task.Run(() => RunOutputAsync(session));
+        if (session.Rcon is not null)
+        {
+            session.ProbeTask = Task.Run(() => RunProbeAsync(session));
+        }
+
+        session.LivenessTask = Task.Run(() => RunLivenessAsync(session));
+    }
+
+    private async Task RunOutputAsync(Session session)
+    {
+        var token = session.Cancellation.Token;
+        var channel = ConsoleChannels.Instance(session.InstanceId);
+        try
+        {
+            var settings = await _settings.GetAsync(token);
+            var logPath = _paths.InstanceLogPath(session.Slug);
+
+            // Attach: follow from the end with backfill. Fresh launch: the previous session's log still exists
+            // for ~1.2 s until the game renames it (Spike A), so start at its end rather than replaying it; the
+            // rotation reset then reads the new file from offset 0. With no old log, read from the top.
+            var startAtEnd = session.IsAttached || File.Exists(logPath);
+            var options = new OutputSourceOptions(startAtEnd, session.IsAttached ? settings.ConsoleBackfillLines : 0);
+            var source = _outputs.ForLogFile(logPath);
+            await source.RunAsync(options, line => OnOutputLine(session, channel, line), token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "The log tail for instance {InstanceId} stopped.", session.InstanceId);
+            Append(channel, $"Log tail stopped: {ex.Message}", ConsoleLineKind.Warning);
+        }
+    }
+
+    private ValueTask OnOutputLine(Session session, string channel, OutputLine line)
+    {
+        _console.Append(channel, new ConsoleLine(line.ObservedAt, line.Text, line.IsBackfill ? ConsoleLineKind.Backfill : ConsoleLineKind.Output));
+        if (!line.IsBackfill && StartupMarkers.Classify(line.Text) is { } marker)
+        {
+            Update(session.InstanceId, runtime => runtime with { LastMarker = marker });
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    private async Task RunProbeAsync(Session session)
+    {
+        var token = session.Cancellation.Token;
+        var endpoint = session.Rcon!;
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                var settings = await _settings.GetAsync(token);
+                var timeout = TimeSpan.FromSeconds(settings.RconCommandTimeoutSeconds);
+                await _rcon.ExecuteAsync(endpoint, RconCommands.ListPlayers, timeout, token);
+                await OnProbeSucceededAsync(session, token);
+            }
+            catch (RconException ex)
+            {
+                await OnProbeFailedAsync(session, ex, token);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "The RCON probe for instance {InstanceId} threw.", session.InstanceId);
+            }
+
+            try
+            {
+                await Task.Delay(ProbeInterval, _time, token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+    }
+
+    private async Task OnProbeSucceededAsync(Session session, CancellationToken token)
+    {
+        session.ProbeSucceeded = true;
+        var now = _time.GetUtcNow();
+        var current = GetRuntime(session.InstanceId);
+        if (current.State is InstanceState.Starting or InstanceState.StartingUnconfirmed or InstanceState.Unreachable)
+        {
+            await SetStateAsync(session.InstanceId, InstanceState.Running, null, token, runtime => runtime with { LastRconSuccessAt = now });
+        }
+        else
+        {
+            Update(session.InstanceId, runtime => runtime with { LastRconSuccessAt = now });
+        }
+    }
+
+    private async Task OnProbeFailedAsync(Session session, RconException failure, CancellationToken token)
+    {
+        _logger.LogDebug(failure, "RCON probe for instance {InstanceId} failed ({Failure}).", session.InstanceId, failure.Failure);
+        var current = GetRuntime(session.InstanceId);
+        if (current.State != InstanceState.Starting || _time.GetUtcNow() - session.RegisteredAt < StartupBound)
+        {
+            return;
+        }
+
+        var minutes = (int)StartupBound.TotalMinutes;
+        if (session.IsAttached)
+        {
+            await SetStateAsync(session.InstanceId, InstanceState.Unreachable, $"RCON has not answered in {minutes} minutes since re-attach ({failure.Failure}: {failure.Message}). Check ServerAdminPassword / RCONPort.", token);
+        }
+        else
+        {
+            await SetStateAsync(session.InstanceId, InstanceState.StartingUnconfirmed, $"No successful RCON probe {minutes} minutes after launch ({failure.Failure}: {failure.Message}); still probing.", token);
+        }
+    }
+
+    private async Task RunLivenessAsync(Session session)
+    {
+        var token = session.Cancellation.Token;
+        while (!token.IsCancellationRequested)
+        {
+            bool exited;
+            try
+            {
+                exited = session.Process.HasExited;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+            {
+                _logger.LogWarning(ex, "HasExited failed for pid {Pid}; treating the process as gone.", session.Pid);
+                exited = true;
+            }
+
+            if (exited)
+            {
+                await HandleExitAsync(session);
+                return;
+            }
+
+            try
+            {
+                await Task.Delay(LivenessInterval, _time, token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+    }
+
+    private async Task HandleExitAsync(Session session)
+    {
+        var channel = ConsoleChannels.Instance(session.InstanceId);
+        var exitCode = ReadExitCode(session.Process);
+        var codeText = exitCode?.ToString(CultureInfo.InvariantCulture) ?? "unknown";
+        _sessions.TryRemove(new KeyValuePair<int, Session>(session.InstanceId, session));
+
+        string? detail = null;
+        if (session.StopRequested)
+        {
+            Append(channel, $"Server exited (code {codeText}).", ConsoleLineKind.Info);
+            _logger.LogInformation("Instance {InstanceId} pid {Pid} exited after a manager-initiated stop (code {Code}).", session.InstanceId, session.Pid, codeText);
+        }
+        else
+        {
+            detail = $"Exited unexpectedly (code {codeText}) at {_time.GetUtcNow().ToLocalTime():yyyy-MM-dd HH:mm:ss}.";
+            Append(channel, $"Server exited unexpectedly (code {codeText}).", ConsoleLineKind.Warning);
+            _logger.LogWarning("Instance {InstanceId} pid {Pid} exited without a manager-initiated stop (code {Code}).", session.InstanceId, session.Pid, codeText);
+        }
+
+        Update(session.InstanceId, runtime => runtime with { State = InstanceState.Stopped, Pid = null, ProcessStartTime = null, Detail = detail });
+        await MirrorStateAsync(session.InstanceId, InstanceState.Stopped, _lifetime, clearIdentity: true);
+
+        session.Cancellation.Cancel();
+        session.Process.Dispose();
+        session.Exited.TrySetResult();
+    }
+
+    // ---- runtime bookkeeping ----------------------------------------------------------------------
+
+    private static InstanceRuntime Default(int instanceId) => new(instanceId, InstanceState.Stopped, null, null, null, null, null);
+
+    private InstanceRuntime Update(int instanceId, Func<InstanceRuntime, InstanceRuntime> update)
+    {
+        var updated = _runtimes.AddOrUpdate(instanceId, _ => update(Default(instanceId)), (_, current) => update(current));
+        try
+        {
+            RuntimeChanged?.Invoke(updated);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "A RuntimeChanged subscriber threw.");
+        }
+
+        return updated;
+    }
+
+    /// <summary>Sets the in-memory state (plus <paramref name="extra"/> edits) and mirrors the state into the database.</summary>
+    private async Task SetStateAsync(int instanceId, InstanceState state, string? detail, CancellationToken cancellationToken, Func<InstanceRuntime, InstanceRuntime>? extra = null)
+    {
+        Update(instanceId, runtime =>
+        {
+            var next = runtime with { State = state, Detail = detail };
+            return extra is null ? next : extra(next);
+        });
+        await MirrorStateAsync(instanceId, state, cancellationToken);
+    }
+
+    private async Task MirrorStateAsync(int instanceId, InstanceState state, CancellationToken cancellationToken, bool clearIdentity = false)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+            var rows = db.Instances.Where(i => i.Id == instanceId);
+            if (clearIdentity)
+            {
+                await rows.ExecuteUpdateAsync(
+                    set => set
+                        .SetProperty(i => i.State, state)
+                        .SetProperty(i => i.LastPid, (int?)null)
+                        .SetProperty(i => i.LastProcessStartTime, (DateTimeOffset?)null),
+                    cancellationToken);
+            }
+            else
+            {
+                await rows.ExecuteUpdateAsync(set => set.SetProperty(i => i.State, state), cancellationToken);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Could not mirror state {State} for instance {InstanceId} into the database.", state, instanceId);
+        }
+    }
+
+    private void Append(string channel, string text, ConsoleLineKind kind) =>
+        _console.Append(channel, new ConsoleLine(_time.GetUtcNow(), text, kind));
+
+    private static DateTimeOffset? ReadStartTime(Process process)
+    {
+        try
+        {
+            return new DateTimeOffset(process.StartTime);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    private static int? ReadExitCode(Process process)
+    {
+        try
+        {
+            return process.ExitCode;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    private static string Describe(InstanceState state) => state switch
+    {
+        InstanceState.Starting => "starting",
+        InstanceState.StartingUnconfirmed => "starting (unconfirmed)",
+        InstanceState.Running => "running",
+        InstanceState.Unreachable => "running (RCON unreachable)",
+        InstanceState.Stopping => "stopping",
+        InstanceState.IdentityUnpersisted => "running (identity unpersisted)",
+        _ => state.ToString().ToLowerInvariant(),
+    };
+
+    /// <summary>Everything the loops and the stop job share about one live process.</summary>
+    private sealed class Session(int instanceId, string slug, Process process, DateTimeOffset startTime, bool isAttached, RconEndpoint? rcon, DateTimeOffset registeredAt, CancellationToken lifetime)
+    {
+        public int InstanceId { get; } = instanceId;
+
+        public string Slug { get; } = slug;
+
+        public Process Process { get; } = process;
+
+        public int Pid { get; } = process.Id;
+
+        public DateTimeOffset StartTime { get; } = startTime;
+
+        public bool IsAttached { get; } = isAttached;
+
+        public RconEndpoint? Rcon { get; } = rcon;
+
+        public DateTimeOffset RegisteredAt { get; } = registeredAt;
+
+        /// <summary>Set for launches only; attach leaves <c>LastLaunchedAt</c> untouched.</summary>
+        public DateTimeOffset? LaunchedAt { get; set; }
+
+        /// <summary>Cancels the output source and the probe/liveness loops; linked to the host lifetime.</summary>
+        public CancellationTokenSource Cancellation { get; } = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+
+        /// <summary>Completed by the liveness loop after the exit bookkeeping is done.</summary>
+        public TaskCompletionSource Exited { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>True from just before <c>doexit</c> (or kill) so the liveness loop does not report a crash.</summary>
+        public volatile bool StopRequested;
+
+        public volatile bool ProbeSucceeded;
+
+        public CancellationTokenSource? SkipCountdown { get; set; }
+
+        public Task? OutputTask { get; set; }
+
+        public Task? ProbeTask { get; set; }
+
+        public Task? LivenessTask { get; set; }
+    }
+}
