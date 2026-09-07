@@ -6,7 +6,7 @@
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
     <RootNamespace>ArkAscendedServerAdmin.Server</RootNamespace>
-    <UserSecretsId>ArkAscendedServerAdmin</UserSecretsId>
+    <UserSecretsId>89cee83a-d4ee-40d3-8100-6f858452acbd</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
