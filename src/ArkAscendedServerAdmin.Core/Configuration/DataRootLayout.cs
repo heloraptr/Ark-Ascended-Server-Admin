@@ -60,6 +60,35 @@ public sealed class DataRootLayout
 
     public string ClusterDirectory(string slug) => Path.Combine(Clusters, slug);
 
+    /// <summary>Canonical INI source text for a standalone instance (<c>Instances\&lt;slug&gt;\Config\</c>).</summary>
+    public string InstanceConfigSourceDirectory(string slug) => Path.Combine(InstanceDirectory(slug), "Config");
+
+    /// <summary>Canonical INI source text for a cluster (<c>Clusters\&lt;slug&gt;\Config\</c>).</summary>
+    public string ClusterConfigSourceDirectory(string slug) => Path.Combine(ClusterDirectory(slug), "Config");
+
+    /// <summary>The instance's private <c>ShooterGame\Saved</c> (a real directory next to the junctions).</summary>
+    public string InstanceSavedDirectory(string slug) => Path.Combine(InstanceDirectory(slug), "ShooterGame", "Saved");
+
+    /// <summary>Where the generated <c>Game.ini</c> / <c>GameUserSettings.ini</c> are written; never read back as source.</summary>
+    public string InstanceGeneratedConfigDirectory(string slug) =>
+        Path.Combine(InstanceSavedDirectory(slug), "Config", "WindowsServer");
+
+    /// <summary>The <c>ShooterGame.log</c> the console tails.</summary>
+    public string InstanceLogPath(string slug) => Path.Combine(InstanceSavedDirectory(slug), "Logs", "ShooterGame.log");
+
+    /// <summary>World files live under <c>Saved\&lt;slug&gt;\&lt;MapKey&gt;\</c> because the slug is passed as <c>AltSaveDirectoryName</c>.</summary>
+    public string InstanceWorldDirectory(string slug, string mapKey) => Path.Combine(InstanceSavedDirectory(slug), slug, mapKey);
+
+    /// <summary>The executable launched through the junction tree (WMI reports this path, plan step 21).</summary>
+    public string InstanceExecutable(string slug) =>
+        Path.Combine(InstanceDirectory(slug), "ShooterGame", "Binaries", "Win64", "ArkAscendedServer.exe");
+
+    public string InstanceBackupDirectory(string slug) => Path.Combine(Backups, slug);
+
+    /// <summary>Retained world data of a deleted instance; the slug stays reserved while this exists (plan steps 18, 30).</summary>
+    public string ArchiveDirectory(string slug, DateTimeOffset deletedAt) =>
+        Path.Combine(Archive, $"{slug}-{deletedAt.ToLocalTime():yyyyMMdd-HHmmss}");
+
     public void EnsureDirectories()
     {
         foreach (var directory in Directories)
