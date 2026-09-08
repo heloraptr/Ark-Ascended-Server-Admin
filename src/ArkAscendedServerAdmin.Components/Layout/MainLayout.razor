@@ -2,35 +2,20 @@
 @implements IDisposable
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IReadinessMonitor Readiness
+@inject IUpdateService Updates
 @inject NavigationManager Navigation
 
 <RadzenComponents />
 
-<RadzenLayout>
-    <RadzenHeader>
-        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" class="rz-pr-4">
-            <RadzenSidebarToggle Click="@(() => _sidebarExpanded = !_sidebarExpanded)" />
-            <RadzenText TextStyle="TextStyle.H6" class="rz-m-0">Ark Ascended Server Admin</RadzenText>
-            <span style="flex: 1"></span>
-            <AuthorizeView>
-                <Authorized>
-                    <form method="post" action="logout">
-                        <AntiforgeryToken />
-                        <RadzenButton ButtonType="ButtonType.Submit" Variant="Variant.Text" Icon="logout" Text="Sign out" Size="ButtonSize.Small" />
-                    </form>
-                </Authorized>
-            </AuthorizeView>
-        </RadzenStack>
-    </RadzenHeader>
-
-    <RadzenSidebar @bind-Expanded="_sidebarExpanded">
-        <NavMenu />
-    </RadzenSidebar>
-
-    <RadzenBody>
-        @Body
-    </RadzenBody>
-</RadzenLayout>
+<div class="ark-shell">
+    <Rail />
+    <main class="ark-main">
+        <div class="ark-horizon @HorizonClass" aria-hidden="true"></div>
+        <div class="ark-page">
+            @Body
+        </div>
+    </main>
+</div>
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.
@@ -39,7 +24,13 @@
 </div>
 
 @code {
-    private bool _sidebarExpanded = true;
+    private ReadinessState _readiness = default!;
+    private MaintenanceSnapshot _maintenance = default!;
+
+    private string HorizonClass =>
+        _readiness.Phase is ReadinessPhase.Failed or ReadinessPhase.InstallFailed ? "is-failed"
+        : !_readiness.IsReady || _maintenance.Phase != MaintenancePhase.None ? "is-busy"
+        : string.Empty;
 
     protected override void OnInitialized()
     {
@@ -47,7 +38,10 @@
         // revalidation failed must leave: forceLoad tears the circuit down and lands on the login page.
         AuthenticationStateProvider.AuthenticationStateChanged += OnAuthenticationStateChanged;
         Readiness.Changed += OnReadinessChanged;
-        RedirectToSetupIfNotReady(Readiness.Current);
+        Updates.Changed += OnMaintenanceChanged;
+        _readiness = Readiness.Current;
+        _maintenance = Updates.Current;
+        RedirectToSetupIfNotReady(_readiness);
     }
 
     private void OnAuthenticationStateChanged(Task<AuthenticationState> task) =>
@@ -61,7 +55,19 @@
         });
 
     private void OnReadinessChanged(ReadinessState state) =>
-        _ = InvokeAsync(() => RedirectToSetupIfNotReady(state));
+        _ = InvokeAsync(() =>
+        {
+            _readiness = state;
+            RedirectToSetupIfNotReady(state);
+            StateHasChanged();
+        });
+
+    private void OnMaintenanceChanged(MaintenanceSnapshot snapshot) =>
+        _ = InvokeAsync(() =>
+        {
+            _maintenance = snapshot;
+            StateHasChanged();
+        });
 
     private void RedirectToSetupIfNotReady(ReadinessState state)
     {
@@ -81,5 +87,6 @@
     {
         AuthenticationStateProvider.AuthenticationStateChanged -= OnAuthenticationStateChanged;
         Readiness.Changed -= OnReadinessChanged;
+        Updates.Changed -= OnMaintenanceChanged;
     }
 }

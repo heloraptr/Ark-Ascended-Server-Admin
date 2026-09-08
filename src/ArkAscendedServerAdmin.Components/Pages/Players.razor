@@ -1,0 +1,177 @@
+@page "/players"
+@inherits ArkPage
+@inject IPlayerCommands PlayerCommands
+@inject IInstanceCommands Instances
+@inject IClusterCommands Clusters
+@inject IJSRuntime JS
+
+<PageHead Title="Players" Lead="Everyone ListPlayers has reported, so you can find an EOS id and put it on a whitelist.">
+    <Actions>
+        <RadzenButton Text="Refresh from servers" Icon="sync" ButtonStyle="ButtonStyle.Primary" Disabled="Busy" title="Runs ListPlayers on every running instance" Click="RefreshAsync" />
+    </Actions>
+</PageHead>
+
+@if (_notes.Count > 0)
+{
+    <Notice Tone="is-info" Title="Last refresh">
+        <ul>
+            @foreach (var note in _notes)
+            {
+                <li>@note</li>
+            }
+        </ul>
+    </Notice>
+}
+
+<Notice Tone="is-warn" Title="The player list format is unverified.">
+    <p>The parser expects lines like <code>0. Name, &lt;32-hex EOS id&gt;</code>. If a refresh reports players but none appear here, the real ListPlayers output differs; the raw reply is in each instance's console after a manual <code>ListPlayers</code> command.</p>
+</Notice>
+
+@if (_players is null)
+{
+    <p class="muted">Loading…</p>
+}
+else if (_players.Count == 0)
+{
+    <EmptyState Title="No players seen yet.">
+        Join a running server, then refresh. Players are only recorded when you ask.
+    </EmptyState>
+}
+else
+{
+    <RadzenDataGrid Data="_players" TItem="KnownPlayer" Density="Density.Compact" AllowSorting="true">
+        <Columns>
+            <RadzenDataGridColumn TItem="KnownPlayer" Property="Name" Title="Name" />
+            <RadzenDataGridColumn TItem="KnownPlayer" Property="EosId" Title="EOS id">
+                <Template Context="p">
+                    <span class="mono">@p.EosId</span>
+                    <RadzenButton Icon="content_copy" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Copy" Click="@(() => CopyAsync(p.EosId))" />
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="KnownPlayer" Property="FirstSeenAt" Title="First seen" Width="150px">
+                <Template Context="p">@Presentation.Stamp(p.FirstSeenAt)</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="KnownPlayer" Property="LastSeenAt" Title="Last seen" Width="150px">
+                <Template Context="p">@Presentation.Ago(p.LastSeenAt, _now)</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="KnownPlayer" Title="Whitelist" Width="330px" Sortable="false">
+                <Template Context="p">
+                    <div style="display:flex;gap:6px;align-items:center">
+                        <RadzenDropDown TValue="string" @bind-Value="_target" Data="Targets" TextProperty="Text" ValueProperty="Value" Placeholder="Choose a list" Style="width:200px" />
+                        <RadzenButton Text="Add" Size="ButtonSize.ExtraSmall" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="@(Busy || _target is null)" Click="@(() => WhitelistAsync(p))" />
+                    </div>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="KnownPlayer" Width="60px" Sortable="false">
+                <Template Context="p">
+                    <RadzenButton Icon="close" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Forget" Click="@(() => ForgetAsync(p))" />
+                </Template>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+}
+
+@code {
+    private sealed record Target(string Text, string Value);
+
+    private IReadOnlyList<KnownPlayer>? _players;
+    private IReadOnlyList<string> _notes = [];
+    private IReadOnlyList<Target> Targets = [];
+    private string? _target;
+    private DateTimeOffset _now = DateTimeOffset.UtcNow;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await GuardedAsync(async () =>
+        {
+            _players = await PlayerCommands.ListAsync();
+            var dashboard = await Instances.GetDashboardAsync();
+            Targets = dashboard.Clusters.Select(c => new Target($"cluster {c.Name}", $"c{c.Id}"))
+                .Concat(dashboard.Instances.Select(i => new Target(i.Name, $"i{i.Id}")))
+                .ToList();
+            _now = DateTimeOffset.UtcNow;
+        });
+    }
+
+    private async Task RefreshAsync()
+    {
+        await GuardedAsync(async () =>
+        {
+            var result = await PlayerCommands.RefreshAsync();
+            if (result.Succeeded)
+            {
+                _notes = result.Value!.Notes;
+                Notifications.Done("Refreshed players", Presentation.Plural(result.Value.PlayersSeen, "player") + " reported.");
+                _players = await PlayerCommands.ListAsync();
+                _now = DateTimeOffset.UtcNow;
+            }
+            else
+            {
+                Notifications.Failed("Could not refresh", result.Error);
+            }
+        });
+    }
+
+    private async Task CopyAsync(string text)
+    {
+        var copied = await JS.InvokeAsync<bool>("ark.copyText", text);
+        Notifications.Info(copied ? "Copied" : "Copy failed", copied ? text : "The browser refused clipboard access.");
+    }
+
+    private async Task WhitelistAsync(KnownPlayer player)
+    {
+        if (_target is null)
+        {
+            return;
+        }
+
+        var id = int.Parse(_target[1..], System.Globalization.CultureInfo.InvariantCulture);
+        await GuardedAsync(async () =>
+        {
+            if (_target.StartsWith('c'))
+            {
+                var cluster = await Clusters.GetAsync(id);
+                if (cluster is null)
+                {
+                    return;
+                }
+
+                var result = await Clusters.SaveAsync(id, new ClusterEdit(cluster.Cluster.Name, cluster.Cluster.ClusterKey, Append(cluster.Cluster.AdminWhitelist, player.EosId)));
+                Notifications.Report(result, "Added to", $"{cluster.Cluster.Name}'s whitelist");
+            }
+            else
+            {
+                var detail = await Instances.GetAsync(id);
+                if (detail is null)
+                {
+                    return;
+                }
+
+                var i = detail.Instance;
+                var result = await Instances.SaveAsync(id, new InstanceEdit(i.Name, i.SessionName, i.MaxPlayers, i.GamePort, i.RconPort, Append(i.AdminWhitelist, player.EosId), i.BackupIntervalMinutes, i.BackupRetention));
+                Notifications.Report(result, "Added to", $"{i.Name}'s whitelist");
+            }
+        });
+    }
+
+    private static string Append(string whitelist, string eosId)
+    {
+        var lines = whitelist.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        if (!lines.Contains(eosId, StringComparer.OrdinalIgnoreCase))
+        {
+            lines.Add(eosId);
+        }
+
+        return string.Join("\r\n", lines);
+    }
+
+    private async Task ForgetAsync(KnownPlayer player)
+    {
+        await GuardedAsync(async () =>
+        {
+            await PlayerCommands.DeleteAsync(player.Id);
+            _players = await PlayerCommands.ListAsync();
+            Notifications.Done($"Forgot {player.Name}");
+        });
+    }
+}

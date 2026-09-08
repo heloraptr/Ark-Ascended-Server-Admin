@@ -1,0 +1,514 @@
+@page "/instances/{Id:int}"
+@inherits ArkPage
+@implements IDisposable
+@inject IInstanceCommands Instances
+@inject IConfigCommands Config
+@inject IModCommands ModCommands
+@inject IProcessManager Processes
+
+@if (_detail is null)
+{
+    <PageHead Title="@(_missing ? "Instance not found" : "Loading…")" />
+    @if (_missing)
+    {
+        <EmptyState Title="There is no instance with this id.">
+            <ChildContent>It may have been deleted.</ChildContent>
+            <Actions><RadzenButton Text="Back to instances" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Click="@(() => Navigation.NavigateTo(""))" /></Actions>
+        </EmptyState>
+    }
+}
+else
+{
+    var instance = _detail.Instance;
+    <PageHead Title="@instance.Name">
+        <Crumb>
+            <a href="">Instances</a>
+            @if (instance.Cluster is { } cluster)
+            {
+                <text> / </text><a href="clusters/@cluster.Id">@cluster.Name</a>
+            }
+        </Crumb>
+        <LeadContent>
+            <InstanceStateView Runtime="_runtime" ShowHint="false" />
+            <span class="faint"> · </span>@instance.Map!.Name
+            <span class="faint"> · </span><span class="num">@instance.GamePort</span> <span class="faint">game</span> <span class="num">@instance.RconPort</span> <span class="faint">rcon</span>
+            <span class="faint"> · </span><span class="mono faint">@instance.Slug</span>
+        </LeadContent>
+        <Actions>
+            @if (_runtime.State == InstanceState.Stopping)
+            {
+                <RadzenButton Text="Stop now" Icon="skip_next" ButtonStyle="ButtonStyle.Warning" Variant="Variant.Outlined" title="Skip the countdown" Click="SkipCountdown" />
+            }
+            else if (_runtime.HasLiveProcess)
+            {
+                <RadzenButton Text="Stop" Icon="stop" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Outlined" Click="@(() => Fire(() => Instances.StopAsync(Id, false), "Stopped", instance.Name))" />
+                <RadzenButton Text="Restart" Icon="restart_alt" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Click="@(() => Fire(() => Instances.RestartAsync(Id), "Restarted", instance.Name))" />
+                <RadzenButton Text="Back up now" Icon="save" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Disabled="@(_runtime.State != InstanceState.Running)" Click="BackupNow" />
+            }
+            else
+            {
+                <RadzenButton Text="Start" Icon="play_arrow" ButtonStyle="ButtonStyle.Success" Disabled="@(_runtime.State == InstanceState.Unknown)" Click="@(() => Fire(() => Instances.StartAsync(Id), "Started", instance.Name))" />
+            }
+            <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Text" title="Delete instance" Click="DeleteAsync" />
+        </Actions>
+    </PageHead>
+
+    @if (Presentation.Hint(_runtime) is { } hint && _runtime.State is not InstanceState.Starting)
+    {
+        <Notice Tone="@(_runtime.State is InstanceState.StartingUnconfirmed ? "is-warn" : "is-bad")" Title="@Presentation.Label(_runtime.State)">
+            <ChildContent><p>@hint</p></ChildContent>
+            <Actions>
+                @if (_runtime.State == InstanceState.IdentityUnpersisted)
+                {
+                    <RadzenButton Text="Retry persist" Icon="sync" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Click="@(() => Fire(() => Instances.RetryPersistIdentityAsync(Id), "Saved identity of", instance.Name))" />
+                }
+            </Actions>
+        </Notice>
+    }
+    @if (_preview?.Problem is { } problem && !_runtime.HasLiveProcess && _tab != 1)
+    {
+        <Notice Tone="is-warn" Title="Start would be refused.">
+            <p>@problem</p>
+        </Notice>
+    }
+
+    <RadzenTabs @bind-SelectedIndex="_tab" RenderMode="TabRenderMode.Client">
+        <Tabs>
+            <RadzenTabsItem Text="Console">
+                <ConsolePanel Channel="@ConsoleChannels.Instance(Id)" Title="@($"{instance.Name} · ShooterGame.log")" Height="calc(100vh - 290px)"
+                              EmptyText="No output yet. Start the instance and the log appears here within a second of the game writing it."
+                              OnCommand="SendRconAsync" InputEnabled="@_runtime.HasLiveProcess" />
+            </RadzenTabsItem>
+
+            <RadzenTabsItem Text="Config">
+                @if (instance.Cluster is { } cluster)
+                {
+                    <Notice Tone="is-info" Title="@($"INI files come from the {cluster.Name} cluster.")">
+                        <p>Every member shares them. Edit them on the <a href="clusters/@cluster.Id">cluster page</a>; per-instance differences go into the overrides below.</p>
+                    </Notice>
+                }
+                else
+                {
+                    <RadzenTabs RenderMode="TabRenderMode.Client">
+                        <Tabs>
+                            <RadzenTabsItem Text="GameUserSettings.ini">
+                                <IniEditor Owner="@IniOwner.ForInstance(Id)" File="IniFile.GameUserSettings" OnSaved="RefreshPreviewAsync" />
+                            </RadzenTabsItem>
+                            <RadzenTabsItem Text="Game.ini">
+                                <IniEditor Owner="@IniOwner.ForInstance(Id)" File="IniFile.Game" OnSaved="RefreshPreviewAsync" />
+                            </RadzenTabsItem>
+                        </Tabs>
+                    </RadzenTabs>
+                }
+
+                <section class="ark-section" style="margin-top:28px">
+                    <SectionHead Title="Overrides">
+                        <Summary>Single keys written on top of the source text when the instance starts.</Summary>
+                        <Actions>
+                            <RadzenButton Text="Add override" Icon="add" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Click="@(() => EditOverrideAsync(new ExtraOverride { InstanceId = Id, File = IniFile.GameUserSettings, Section = string.Empty, Key = string.Empty }))" />
+                        </Actions>
+                    </SectionHead>
+                    @if (_overrides.Count == 0)
+                    {
+                        <p class="muted" style="padding:10px 0">None. Useful for a clustered instance that needs one value different from the cluster, such as its own difficulty.</p>
+                    }
+                    else
+                    {
+                        <RadzenDataGrid Data="_overrides" TItem="ExtraOverride" Density="Density.Compact" AllowSorting="true">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="ExtraOverride" Property="File" Title="File" Width="170px">
+                                    <Template Context="o">@(o.File == IniFile.Game ? "Game.ini" : "GameUserSettings.ini")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="ExtraOverride" Property="Section" Title="Section" />
+                                <RadzenDataGridColumn TItem="ExtraOverride" Property="Key" Title="Key" />
+                                <RadzenDataGridColumn TItem="ExtraOverride" Property="Value" Title="Value" />
+                                <RadzenDataGridColumn TItem="ExtraOverride" Width="90px" Sortable="false">
+                                    <Template Context="o">
+                                        <RadzenButton Icon="edit" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => EditOverrideAsync(o))" />
+                                        <RadzenButton Icon="close" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => DeleteOverrideAsync(o))" />
+                                    </Template>
+                                </RadzenDataGridColumn>
+                            </Columns>
+                        </RadzenDataGrid>
+                    }
+                </section>
+            </RadzenTabsItem>
+
+            <RadzenTabsItem Text="Mods">
+                <ModListEditor LockedMods="_detail.ClusterMods" Mods="_detail.InstanceMods" Library="_library" Busy="Busy" OnSave="SaveModsAsync" />
+            </RadzenTabsItem>
+
+            <RadzenTabsItem Text="Launch">
+                <LaunchFlagsEditor Flags="instance.LaunchFlags" ClusterBase="instance.Cluster?.LaunchFlags" CanInherit="@(instance.Cluster is not null)" Busy="Busy" OnSave="SaveLaunchFlagsAsync" />
+                <section class="ark-section" style="margin-top:28px">
+                    <SectionHead Title="What a start would run">
+                        <Actions>
+                            <RadzenButton Text="Refresh" Icon="refresh" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="RefreshPreviewAsync" />
+                        </Actions>
+                    </SectionHead>
+                    @if (_preview is null)
+                    {
+                        <p class="muted">Loading…</p>
+                    }
+                    else
+                    {
+                        <Problems Items="@(_preview.Problem is null ? null : [_preview.Problem])" />
+                        @if (_preview.Warnings.Count > 0)
+                        {
+                            <Notice Tone="is-info" Title="Notes from the INI pipeline">
+                                <ul>
+                                    @foreach (var warning in _preview.Warnings)
+                                    {
+                                        <li>@warning</li>
+                                    }
+                                </ul>
+                            </Notice>
+                        }
+                        <div class="console" style="margin-top:8px">
+                            <div class="console-out" style="max-height:220px">ArkAscendedServer.exe @_preview.CommandLine</div>
+                        </div>
+                    }
+                </section>
+            </RadzenTabsItem>
+
+            <RadzenTabsItem Text="Settings">
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="s-name">Instance name</label>
+                        <RadzenTextBox id="s-name" @bind-Value="_edit.Name" />
+                        <span class="hint">The folder name (slug) stays <code>@instance.Slug</code>.</span>
+                    </div>
+                    <div class="field">
+                        <label for="s-session">Session name</label>
+                        <RadzenTextBox id="s-session" @bind-Value="_edit.SessionName" />
+                        <span class="hint">Shown in the server browser.</span>
+                    </div>
+                    <div class="field">
+                        <label for="s-players">Max players</label>
+                        <RadzenNumeric TValue="int" id="s-players" @bind-Value="_edit.MaxPlayers" Min="1" Max="500" />
+                    </div>
+                    <div class="field">
+                        <label for="s-game">Game port</label>
+                        <RadzenNumeric TValue="int" id="s-game" @bind-Value="_edit.GamePort" Min="1" Max="65534" />
+                        <span class="hint">UDP; the game also binds port + 1. Passed as -port.</span>
+                    </div>
+                    <div class="field">
+                        <label for="s-rcon">RCON port</label>
+                        <RadzenNumeric TValue="int" id="s-rcon" @bind-Value="_edit.RconPort" Min="1" Max="65535" />
+                        <span class="hint">TCP, loopback only; no firewall rule is opened for it.</span>
+                    </div>
+                    <div class="field">
+                        <label for="s-interval">Backup interval, minutes</label>
+                        <RadzenNumeric TValue="int?" id="s-interval" @bind-Value="_edit.BackupIntervalMinutes" Min="1" Max="10080" Placeholder="default from Settings" ShowUpDown="false" />
+                    </div>
+                    <div class="field">
+                        <label for="s-keep">Backups to keep</label>
+                        <RadzenNumeric TValue="int?" id="s-keep" @bind-Value="_edit.BackupRetention" Min="1" Max="1000" Placeholder="default from Settings" ShowUpDown="false" />
+                    </div>
+                    <div class="field span-2">
+                        <label for="s-whitelist">Admin whitelist</label>
+                        <RadzenTextArea id="s-whitelist" @bind-Value="_edit.AdminWhitelist" Rows="4" Placeholder="One EOS id per line" />
+                        <span class="hint">Merged with the cluster's list into AllowedCheaterAccountIDs.txt at start. Find ids on the Players page.</span>
+                    </div>
+                </div>
+                <Problems Items="_settingsProblems" />
+                <div class="form-actions">
+                    <RadzenButton Text="Save settings" Icon="save" ButtonStyle="ButtonStyle.Primary" Disabled="Busy" Click="SaveSettingsAsync" />
+                    <RadzenButton Text="Reset" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="Busy" Click="ResetEdit" />
+                    @if (_runtime.HasLiveProcess)
+                    {
+                        <span class="status">Port and player changes apply at the next start.</span>
+                    }
+                </div>
+            </RadzenTabsItem>
+
+            <RadzenTabsItem Text="Backups">
+                <Notice Tone="is-info" Title="Best-effort live backups.">
+                    <p>Each backup asks the server to save, waits for the world file to settle, copies the world, profiles, tribes, and cluster files, then verifies every entry of the archive. There is no volume snapshot, so a save that begins during the copy can still tear the world file; torn or changed files are detected and the attempt is recorded as skipped.</p>
+                </Notice>
+                @if (_backups is null)
+                {
+                    <p class="muted">Loading…</p>
+                }
+                else if (_backups.Count == 0)
+                {
+                    <p class="muted">No backups yet. They run every @(instance.BackupIntervalMinutes?.ToString() ?? "(default)") minutes while the instance is running, or on demand with Back up now.</p>
+                }
+                else
+                {
+                    <RadzenDataGrid Data="_backups" TItem="BackupRecord" Density="Density.Compact" AllowSorting="true" AllowPaging="true" PageSize="20">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="BackupRecord" Property="CreatedAt" Title="When" Width="170px">
+                                <Template Context="b">@Presentation.Stamp(b.CreatedAt)</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="BackupRecord" Property="Outcome" Title="Outcome" Width="120px">
+                                <Template Context="b"><span class="@Presentation.Tone(b.Outcome)">@Presentation.Label(b.Outcome)</span></Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="BackupRecord" Property="FileName" Title="Archive">
+                                <Template Context="b"><span class="mono">@b.FileName</span> <span class="muted">@b.Reason</span></Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="BackupRecord" Property="SizeBytes" Title="Size" Width="100px" TextAlign="TextAlign.Right">
+                                <Template Context="b"><span class="num">@Presentation.Bytes(b.SizeBytes)</span></Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="BackupRecord" Property="IsManual" Title="Trigger" Width="100px">
+                                <Template Context="b">@(b.IsManual ? "manual" : "scheduled")</Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+                    <p class="hint muted" style="margin-top:10px">Archives live under DataRoot\Backups\@instance.Slug. Restoring is manual: stop the instance, unzip over ShooterGame\Saved.</p>
+                }
+            </RadzenTabsItem>
+        </Tabs>
+    </RadzenTabs>
+}
+
+@code {
+    private sealed class EditModel
+    {
+        public string Name { get; set; } = string.Empty;
+        public string SessionName { get; set; } = string.Empty;
+        public int MaxPlayers { get; set; }
+        public int GamePort { get; set; }
+        public int RconPort { get; set; }
+        public string AdminWhitelist { get; set; } = string.Empty;
+        public int? BackupIntervalMinutes { get; set; }
+        public int? BackupRetention { get; set; }
+    }
+
+    private InstanceDetail? _detail;
+    private InstanceRuntime _runtime = default!;
+    private IReadOnlyList<ModLibraryEntry> _library = [];
+    private IReadOnlyList<ExtraOverride> _overrides = [];
+    private IReadOnlyList<BackupRecord>? _backups;
+    private LaunchPreview? _preview;
+    private EditModel _edit = new();
+    private IReadOnlyList<string>? _settingsProblems;
+    private bool _missing;
+    private int _tab;
+    private int _loadedId;
+
+    [Parameter]
+    public int Id { get; set; }
+
+    protected override void OnInitialized() => Processes.RuntimeChanged += OnRuntimeChanged;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedId == Id)
+        {
+            return;
+        }
+
+        _loadedId = Id;
+        _runtime = Processes.GetRuntime(Id);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await GuardedAsync(async () =>
+        {
+            _detail = await Instances.GetAsync(Id);
+            _missing = _detail is null;
+            if (_detail is null)
+            {
+                return;
+            }
+
+            ResetEdit();
+            _library = await ModCommands.ListLibraryAsync();
+            _overrides = await Config.GetOverridesAsync(Id);
+            _backups = await Instances.GetBackupsAsync(Id);
+        });
+        await RefreshPreviewAsync();
+    }
+
+    private async Task RefreshPreviewAsync()
+    {
+        if (_detail is null)
+        {
+            return;
+        }
+
+        await GuardedAsync(async () =>
+        {
+            var result = await Instances.PreviewLaunchAsync(Id);
+            _preview = result.Value ?? new LaunchPreview(string.Empty, [], result.Error);
+        });
+    }
+
+    private void ResetEdit()
+    {
+        var i = _detail!.Instance;
+        _edit = new EditModel
+        {
+            Name = i.Name,
+            SessionName = i.SessionName,
+            MaxPlayers = i.MaxPlayers,
+            GamePort = i.GamePort,
+            RconPort = i.RconPort,
+            AdminWhitelist = i.AdminWhitelist,
+            BackupIntervalMinutes = i.BackupIntervalMinutes,
+            BackupRetention = i.BackupRetention,
+        };
+        _settingsProblems = null;
+    }
+
+    private void OnRuntimeChanged(InstanceRuntime runtime)
+    {
+        if (runtime.InstanceId != Id)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            var wasLive = _runtime.HasLiveProcess;
+            _runtime = runtime;
+            if (wasLive && !runtime.HasLiveProcess && _detail is not null)
+            {
+                await GuardedAsync(async () => _backups = await Instances.GetBackupsAsync(Id));
+            }
+
+            StateHasChanged();
+        });
+    }
+
+    private async Task SendRconAsync(string command)
+    {
+        await GuardedAsync(async () =>
+        {
+            var result = await Instances.SendRconAsync(Id, command);
+            if (!result.Succeeded)
+            {
+                Notifications.Failed("Command not sent", result.Error);
+            }
+        });
+    }
+
+    private async Task SkipCountdown()
+    {
+        await GuardedAsync(async () =>
+        {
+            var skipped = await Instances.SkipCountdownAsync(Id);
+            Notifications.Info(skipped ? "Stopping now" : "No countdown to skip");
+        });
+    }
+
+    private void BackupNow() => _ = InvokeAsync(async () =>
+    {
+        Notifications.Info($"Backing up {_detail!.Instance.Name}", "Saving the world, then copying and verifying the archive.");
+        await GuardedAsync(async () =>
+        {
+            var result = await Instances.BackupNowAsync(Id);
+            if (!result.Succeeded)
+            {
+                Notifications.Failed("Could not back up", result.Error);
+            }
+            else if (result.Value!.Outcome == BackupOutcome.Success)
+            {
+                Notifications.Done("Backed up", $"{result.Value.FileName} ({Presentation.Bytes(result.Value.SizeBytes)})");
+            }
+            else
+            {
+                Notifications.Warn($"Backup {Presentation.Label(result.Value.Outcome).ToLowerInvariant()}", result.Value.Reason);
+            }
+
+            _backups = await Instances.GetBackupsAsync(Id);
+        });
+        StateHasChanged();
+    });
+
+    private async Task DeleteAsync()
+    {
+        var instance = _detail!.Instance;
+        var keep = await Dialogs.OpenAsync<DeleteInstanceDialog>(
+            $"Delete {instance.Name}",
+            new Dictionary<string, object?> { ["Name"] = instance.Name, ["Slug"] = instance.Slug, ["IsLive"] = _runtime.HasLiveProcess },
+            new DialogOptions { Width = "520px" });
+        if (keep is not bool keepWorld)
+        {
+            return;
+        }
+
+        Notifications.Info($"Deleting {instance.Name}", _runtime.HasLiveProcess ? "Stopping the server first." : null);
+        Fire(() => Instances.DeleteAsync(Id, keepWorld), "Deleted", instance.Name, () => Navigation.NavigateTo(""));
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        await GuardedAsync(async () =>
+        {
+            var result = await Instances.SaveAsync(Id, new InstanceEdit(_edit.Name, _edit.SessionName, _edit.MaxPlayers, _edit.GamePort, _edit.RconPort, _edit.AdminWhitelist, _edit.BackupIntervalMinutes, _edit.BackupRetention));
+            _settingsProblems = result.Succeeded ? null : result.Errors;
+            if (result.Succeeded)
+            {
+                Notifications.Done("Saved settings");
+                _detail = await Instances.GetAsync(Id);
+                ResetEdit();
+            }
+        });
+        await RefreshPreviewAsync();
+    }
+
+    private async Task SaveLaunchFlagsAsync(LaunchFlags flags)
+    {
+        await GuardedAsync(async () =>
+        {
+            var result = await Instances.SaveLaunchFlagsAsync(Id, flags);
+            Notifications.Report(result, "Saved", "launch options");
+            if (result.Succeeded)
+            {
+                _detail = await Instances.GetAsync(Id);
+            }
+        });
+        await RefreshPreviewAsync();
+    }
+
+    private async Task SaveModsAsync(IReadOnlyList<int> ids)
+    {
+        await GuardedAsync(async () =>
+        {
+            var result = await Instances.SetModsAsync(Id, ids);
+            Notifications.Report(result, "Saved", "mods");
+            if (result.Succeeded)
+            {
+                _detail = await Instances.GetAsync(Id);
+            }
+        });
+        await RefreshPreviewAsync();
+    }
+
+    private async Task EditOverrideAsync(ExtraOverride entry)
+    {
+        var edited = await Dialogs.OpenAsync<OverrideDialog>(entry.Id == 0 ? "Add override" : "Edit override", new Dictionary<string, object?> { ["Entry"] = entry }, new DialogOptions { Width = "560px" });
+        if (edited is not ExtraOverride value)
+        {
+            return;
+        }
+
+        await GuardedAsync(async () =>
+        {
+            var result = await Config.SaveOverrideAsync(value);
+            Notifications.Report(new CommandResult(result.Succeeded, result.Errors), "Saved", "override");
+            if (result.Succeeded)
+            {
+                _overrides = await Config.GetOverridesAsync(Id);
+            }
+        });
+        await RefreshPreviewAsync();
+    }
+
+    private async Task DeleteOverrideAsync(ExtraOverride entry)
+    {
+        await GuardedAsync(async () =>
+        {
+            await Config.DeleteOverrideAsync(entry.Id);
+            _overrides = await Config.GetOverridesAsync(Id);
+            Notifications.Done("Removed override", $"[{entry.Section}] {entry.Key}");
+        });
+        await RefreshPreviewAsync();
+    }
+
+    public void Dispose() => Processes.RuntimeChanged -= OnRuntimeChanged;
+}

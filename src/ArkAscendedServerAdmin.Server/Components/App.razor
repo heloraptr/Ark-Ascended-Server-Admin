@@ -4,10 +4,11 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
     <base href="/" />
     <link rel="icon" type="image/png" href="favicon.png" />
-    <RadzenTheme Theme="material-dark" @rendermode="PageRenderMode" />
-    <link rel="stylesheet" href="@Assets["ArkAscendedServerAdmin.Server.styles.css"]" />
+    <RadzenTheme Theme="standard-dark" @rendermode="PageRenderMode" />
+    <link rel="stylesheet" href="_content/ArkAscendedServerAdmin.Components/css/ark.css" />
     <ImportMap />
     <HeadOutlet @rendermode="PageRenderMode" />
 </head>
@@ -16,6 +17,7 @@
     <Routes @rendermode="PageRenderMode" />
     <script src="_framework/blazor.web.js"></script>
     <script src="_content/Radzen.Blazor/Radzen.Blazor.js?v=@(typeof(Colors).Assembly.GetName().Version)"></script>
+    <script src="_content/ArkAscendedServerAdmin.Components/js/ark.js"></script>
 </body>
 
 </html>

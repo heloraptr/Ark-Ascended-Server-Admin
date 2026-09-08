@@ -1,0 +1,23 @@
+<div class="ark-section-head">
+    <h2>@Title</h2>
+    @if (Summary is not null)
+    {
+        <span class="summary">@Summary</span>
+    }
+    <span class="spacer"></span>
+    @if (Actions is not null)
+    {
+        <div class="actions">@Actions</div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public RenderFragment? Summary { get; set; }
+
+    [Parameter]
+    public RenderFragment? Actions { get; set; }
+}

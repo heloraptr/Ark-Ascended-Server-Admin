@@ -1,0 +1,68 @@
+@* One [Section] Key=Value applied on top of the source INI at generation time. *@
+@using ArkAscendedServerAdmin.Ini
+@inject DialogService Dialogs
+
+<div style="display:flex;flex-direction:column;gap:12px">
+    <p class="muted">Applied when the instance starts, after the source text. Keys the manager writes itself (Port, RCONPort, SessionName, MaxPlayers…) are refused.</p>
+    <div class="form-grid">
+        <div class="field">
+            <label>File</label>
+            <RadzenDropDown TValue="IniFile" @bind-Value="_file" Data="@(new[] { IniFile.GameUserSettings, IniFile.Game })" />
+        </div>
+        <div class="field">
+            <label for="ov-section">Section</label>
+            <RadzenTextBox id="ov-section" @bind-Value="_section" Placeholder="ServerSettings" />
+        </div>
+        <div class="field">
+            <label for="ov-key">Key</label>
+            <RadzenTextBox id="ov-key" @bind-Value="_key" Placeholder="DifficultyOffset" />
+        </div>
+        <div class="field">
+            <label for="ov-value">Value</label>
+            <RadzenTextBox id="ov-value" @bind-Value="_value" Placeholder="1.0" />
+        </div>
+    </div>
+    <Problems Items="_problems" />
+    <div class="form-actions" style="justify-content:flex-end;margin-top:4px">
+        <RadzenButton Text="Cancel" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => Dialogs.Close(null))" />
+        <RadzenButton Text="@(Entry.Id == 0 ? "Add override" : "Save override")" Icon="save" ButtonStyle="ButtonStyle.Primary" Click="Submit" />
+    </div>
+</div>
+
+@code {
+    private IniFile _file;
+    private string? _section;
+    private string? _key;
+    private string? _value;
+    private IReadOnlyList<string> _problems = [];
+
+    [Parameter]
+    public ExtraOverride Entry { get; set; } = default!;
+
+    protected override void OnInitialized()
+    {
+        _file = Entry.File;
+        _section = Entry.Section;
+        _key = Entry.Key;
+        _value = Entry.Value;
+    }
+
+    private void Submit()
+    {
+        _problems = IniOverrideValidator.Validate(_section, _key, _value);
+        if (_problems.Count > 0)
+        {
+            return;
+        }
+
+        Dialogs.Close(new ExtraOverride
+        {
+            Id = Entry.Id,
+            InstanceId = Entry.InstanceId,
+            File = _file,
+            Section = _section!.Trim(),
+            Key = _key!.Trim(),
+            Value = _value?.Trim() ?? string.Empty,
+        });
+    }
+}

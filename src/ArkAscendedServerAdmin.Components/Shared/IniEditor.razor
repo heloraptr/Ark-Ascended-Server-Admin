@@ -1,0 +1,180 @@
+@* Source INI editor (plan step 16): optimistic concurrency on the SHA-256, reserved-key warnings, mirror retry. *@
+@using ArkAscendedServerAdmin.Ini
+@inject IConfigCommands Config
+@inject NotificationService Notifications
+@inject NavigationManager Navigation
+
+<div class="ini-editor">
+    @if (_document is null)
+    {
+        <p class="muted">Loading @FileName…</p>
+    }
+    else
+    {
+        @if (_conflict)
+        {
+            <Notice Tone="is-warn" Title="Changed on disk since you opened it.">
+                <ChildContent><p>Reload to see the current text; your edits here will be lost.</p></ChildContent>
+                <Actions>
+                    <RadzenButton Text="Reload" Icon="refresh" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Click="ReloadAsync" />
+                </Actions>
+            </Notice>
+        }
+        @if (_mirrorStale)
+        {
+            <Notice Tone="is-warn" Title="The database copy of this file is behind the file on disk.">
+                <ChildContent><p>The file is what the game gets; the database copy only exists so a config backup is complete.</p></ChildContent>
+                <Actions>
+                    <RadzenButton Text="Retry mirror" Icon="sync" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="_busy" Click="RetryMirrorAsync" />
+                </Actions>
+            </Notice>
+        }
+        @if (_reserved.Count > 0)
+        {
+            <Notice Tone="is-info" Title="Manager-owned keys in this file are replaced when the instance starts.">
+                <ul>
+                    @foreach (var hit in _reserved)
+                    {
+                        <li>Line @hit.LineNumber: <code>@hit.Key</code> in <code>[@hit.Section]</code></li>
+                    }
+                </ul>
+            </Notice>
+        }
+        @if (_passwordMissing)
+        {
+            <Notice Tone="is-warn" Title="ServerAdminPassword is empty.">
+                <p>Set it under <code>[ServerSettings]</code>. RCON is the only way the manager saves and stops the server, so Start is refused until it has a value.</p>
+            </Notice>
+        }
+
+        <div class="ini-bar">
+            <span>@FileName</span>
+            <span class="faint">saved @Presentation.Ago(_document.UpdatedAt, DateTimeOffset.UtcNow)</span>
+            @if (_dirty)
+            {
+                <span class="dirty">unsaved changes</span>
+            }
+            <span class="spacer"></span>
+            <RadzenButton Text="Reload" Icon="refresh" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="_busy" Click="ReloadAsync" />
+            <RadzenButton Text="@($"Save {FileName}")" Icon="save" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Primary" Disabled="@(_busy || !_dirty || _conflict)" Click="SaveAsync" />
+        </div>
+        <textarea @bind="_text" @bind:event="oninput" @bind:after="OnTextChanged" spellcheck="false" wrap="off" aria-label="@FileName"></textarea>
+    }
+</div>
+
+@code {
+    private IniSourceDocument? _document;
+    private string _text = string.Empty;
+    private bool _dirty;
+    private bool _busy;
+    private bool _conflict;
+    private bool _mirrorStale;
+    private bool _passwordMissing;
+    private IReadOnlyList<IniReservedKeyHit> _reserved = [];
+    private (IniOwner Owner, IniFile File)? _loaded;
+
+    [Parameter, EditorRequired]
+    public IniOwner Owner { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public IniFile File { get; set; }
+
+    [Parameter]
+    public EventCallback OnSaved { get; set; }
+
+    private string FileName => File == IniFile.Game ? "Game.ini" : "GameUserSettings.ini";
+
+    public bool IsDirty => _dirty;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loaded is { } loaded && loaded.Owner == Owner && loaded.File == File)
+        {
+            return;
+        }
+
+        _loaded = (Owner, File);
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        _busy = true;
+        await Navigation.GuardedAsync(async () =>
+        {
+            _document = await Config.LoadIniAsync(Owner, File);
+            _text = _document.Text;
+            _dirty = false;
+            _conflict = false;
+            _mirrorStale = _document.MirrorStale;
+            Analyze();
+        }, Notifications);
+        _busy = false;
+    }
+
+    private void OnTextChanged()
+    {
+        _dirty = _document is not null && !string.Equals(_text, _document.Text, StringComparison.Ordinal);
+        Analyze();
+    }
+
+    private void Analyze()
+    {
+        _reserved = IniReservedKeyScanner.Find(_text);
+        _passwordMissing = File == IniFile.GameUserSettings && string.IsNullOrWhiteSpace(IniText.Parse(_text).Get(IniGenerator.ServerSettingsSection, "ServerAdminPassword"));
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_document is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        await Navigation.GuardedAsync(async () =>
+        {
+            var result = await Config.SaveIniAsync(Owner, File, _text, _document.Sha256);
+            if (!result.Succeeded)
+            {
+                _conflict = true;
+                Notifications.Failed($"Could not save {FileName}", result.Error);
+                return;
+            }
+
+            _document = _document with { Text = _text, Sha256 = result.NewSha256!, UpdatedAt = DateTimeOffset.UtcNow, MirrorStale = result.MirrorFailed };
+            _dirty = false;
+            _mirrorStale = result.MirrorFailed;
+            if (result.MirrorFailed)
+            {
+                Notifications.Warn($"Saved {FileName}", "The file was written, but the database copy could not be updated.");
+            }
+            else
+            {
+                Notifications.Done($"Saved {FileName}");
+            }
+
+            await OnSaved.InvokeAsync();
+        }, Notifications);
+        _busy = false;
+    }
+
+    private async Task RetryMirrorAsync()
+    {
+        _busy = true;
+        await Navigation.GuardedAsync(async () =>
+        {
+            var result = await Config.RetryMirrorAsync(Owner, File);
+            _mirrorStale = !result.Succeeded || result.MirrorFailed;
+            if (_mirrorStale)
+            {
+                Notifications.Failed("Mirror still behind", result.Error ?? "The database write failed again.");
+            }
+            else
+            {
+                Notifications.Done("Mirror updated");
+            }
+        }, Notifications);
+        _busy = false;
+    }
+}

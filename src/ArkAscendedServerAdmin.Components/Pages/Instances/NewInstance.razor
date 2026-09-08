@@ -1,0 +1,351 @@
+@page "/instances/new"
+@inherits ArkPage
+@inject IInstanceCommands Instances
+@inject IClusterCommands Clusters
+@inject IMapCommands Maps
+@inject IModCommands Mods
+@inject ISettingsCommands Settings
+
+<PageHead Title="New instance">
+    <Crumb><a href="">Instances</a></Crumb>
+</PageHead>
+
+<div class="wizard">
+    <nav class="wizard-steps" aria-label="Steps">
+        @for (var i = 0; i < _steps.Length; i++)
+        {
+            var index = i;
+            <button type="button" class="@(index == _step ? "is-current" : index < _step ? "is-done" : null)" disabled="@(index > _furthest)" @onclick="() => Go(index)">
+                <span class="n">@(index + 1)</span>@_steps[index]
+            </button>
+        }
+    </nav>
+
+    <div class="wizard-body">
+        @switch (_step)
+        {
+            case 0:
+                <h2>Name it</h2>
+                <p class="lead">The name is for you; the session name is what players see.</p>
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="w-name">Instance name</label>
+                        <RadzenTextBox id="w-name" @bind-Value="_name" @bind-Value:after="OnNameChanged" @oninput="@((ChangeEventArgs e) => { _name = e.Value?.ToString() ?? string.Empty; OnNameChanged(); })" Placeholder="Island" autofocus />
+                        <span class="hint">Becomes the folder name under Instances (letters, digits, and hyphens); it cannot change later.</span>
+                    </div>
+                    <div class="field">
+                        <label for="w-session">Session name</label>
+                        <RadzenTextBox id="w-session" @bind-Value="_sessionName" @oninput="@((ChangeEventArgs e) => _sessionName = e.Value?.ToString() ?? string.Empty)" Placeholder="Our Island" />
+                        <span class="hint">Written to GameUserSettings.ini as SessionName. No ? or = characters.</span>
+                    </div>
+                </div>
+                break;
+
+            case 1:
+                <h2>Cluster or standalone</h2>
+                <p class="lead">Cluster members share INI files, mods, launch options, and a cluster directory for transfers. A standalone instance owns all of that itself.</p>
+                <div class="choice-list" role="radiogroup">
+                    <button type="button" class="choice @(_clusterId is null ? "is-on" : null)" @onclick="() => _clusterId = null">
+                        <span class="dot"></span>
+                        <span><strong>Standalone</strong><span>Its own Game.ini and GameUserSettings.ini under Instances\@Slug\Config.</span></span>
+                    </button>
+                    @foreach (var cluster in _clusters)
+                    {
+                        <button type="button" class="choice @(_clusterId == cluster.Id ? "is-on" : null)" @onclick="() => _clusterId = cluster.Id">
+                            <span class="dot"></span>
+                            <span><strong>@cluster.Name</strong><span>@Presentation.Plural(cluster.InstanceCount, "member") · @Presentation.Plural(cluster.ModCount, "cluster mod") · id @cluster.ClusterKey</span></span>
+                        </button>
+                    }
+                </div>
+                @if (_clusters.Count == 0)
+                {
+                    <p class="hint muted" style="margin-top:12px">No clusters exist yet. Create one on the <a href="clusters">Clusters</a> page if you want maps to transfer between servers.</p>
+                }
+                break;
+
+            case 2:
+                <h2>Map</h2>
+                <p class="lead">Official maps are listed first. Add others on the Maps page.</p>
+                <div class="choice-list">
+                    @foreach (var map in _maps)
+                    {
+                        <button type="button" class="choice @(_mapId == map.Id ? "is-on" : null)" @onclick="() => _mapId = map.Id">
+                            <span class="dot"></span>
+                            <span><strong>@map.Name</strong><span class="mono">@map.Key</span></span>
+                        </button>
+                    }
+                </div>
+                break;
+
+            case 3:
+                <h2>Configuration source</h2>
+                @if (_clusterId is not null)
+                {
+                    <p class="lead">The cluster owns the INI files, so there is nothing to choose here. Per-instance differences can be added as overrides after creation.</p>
+                }
+                else
+                {
+                    <p class="lead">Where the two INI files start from. You edit them on the instance page afterwards.</p>
+                    <div class="choice-list" role="radiogroup">
+                        <button type="button" class="choice @(_configSource == ConfigSourceKind.GameDefaults ? "is-on" : null)" @onclick="() => _configSource = ConfigSourceKind.GameDefaults">
+                            <span class="dot"></span>
+                            <span><strong>Game defaults</strong><span>A minimal file with the required ServerAdminPassword slot and commented examples; the game fills in the rest on first launch.</span></span>
+                        </button>
+                        @foreach (var other in _existingInstances)
+                        {
+                            <button type="button" class="choice @(_configSource == ConfigSourceKind.CopyFromInstance && _configSourceId == other.Id ? "is-on" : null)" @onclick="() => { _configSource = ConfigSourceKind.CopyFromInstance; _configSourceId = other.Id; }">
+                                <span class="dot"></span>
+                                <span><strong>Copy from @other.Name</strong><span>A snapshot of that instance's current source text.</span></span>
+                            </button>
+                        }
+                        @foreach (var cluster in _clusters)
+                        {
+                            <button type="button" class="choice @(_configSource == ConfigSourceKind.CopyFromCluster && _configSourceId == cluster.Id ? "is-on" : null)" @onclick="() => { _configSource = ConfigSourceKind.CopyFromCluster; _configSourceId = cluster.Id; }">
+                                <span class="dot"></span>
+                                <span><strong>Copy from the @cluster.Name cluster</strong><span>A snapshot of the cluster's current source text.</span></span>
+                            </button>
+                        }
+                        <button type="button" class="choice @(_configSource == ConfigSourceKind.Blank ? "is-on" : null)" @onclick="() => _configSource = ConfigSourceKind.Blank">
+                            <span class="dot"></span>
+                            <span><strong>Blank</strong><span>Empty files. You must add ServerAdminPassword before the first start.</span></span>
+                        </button>
+                    </div>
+                }
+                break;
+
+            case 4:
+                <h2>Mods</h2>
+                <p class="lead">@(_clusterId is null ? "Loaded in this order." : "Cluster mods load first; these come after them.")</p>
+                <ModListEditor LockedMods="_clusterMods" Mods="_pickedMods" Library="_library" OnSave="@((IReadOnlyList<int> ids) => { _modIds = ids; _pickedMods = ids.Select(id => _library.First(m => m.Id == id)).ToList(); return Task.CompletedTask; })" />
+                <p class="hint muted">Use Save mods to keep the list for the summary, or leave it empty. The library is on the <a href="mods">Mods</a> page.</p>
+                break;
+
+            case 5:
+                <h2>Launch options</h2>
+                <p class="lead">@(_clusterId is null ? "Typed flags and any extra arguments." : "Inherit from the cluster unless this instance needs something different.")</p>
+                <LaunchFlagsEditor Flags="_flags" ClusterBase="_clusterFlags" CanInherit="@(_clusterId is not null)" OnSave="@((LaunchFlags f) => { _flags = f; return Task.CompletedTask; })" />
+                <p class="hint muted">Use Save launch options to keep them for the summary; the defaults are fine for a first server.</p>
+                break;
+
+            case 6:
+                <h2>Ports and players</h2>
+                <p class="lead">Suggested from the port ranges in Settings, skipping every other instance and the web UI. Collisions are refused because the game does not report a failed bind.</p>
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="w-game">Game port</label>
+                        <RadzenNumeric TValue="int" id="w-game" @bind-Value="_gamePort" @bind-Value:after="CheckPortsAsync" Min="1" Max="65534" />
+                        <span class="hint">UDP; port + 1 is used too. Both get an inbound firewall rule at start.</span>
+                    </div>
+                    <div class="field">
+                        <label for="w-rcon">RCON port</label>
+                        <RadzenNumeric TValue="int" id="w-rcon" @bind-Value="_rconPort" @bind-Value:after="CheckPortsAsync" Min="1" Max="65535" />
+                        <span class="hint">TCP on loopback, used by the manager only.</span>
+                    </div>
+                    <div class="field">
+                        <label for="w-players">Max players</label>
+                        <RadzenNumeric TValue="int" id="w-players" @bind-Value="_maxPlayers" Min="1" Max="500" />
+                    </div>
+                    <div class="field span-2">
+                        <label for="w-whitelist">Admin whitelist</label>
+                        <RadzenTextArea id="w-whitelist" @bind-Value="_whitelist" Rows="3" Placeholder="One EOS id per line (optional)" />
+                    </div>
+                </div>
+                <Problems Items="_portProblems" />
+                break;
+
+            case 7:
+                <h2>Summary</h2>
+                <p class="lead">Creating the instance writes the folder tree and the INI files. It does not start the server.</p>
+                <dl class="kv">
+                    <dt>Name</dt><dd>@_name <span class="faint mono">@Slug</span></dd>
+                    <dt>Session name</dt><dd>@_sessionName</dd>
+                    <dt>Cluster</dt><dd>@(_clusters.FirstOrDefault(c => c.Id == _clusterId)?.Name ?? "Standalone")</dd>
+                    <dt>Map</dt><dd>@(_maps.FirstOrDefault(m => m.Id == _mapId)?.Name ?? "—")</dd>
+                    @if (_clusterId is null)
+                    {
+                        <dt>INI source</dt><dd>@ConfigSourceText</dd>
+                    }
+                    <dt>Mods</dt><dd>@(_modIds.Count == 0 ? "none" : string.Join(", ", _pickedMods.Select(m => m.Name)))</dd>
+                    <dt>Ports</dt><dd><span class="num">@_gamePort</span> game, <span class="num">@_rconPort</span> RCON</dd>
+                    <dt>Max players</dt><dd>@_maxPlayers</dd>
+                </dl>
+                <Problems Items="_createProblems" />
+                break;
+        }
+
+        <div class="form-actions" style="margin-top:28px">
+            <RadzenButton Text="Back" Icon="arrow_back" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="@(_step == 0 || Busy)" Click="@(() => Go(_step - 1))" />
+            @if (_step < _steps.Length - 1)
+            {
+                <RadzenButton Text="Next" Icon="arrow_forward" ButtonStyle="ButtonStyle.Primary" Disabled="@(!CanAdvance || Busy)" Click="NextAsync" />
+            }
+            else
+            {
+                <RadzenButton Text="Create instance" Icon="add" ButtonStyle="ButtonStyle.Primary" Disabled="Busy" Click="CreateAsync" />
+            }
+            @if (_stepProblem is { } stepProblem)
+            {
+                <span class="status tone-warn">@stepProblem</span>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private static readonly string[] _steps = ["Name", "Cluster", "Map", "Config source", "Mods", "Launch options", "Ports", "Summary"];
+
+    private int _step;
+    private int _furthest;
+    private string? _stepProblem;
+    private string _name = string.Empty;
+    private string _sessionName = string.Empty;
+    private string _autoSession = string.Empty;
+    private int? _clusterId;
+    private int _mapId;
+    private ConfigSourceKind _configSource = ConfigSourceKind.GameDefaults;
+    private int? _configSourceId;
+    private IReadOnlyList<int> _modIds = [];
+    private IReadOnlyList<ModLibraryEntry> _pickedMods = [];
+    private IReadOnlyList<ModLibraryEntry> _clusterMods = [];
+    private LaunchFlags _flags = new();
+    private LaunchFlags? _clusterFlags;
+    private int _gamePort;
+    private int _rconPort;
+    private int _maxPlayers = 70;
+    private string _whitelist = string.Empty;
+    private IReadOnlyList<string>? _portProblems;
+    private IReadOnlyList<string>? _createProblems;
+    private IReadOnlyList<ClusterListItem> _clusters = [];
+    private IReadOnlyList<Map> _maps = [];
+    private IReadOnlyList<ModLibraryEntry> _library = [];
+    private IReadOnlyList<InstanceSummary> _existingInstances = [];
+    private int? _loadedClusterId = -1;
+
+    private string Slug => ArkAscendedServerAdmin.Naming.Slug.Generate(_name.Length == 0 ? "instance" : _name, []);
+
+    private string ConfigSourceText => _configSource switch
+    {
+        ConfigSourceKind.Blank => "blank files",
+        ConfigSourceKind.CopyFromInstance => $"copied from {_existingInstances.FirstOrDefault(i => i.Id == _configSourceId)?.Name}",
+        ConfigSourceKind.CopyFromCluster => $"copied from the {_clusters.FirstOrDefault(c => c.Id == _configSourceId)?.Name} cluster",
+        _ => "game defaults",
+    };
+
+    private bool CanAdvance => _step switch
+    {
+        0 => !string.IsNullOrWhiteSpace(_name) && !string.IsNullOrWhiteSpace(_sessionName),
+        2 => _mapId != 0,
+        6 => _portProblems is null or { Count: 0 },
+        _ => true,
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await GuardedAsync(async () =>
+        {
+            _clusters = await Clusters.ListAsync();
+            _maps = await Maps.ListAsync();
+            _library = await Mods.ListLibraryAsync();
+            _existingInstances = (await Instances.GetDashboardAsync()).Instances;
+            var suggestion = await Instances.SuggestPortsAsync();
+            _gamePort = suggestion.GamePort;
+            _rconPort = suggestion.RconPort;
+            _mapId = (_maps.FirstOrDefault(m => m.Key.Equals("TheIsland_WP", StringComparison.OrdinalIgnoreCase)) ?? _maps.FirstOrDefault())?.Id ?? 0;
+        });
+    }
+
+    /// <summary>Mirrors the name into the session name until the owner types their own.</summary>
+    private void OnNameChanged()
+    {
+        if (string.IsNullOrWhiteSpace(_sessionName) || _sessionName == _autoSession)
+        {
+            _sessionName = _name;
+            _autoSession = _name;
+        }
+    }
+
+    private void Go(int step)
+    {
+        if (step < 0 || step >= _steps.Length || step > _furthest)
+        {
+            return;
+        }
+
+        _step = step;
+        _stepProblem = null;
+    }
+
+    private async Task NextAsync()
+    {
+        if (_step == 1 && _clusterId != _loadedClusterId)
+        {
+            _loadedClusterId = _clusterId;
+            await GuardedAsync(async () =>
+            {
+                if (_clusterId is { } id && await Clusters.GetAsync(id) is { } cluster)
+                {
+                    _clusterMods = cluster.Mods;
+                    _clusterFlags = cluster.Cluster.LaunchFlags;
+                }
+                else
+                {
+                    _clusterMods = [];
+                    _clusterFlags = null;
+                }
+            });
+        }
+
+        if (_step == 6)
+        {
+            await CheckPortsAsync();
+            if (_portProblems is { Count: > 0 })
+            {
+                return;
+            }
+        }
+
+        _step++;
+        _furthest = Math.Max(_furthest, _step);
+        _stepProblem = null;
+    }
+
+    private async Task CheckPortsAsync()
+    {
+        await GuardedAsync(async () =>
+        {
+            _portProblems = (await Instances.CheckPortsAsync(_name, _gamePort, _rconPort)).Select(c => c.Reason).ToList();
+        });
+    }
+
+    private async Task CreateAsync()
+    {
+        _createProblems = null;
+        await GuardedAsync(async () =>
+        {
+            var result = await Instances.CreateAsync(new InstanceDraft
+            {
+                Name = _name,
+                ClusterId = _clusterId,
+                MapId = _mapId,
+                SessionName = _sessionName,
+                MaxPlayers = _maxPlayers,
+                GamePort = _gamePort,
+                RconPort = _rconPort,
+                ConfigSource = _configSource,
+                ConfigSourceId = _configSourceId,
+                ModIds = _modIds,
+                LaunchFlags = _flags,
+                AdminWhitelist = _whitelist,
+            });
+            if (result.Succeeded)
+            {
+                Notifications.Done($"Created {_name}", _clusterId is null ? "Set ServerAdminPassword in GameUserSettings.ini before the first start." : null);
+                Navigation.NavigateTo($"instances/{result.Value}");
+            }
+            else
+            {
+                _createProblems = result.Errors;
+            }
+        });
+    }
+}

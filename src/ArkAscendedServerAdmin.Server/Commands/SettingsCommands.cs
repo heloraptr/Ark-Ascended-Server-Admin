@@ -2,6 +2,9 @@ using System.Globalization;
 using ArkAscendedServerAdmin.Auth;
 using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Configuration;
+using ArkAscendedServerAdmin.Domain;
+using ArkAscendedServerAdmin.Maintenance;
+using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Startup;
 using ArkAscendedServerAdmin.Storage;
 
@@ -44,12 +47,61 @@ public sealed class SettingsCommands(
     }
 }
 
-/// <summary>Guarded facade over owner-initiated maintenance actions.</summary>
-public sealed class MaintenanceCommands(IAuthorizationGuard guard, IStartupControl startupControl) : IMaintenanceCommands
+/// <summary>Guarded facade over owner-initiated maintenance actions (install retry, update, recovery entries).</summary>
+public sealed class MaintenanceCommands(
+    IAuthorizationGuard guard,
+    IStartupControl startupControl,
+    IUpdateService updateService,
+    IMaintenanceRecovery recovery,
+    ILogger<MaintenanceCommands> logger) : IMaintenanceCommands
 {
     public async Task RetryInstallAsync(CancellationToken cancellationToken = default)
     {
         await guard.EnsureAuthorizedAsync(cancellationToken);
         await startupControl.RetryInstallAsync(cancellationToken);
+    }
+
+    public async Task<OperationOutcome> StartUpdateAsync(bool confirmStopRunningInstances, CancellationToken cancellationToken = default)
+    {
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        return await updateService.StartUpdateAsync(confirmStopRunningInstances, cancellationToken);
+    }
+
+    public async Task<OperationOutcome> RetryEntryAsync(int instanceId, CancellationToken cancellationToken = default)
+    {
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        return await updateService.RetryEntryAsync(instanceId, cancellationToken);
+    }
+
+    public async Task<OperationOutcome> SkipEntryAsync(int instanceId, CancellationToken cancellationToken = default)
+    {
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        return await updateService.SkipEntryAsync(instanceId, cancellationToken);
+    }
+
+    public async Task<OperationOutcome> ResumeMaintenanceAsync(CancellationToken cancellationToken = default)
+    {
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        var phase = updateService.Current.Phase;
+        if (phase is MaintenancePhase.None or MaintenancePhase.Installing)
+        {
+            return OperationOutcome.Rejected("There is no interrupted update to resume.");
+        }
+
+        // Fire-and-forget by design (HANDOVER §2): the resume drives SteamCMD and the relaunches in the
+        // background; the dashboard follows it through IUpdateService.Changed.
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await recovery.ResumeAsync(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Resuming the {Phase} maintenance phase failed.", phase);
+            }
+        }, CancellationToken.None);
+
+        return OperationOutcome.Success;
     }
 }

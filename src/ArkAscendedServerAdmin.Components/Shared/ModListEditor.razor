@@ -1,0 +1,110 @@
+@* Ordered mod list: locked cluster mods on top (greyed), then the editable list with move up/down and add-from-library. *@
+
+<div class="mod-list">
+    @{ var position = 0; }
+    @foreach (var mod in LockedMods)
+    {
+        position++;
+        <div class="mod-item is-locked" title="Cluster mod: change it on the cluster page.">
+            <span class="order num">@position</span>
+            <ModThumb Url="@mod.ThumbnailUrl" />
+            <div class="title">
+                <strong>@mod.Name</strong>
+                <span>@mod.Id · from the cluster</span>
+            </div>
+            <div class="actions"><RadzenIcon Icon="lock" Style="color:var(--ark-steel-3)" /></div>
+        </div>
+    }
+    @for (var i = 0; i < _mods.Count; i++)
+    {
+        var index = i;
+        var mod = _mods[i];
+        position++;
+        <div class="mod-item">
+            <span class="order num">@position</span>
+            <ModThumb Url="@mod.ThumbnailUrl" />
+            <div class="title">
+                <strong>@mod.Name</strong>
+                <span>@mod.Id@(string.IsNullOrWhiteSpace(mod.Summary) ? null : " · " + mod.Summary)</span>
+            </div>
+            <div class="actions">
+                <RadzenButton Icon="arrow_upward" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Move up" Disabled="@(index == 0)" Click="() => Move(index, -1)" />
+                <RadzenButton Icon="arrow_downward" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Move down" Disabled="@(index == _mods.Count - 1)" Click="() => Move(index, 1)" />
+                <RadzenButton Icon="close" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Remove" Click="() => _mods.RemoveAt(index)" />
+            </div>
+        </div>
+    }
+    @if (LockedMods.Count == 0 && _mods.Count == 0)
+    {
+        <p class="muted" style="padding:12px 0">No mods. The server starts vanilla.</p>
+    }
+</div>
+
+<div class="form-actions" style="flex-wrap:wrap">
+    <RadzenDropDown TValue="int?" @bind-Value="_pick" Data="Available" TextProperty="Name" ValueProperty="Id" Placeholder="@(Available.Count == 0 ? "Every library mod is already listed" : "Add a mod from the library")" AllowFiltering="true" AllowClear="true" Disabled="@(Available.Count == 0)" Style="min-width:300px" />
+    <RadzenButton Text="Add" Icon="add" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="@(_pick is null)" Click="Add" />
+    <span class="spacer" style="flex:1"></span>
+    <RadzenButton Text="Save mods" Icon="save" ButtonStyle="ButtonStyle.Primary" Disabled="@(Busy || !IsDirty)" Click="SaveAsync" />
+    <RadzenButton Text="Reset" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="@(Busy || !IsDirty)" Click="Reset" />
+</div>
+<p class="hint muted" style="margin-top:8px">Order matters: mods load in this order, cluster mods first. New mods on the list need a restart.</p>
+
+@code {
+    private List<ModLibraryEntry> _mods = [];
+    private int? _pick;
+    private IReadOnlyList<ModLibraryEntry>? _source;
+
+    [Parameter]
+    public IReadOnlyList<ModLibraryEntry> LockedMods { get; set; } = [];
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ModLibraryEntry> Mods { get; set; } = [];
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ModLibraryEntry> Library { get; set; } = [];
+
+    [Parameter]
+    public bool Busy { get; set; }
+
+    [Parameter]
+    public EventCallback<IReadOnlyList<int>> OnSave { get; set; }
+
+    private IReadOnlyList<ModLibraryEntry> Available =>
+        Library.Where(m => _mods.All(x => x.Id != m.Id) && LockedMods.All(x => x.Id != m.Id)).OrderBy(m => m.Name).ToList();
+
+    private bool IsDirty => !_mods.Select(m => m.Id).SequenceEqual(Mods.Select(m => m.Id));
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(_source, Mods))
+        {
+            _source = Mods;
+            Reset();
+        }
+    }
+
+    private void Reset() => _mods = Mods.ToList();
+
+    private void Add()
+    {
+        if (_pick is { } id && Library.FirstOrDefault(m => m.Id == id) is { } entry)
+        {
+            _mods.Add(entry);
+        }
+
+        _pick = null;
+    }
+
+    private void Move(int index, int delta)
+    {
+        var target = index + delta;
+        if (target < 0 || target >= _mods.Count)
+        {
+            return;
+        }
+
+        (_mods[index], _mods[target]) = (_mods[target], _mods[index]);
+    }
+
+    private Task SaveAsync() => OnSave.InvokeAsync(_mods.Select(m => m.Id).ToList());
+}

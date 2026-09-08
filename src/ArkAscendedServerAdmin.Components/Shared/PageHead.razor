@@ -1,0 +1,36 @@
+<PageTitle>@Title · Ark Ascended Server Admin</PageTitle>
+
+<header class="ark-page-head">
+    <div>
+        @if (Crumb is not null)
+        {
+            <div class="ark-crumb">@Crumb</div>
+        }
+        <h1>@Title</h1>
+        @if (Lead is not null || LeadContent is not null)
+        {
+            <p class="lead">@Lead@LeadContent</p>
+        }
+    </div>
+    @if (Actions is not null)
+    {
+        <div class="ark-page-actions">@Actions</div>
+    }
+</header>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Lead { get; set; }
+
+    [Parameter]
+    public RenderFragment? LeadContent { get; set; }
+
+    [Parameter]
+    public RenderFragment? Crumb { get; set; }
+
+    [Parameter]
+    public RenderFragment? Actions { get; set; }
+}

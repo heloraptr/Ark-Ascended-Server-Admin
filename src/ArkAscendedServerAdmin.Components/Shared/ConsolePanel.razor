@@ -1,0 +1,245 @@
+@* Shared console (plan step 32): one channel of IConsoleService, live-followed, with an optional command line. *@
+@implements IAsyncDisposable
+@inject IConsoleService Console
+@inject IJSRuntime JS
+
+<div class="console" style="@(Height is null ? null : $"height:{Height}")">
+    <div class="console-bar">
+        <span>@Title</span>
+        @if (_hasBackfill)
+        {
+            <span class="tag is-trace" title="Lines above were read from ShooterGame.log after the service re-attached to the running process.">re-attached, log history</span>
+        }
+        @if (_lines.Count > Visible)
+        {
+            <span class="tag">last @Visible of @_lines.Count lines</span>
+        }
+        <span class="spacer"></span>
+        <RadzenButton Text="@(_follow ? "Following" : "Follow")" Icon="@(_follow ? "vertical_align_bottom" : "pause")" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="@(_follow ? ButtonStyle.Primary : ButtonStyle.Base)" Click="ToggleFollow" />
+        <RadzenButton Icon="content_copy" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Copy visible lines" Click="CopyAsync" />
+        <RadzenButton Icon="backspace" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Clear this view (the log itself is untouched)" Click="ClearView" />
+    </div>
+    <div class="console-out" @ref="_output" tabindex="0" aria-live="polite" aria-label="@Title">
+        @if (_lines.Count == 0)
+        {
+            <span class="console-empty">@EmptyText</span>
+        }
+        else
+        {
+            @foreach (var line in _lines.Skip(Math.Max(0, _lines.Count - Visible)))
+            {
+                <span class="console-line k-@line.Kind.ToString().ToLowerInvariant()">@if (!line.Text.StartsWith('[')) { <span class="t">@Presentation.Clock(line.At)</span> }@line.Text</span>
+            }
+        }
+    </div>
+    @if (OnCommand.HasDelegate)
+    {
+        <div class="console-in">
+            <span class="prompt">rcon&gt;</span>
+            <input @ref="_input" @bind="_command" @bind:event="oninput" @onkeydown="OnKeyDown" placeholder="@(InputEnabled ? "ListPlayers, SaveWorld, Broadcast <message> …" : "Start the instance to send commands")"
+                   disabled="@(!InputEnabled || _sending)" autocomplete="off" spellcheck="false" aria-label="RCON command" />
+            <RadzenButton Text="Send" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="@(!InputEnabled || _sending || string.IsNullOrWhiteSpace(_command))" Click="SendAsync" />
+        </div>
+    }
+</div>
+
+@code {
+    private const int Visible = 800;
+    private readonly List<ConsoleLine> _lines = [];
+    private readonly List<string> _history = [];
+    private readonly object _gate = new();
+    private ElementReference _output;
+    private ElementReference _input;
+    private bool _follow = true;
+    private bool _hasBackfill;
+    private bool _renderScheduled;
+    private bool _sending;
+    private string _command = string.Empty;
+    private int _historyIndex = -1;
+    private string? _subscribedChannel;
+
+    [Parameter, EditorRequired]
+    public string Channel { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Title { get; set; } = "Console";
+
+    [Parameter]
+    public string EmptyText { get; set; } = "Nothing yet.";
+
+    /// <summary>CSS height of the whole panel; null lets the parent size it.</summary>
+    [Parameter]
+    public string? Height { get; set; }
+
+    /// <summary>When set, a command line is shown and each entered command is passed here.</summary>
+    [Parameter]
+    public EventCallback<string> OnCommand { get; set; }
+
+    [Parameter]
+    public bool InputEnabled { get; set; } = true;
+
+    protected override void OnParametersSet()
+    {
+        if (_subscribedChannel == Channel)
+        {
+            return;
+        }
+
+        if (_subscribedChannel is null)
+        {
+            Console.LineAppended += OnLineAppended;
+        }
+
+        _subscribedChannel = Channel;
+        lock (_gate)
+        {
+            _lines.Clear();
+            _lines.AddRange(Console.Snapshot(Channel));
+            _hasBackfill = _lines.Any(l => l.Kind == ConsoleLineKind.Backfill);
+        }
+    }
+
+    private void OnLineAppended(string channel, ConsoleLine line)
+    {
+        if (channel != Channel)
+        {
+            return;
+        }
+
+        var schedule = false;
+        lock (_gate)
+        {
+            _lines.Add(line);
+            if (_lines.Count > IConsoleService.Capacity)
+            {
+                _lines.RemoveRange(0, _lines.Count - IConsoleService.Capacity);
+            }
+
+            _hasBackfill |= line.Kind == ConsoleLineKind.Backfill;
+            if (!_renderScheduled)
+            {
+                _renderScheduled = schedule = true;
+            }
+        }
+
+        if (schedule)
+        {
+            // Coalesce bursts (the game logs dozens of lines per second while loading) into one render.
+            _ = InvokeAsync(async () =>
+            {
+                await Task.Delay(90);
+                lock (_gate)
+                {
+                    _renderScheduled = false;
+                }
+
+                StateHasChanged();
+            });
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_follow)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("ark.scrollToBottom", _output, true);
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+    }
+
+    private async Task ToggleFollow()
+    {
+        _follow = !_follow;
+        if (_follow)
+        {
+            await JS.InvokeVoidAsync("ark.scrollToBottom", _output, true);
+        }
+    }
+
+    private void ClearView()
+    {
+        lock (_gate)
+        {
+            _lines.Clear();
+            _hasBackfill = false;
+        }
+    }
+
+    private async Task CopyAsync()
+    {
+        string text;
+        lock (_gate)
+        {
+            text = string.Join('\n', _lines.Skip(Math.Max(0, _lines.Count - Visible)).Select(l => $"[{Presentation.Clock(l.At)}] {l.Text}"));
+        }
+
+        await JS.InvokeAsync<bool>("ark.copyText", text);
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "Enter":
+                await SendAsync();
+                break;
+            case "ArrowUp" when _history.Count > 0:
+                _historyIndex = _historyIndex < 0 ? _history.Count - 1 : Math.Max(0, _historyIndex - 1);
+                _command = _history[_historyIndex];
+                break;
+            case "ArrowDown" when _historyIndex >= 0:
+                _historyIndex = _historyIndex + 1 >= _history.Count ? -1 : _historyIndex + 1;
+                _command = _historyIndex < 0 ? string.Empty : _history[_historyIndex];
+                break;
+        }
+    }
+
+    private async Task SendAsync()
+    {
+        var command = _command.Trim();
+        if (command.Length == 0 || _sending || !InputEnabled)
+        {
+            return;
+        }
+
+        _sending = true;
+        try
+        {
+            await OnCommand.InvokeAsync(command);
+            if (_history.Count == 0 || _history[^1] != command)
+            {
+                _history.Add(command);
+            }
+
+            _historyIndex = -1;
+            _command = string.Empty;
+        }
+        finally
+        {
+            _sending = false;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("ark.focus", _input);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        if (_subscribedChannel is not null)
+        {
+            Console.LineAppended -= OnLineAppended;
+        }
+
+        return ValueTask.CompletedTask;
+    }
+}

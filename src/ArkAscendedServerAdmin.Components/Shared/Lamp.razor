@@ -1,0 +1,13 @@
+@* The ASA triangle in the state color: glowing when running, pulsing in transition, hollow when stopped. *@
+<svg class="lamp @Tone @(Hollow ? "is-hollow" : null)" viewBox="0 0 12 11" aria-hidden="true">
+    <polygon points="6,1 11,10 1,10" />
+</svg>
+
+@code {
+    /// <summary>One of <c>st-running</c>, <c>st-transit</c>, <c>st-off</c>, <c>st-bad</c>, <c>st-rim</c>.</summary>
+    [Parameter]
+    public string Tone { get; set; } = "st-off";
+
+    [Parameter]
+    public bool Hollow { get; set; }
+}

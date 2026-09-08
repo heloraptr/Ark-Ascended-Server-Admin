@@ -1,0 +1,260 @@
+@page "/settings"
+@inherits ArkPage
+@inject ISettingsCommands SettingsCommands
+@inject IConfigCommands Config
+
+<PageHead Title="Settings" Lead="Runtime settings live in the database and apply immediately. Host settings come from appsettings.json and need a service restart." />
+
+@if (_edit is null)
+{
+    <p class="muted">Loading…</p>
+}
+else
+{
+    <section class="ark-section">
+        <SectionHead Title="Starting and stopping" />
+        <div class="form-grid" style="margin-top:14px">
+            <div class="field">
+                <label for="st-stagger">Stagger between launches, seconds</label>
+                <RadzenNumeric TValue="int" id="st-stagger" @bind-Value="_edit.StaggerDelaySeconds" Min="0" Max="3600" />
+                <span class="hint">Applied by the launch queue between consecutive starts, whichever button queued them.</span>
+            </div>
+            <div class="field">
+                <label for="st-broadcast">Countdown before a stop, minutes</label>
+                <RadzenNumeric TValue="int" id="st-broadcast" @bind-Value="_edit.PreStopBroadcastMinutes" Min="0" Max="60" />
+                <span class="hint">Broadcast to players before saveworld and doexit. Zero skips it.</span>
+            </div>
+            <div class="field">
+                <label for="st-graceful">Graceful stop timeout, seconds</label>
+                <RadzenNumeric TValue="int" id="st-graceful" @bind-Value="_edit.GracefulStopTimeoutSeconds" Min="5" Max="3600" />
+                <span class="hint">How long to wait for the process to exit after doexit before killing it. A clean exit takes about 30 seconds.</span>
+            </div>
+            <div class="field">
+                <label for="st-rcon">RCON command timeout, seconds</label>
+                <RadzenNumeric TValue="int" id="st-rcon" @bind-Value="_edit.RconCommandTimeoutSeconds" Min="1" Max="300" />
+                <span class="hint">Commands take 2 to 7 seconds while a server is still starting.</span>
+            </div>
+            <div class="field">
+                <label for="st-backfill">Console history on re-attach, lines</label>
+                <RadzenNumeric TValue="int" id="st-backfill" @bind-Value="_edit.ConsoleBackfillLines" Min="0" Max="5000" />
+                <span class="hint">Read from ShooterGame.log when the service finds a server it did not start this session.</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="ark-section">
+        <SectionHead Title="Ports" />
+        <div class="form-grid" style="margin-top:14px">
+            <div class="field">
+                <label for="st-gp">Game port start</label>
+                <RadzenNumeric TValue="int" id="st-gp" @bind-Value="_edit.GamePortStart" Min="1" Max="65535" />
+            </div>
+            <div class="field">
+                <label for="st-gs">Game port step</label>
+                <RadzenNumeric TValue="int" id="st-gs" @bind-Value="_edit.GamePortStep" Min="1" Max="1000" />
+                <span class="hint">Two by default: each server uses its port and the next one.</span>
+            </div>
+            <div class="field">
+                <label for="st-rp">RCON port start</label>
+                <RadzenNumeric TValue="int" id="st-rp" @bind-Value="_edit.RconPortStart" Min="1" Max="65535" />
+            </div>
+            <div class="field">
+                <label for="st-rs">RCON port step</label>
+                <RadzenNumeric TValue="int" id="st-rs" @bind-Value="_edit.RconPortStep" Min="1" Max="1000" />
+            </div>
+        </div>
+    </section>
+
+    <section class="ark-section">
+        <SectionHead Title="Backups" />
+        <div class="form-grid" style="margin-top:14px">
+            <div class="field">
+                <label for="st-bi">Default interval, minutes</label>
+                <RadzenNumeric TValue="int" id="st-bi" @bind-Value="_edit.DefaultBackupIntervalMinutes" Min="1" Max="10080" />
+                <span class="hint">Per instance while it is running; an instance can override it.</span>
+            </div>
+            <div class="field">
+                <label for="st-br">Default backups to keep</label>
+                <RadzenNumeric TValue="int" id="st-br" @bind-Value="_edit.DefaultBackupRetention" Min="1" Max="1000" />
+                <span class="hint">Manual and scheduled backups count alike.</span>
+            </div>
+            <div class="field">
+                <label for="st-bq">Settle window after saveworld, seconds</label>
+                <RadzenNumeric TValue="int" id="st-bq" @bind-Value="_edit.BackupQuiescenceSeconds" Min="1" Max="600" />
+                <span class="hint">The world file is rewritten about a second after the save reply; the backup waits up to this long for it to settle.</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="ark-section">
+        <SectionHead Title="Game install" />
+        <div class="form-grid" style="margin-top:14px">
+            <div class="field">
+                <label>SteamCMD validate</label>
+                <RadzenCheckBox TValue="bool" @bind-Value="_edit.SteamCmdValidate" Name="st-validate" />
+                <span class="hint">Adds <code>validate</code> to every install and update. Slower; use it when the install looks broken.</span>
+            </div>
+            <div class="field">
+                <label for="st-cf">CurseForge API key</label>
+                <RadzenTextBox id="st-cf" @bind-Value="_edit.CurseForgeApiKey" autocomplete="off" />
+                <span class="hint">Stored in plain text in the database. Enables mod search and metadata; without it mods are added by id.</span>
+            </div>
+        </div>
+    </section>
+
+    <Problems Items="_problems" />
+    <div class="form-actions" style="margin-bottom:40px">
+        <RadzenButton Text="Save settings" Icon="save" ButtonStyle="ButtonStyle.Primary" Disabled="Busy" Click="SaveAsync" />
+        <RadzenButton Text="Reset" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="Busy" Click="LoadAsync" />
+    </div>
+
+    <section class="ark-section">
+        <SectionHead Title="Host">
+            <Summary>From appsettings.json; edit the file and restart the service to change these.</Summary>
+        </SectionHead>
+        @if (_host is not null)
+        {
+            <dl class="kv" style="margin-top:14px">
+                <dt>Data root</dt><dd class="mono">@_host.DataRoot</dd>
+                <dt>Bind URLs</dt><dd class="mono">@(string.Join(", ", _host.BindUrls))</dd>
+                <dt>Known proxies</dt><dd class="mono">@(_host.KnownProxies.Count == 0 ? "none" : string.Join(", ", _host.KnownProxies))</dd>
+                <dt>Plain HTTP allowed</dt><dd>@(_host.AllowInsecureHttp ? "yes (development only)" : "no")</dd>
+                <dt>Password configured</dt><dd>@(_host.IsPasswordConfigured ? "yes" : "no: every login is refused")</dd>
+                <dt>Running as</dt><dd>@(_host.IsWindowsService ? "Windows service" : "console process")</dd>
+            </dl>
+        }
+    </section>
+
+    <section class="ark-section">
+        <SectionHead Title="Configuration data" />
+        <div style="margin-top:14px;display:flex;flex-direction:column;gap:16px;max-width:72ch">
+            <div>
+                <p>Export a consistent copy of the database to <span class="mono">Exports</span> under the data root. Copying the .db file by hand is only safe with the service stopped.</p>
+                <RadzenButton Text="Export config backup" Icon="download" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="Busy" Click="ExportAsync" />
+                @if (_exportPath is not null)
+                {
+                    <p class="hint muted" style="margin-top:8px">Written to <span class="mono">@_exportPath</span></p>
+                }
+            </div>
+            <div>
+                <p>Rewrite every INI source file on disk from its database copy. This is the only direction the database ever writes files, and it overwrites whatever is in the Config folders now.</p>
+                <RadzenButton Text="Restore INI files from database" Icon="restore" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Danger" Disabled="Busy" Click="RestoreAsync" />
+            </div>
+        </div>
+    </section>
+}
+
+@code {
+    private sealed class EditModel
+    {
+        public int StaggerDelaySeconds { get; set; }
+        public bool SteamCmdValidate { get; set; }
+        public int GamePortStart { get; set; }
+        public int GamePortStep { get; set; }
+        public int RconPortStart { get; set; }
+        public int RconPortStep { get; set; }
+        public int DefaultBackupIntervalMinutes { get; set; }
+        public int DefaultBackupRetention { get; set; }
+        public int BackupQuiescenceSeconds { get; set; }
+        public int PreStopBroadcastMinutes { get; set; }
+        public int GracefulStopTimeoutSeconds { get; set; }
+        public int RconCommandTimeoutSeconds { get; set; }
+        public int ConsoleBackfillLines { get; set; }
+        public string CurseForgeApiKey { get; set; } = string.Empty;
+    }
+
+    private EditModel? _edit;
+    private HostConfiguration? _host;
+    private IReadOnlyList<string>? _problems;
+    private string? _exportPath;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private Task LoadAsync() => GuardedAsync(async () =>
+    {
+        var s = await SettingsCommands.GetAppSettingsAsync();
+        _edit = new EditModel
+        {
+            StaggerDelaySeconds = s.StaggerDelaySeconds,
+            SteamCmdValidate = s.SteamCmdValidate,
+            GamePortStart = s.GamePortStart,
+            GamePortStep = s.GamePortStep,
+            RconPortStart = s.RconPortStart,
+            RconPortStep = s.RconPortStep,
+            DefaultBackupIntervalMinutes = s.DefaultBackupIntervalMinutes,
+            DefaultBackupRetention = s.DefaultBackupRetention,
+            BackupQuiescenceSeconds = s.BackupQuiescenceSeconds,
+            PreStopBroadcastMinutes = s.PreStopBroadcastMinutes,
+            GracefulStopTimeoutSeconds = s.GracefulStopTimeoutSeconds,
+            RconCommandTimeoutSeconds = s.RconCommandTimeoutSeconds,
+            ConsoleBackfillLines = s.ConsoleBackfillLines,
+            CurseForgeApiKey = s.CurseForgeApiKey,
+        };
+        _host = await SettingsCommands.GetHostConfigurationAsync();
+        _problems = null;
+    });
+
+    private async Task SaveAsync()
+    {
+        var e = _edit!;
+        var settings = new AppSettings
+        {
+            StaggerDelaySeconds = e.StaggerDelaySeconds,
+            SteamCmdValidate = e.SteamCmdValidate,
+            GamePortStart = e.GamePortStart,
+            GamePortStep = e.GamePortStep,
+            RconPortStart = e.RconPortStart,
+            RconPortStep = e.RconPortStep,
+            DefaultBackupIntervalMinutes = e.DefaultBackupIntervalMinutes,
+            DefaultBackupRetention = e.DefaultBackupRetention,
+            BackupQuiescenceSeconds = e.BackupQuiescenceSeconds,
+            PreStopBroadcastMinutes = e.PreStopBroadcastMinutes,
+            GracefulStopTimeoutSeconds = e.GracefulStopTimeoutSeconds,
+            RconCommandTimeoutSeconds = e.RconCommandTimeoutSeconds,
+            ConsoleBackfillLines = e.ConsoleBackfillLines,
+            CurseForgeApiKey = e.CurseForgeApiKey?.Trim() ?? string.Empty,
+        };
+
+        _problems = settings.Validate();
+        if (_problems.Count > 0)
+        {
+            return;
+        }
+
+        await GuardedAsync(async () =>
+        {
+            try
+            {
+                await SettingsCommands.SaveAppSettingsAsync(settings);
+                Notifications.Done("Saved settings");
+            }
+            catch (ArgumentException ex)
+            {
+                _problems = [ex.Message];
+            }
+        });
+    }
+
+    private async Task ExportAsync()
+    {
+        await GuardedAsync(async () =>
+        {
+            _exportPath = await SettingsCommands.ExportConfigBackupAsync();
+            Notifications.Done("Exported config backup", _exportPath);
+        });
+    }
+
+    private async Task RestoreAsync()
+    {
+        if (!await ConfirmAsync("Restore INI files from database", "Every Game.ini and GameUserSettings.ini under Clusters\\*\\Config and Instances\\*\\Config is overwritten with the database copy. Unsaved edits on disk are lost.", "Overwrite the files", danger: true, icon: "restore"))
+        {
+            return;
+        }
+
+        await GuardedAsync(async () =>
+        {
+            var result = await Config.RestoreFromDatabaseAsync();
+            Notifications.Report(result, "Restored", "INI files from the database");
+        });
+    }
+}

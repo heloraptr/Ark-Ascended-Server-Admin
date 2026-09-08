@@ -1,0 +1,236 @@
+@page "/mods"
+@inherits ArkPage
+@inject IModCommands ModCommands
+
+<PageHead Title="Mods" Lead="The library every cluster and instance picks from. Entries are CurseForge project ids.">
+    <Actions>
+        <RadzenButton Text="Refresh names" Icon="sync" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="@(Busy || !_hasKey || _library.Count == 0)" title="Re-fetch names, summaries, and thumbnails from CurseForge" Click="RefreshAsync" />
+    </Actions>
+</PageHead>
+
+<section class="ark-section">
+    <SectionHead Title="Add a mod" />
+    <div class="ark-panel" style="margin-top:12px">
+        <div class="ark-panel-body">
+            @if (_hasKey)
+            {
+                <div class="form-actions" style="margin:0 0 14px">
+                    <RadzenTextBox @bind-Value="_term" @oninput="@((ChangeEventArgs e) => _term = e.Value?.ToString())" Placeholder="Search CurseForge, e.g. Awesome Spyglass" Style="min-width:320px" @onkeydown="@(async (KeyboardEventArgs e) => { if (e.Key == "Enter") await SearchAsync(); })" />
+                    <RadzenButton Text="Search" Icon="search" ButtonStyle="ButtonStyle.Primary" Disabled="@(Busy || string.IsNullOrWhiteSpace(_term))" Click="SearchAsync" />
+                    <span class="status">or add by id:</span>
+                    <RadzenNumeric TValue="int?" @bind-Value="_addId" Placeholder="project id" ShowUpDown="false" Style="width:140px" />
+                    <RadzenButton Text="Add" Icon="add" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="@(Busy || _addId is null)" Click="AddByIdAsync" />
+                </div>
+                @if (_searchError is not null)
+                {
+                    <Problems Items="@([_searchError])" />
+                }
+                @if (_hits is { Count: 0 })
+                {
+                    <p class="muted">Nothing matched.</p>
+                }
+                else if (_hits is { Count: > 0 })
+                {
+                    <div class="mod-grid">
+                        @foreach (var hit in _hits)
+                        {
+                            <div class="mod-card">
+                                <ModThumb Url="@hit.ThumbnailUrl" />
+                                <div class="body">
+                                    <strong title="@hit.Name">@hit.Name</strong>
+                                    <div class="summary">@hit.Summary</div>
+                                    <div class="meta">
+                                        <span class="num">@hit.Id</span>
+                                        @if (hit.Author is not null)
+                                        {
+                                            <span>@hit.Author</span>
+                                        }
+                                        <span>updated @Presentation.Ago(hit.DateModified, _now)</span>
+                                        <span class="spacer"></span>
+                                        @if (hit.InLibrary || _library.Any(m => m.Id == hit.Id))
+                                        {
+                                            <span class="tone-ok">in library</span>
+                                        }
+                                        else
+                                        {
+                                            <RadzenButton Text="Add" Icon="add" Size="ButtonSize.ExtraSmall" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="Busy" Click="@(() => AddAsync(hit.Id))" />
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+            else
+            {
+                <Notice Tone="is-info" Title="No CurseForge API key.">
+                    <p>Add one on the <a href="settings">Settings</a> page to search and to fetch names and thumbnails. Without it, add mods by their project id and give them a name yourself.</p>
+                </Notice>
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="m-id">Project id</label>
+                        <RadzenNumeric TValue="int?" id="m-id" @bind-Value="_addId" ShowUpDown="false" Placeholder="e.g. 928988" />
+                        <span class="hint">The number in the mod's CurseForge URL.</span>
+                    </div>
+                    <div class="field">
+                        <label for="m-name">Name</label>
+                        <RadzenTextBox id="m-name" @bind-Value="_addName" @oninput="@((ChangeEventArgs e) => _addName = e.Value?.ToString())" Placeholder="Awesome Spyglass" />
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <RadzenButton Text="Add to library" Icon="add" ButtonStyle="ButtonStyle.Primary" Disabled="@(Busy || _addId is null || string.IsNullOrWhiteSpace(_addName))" Click="AddManualAsync" />
+                </div>
+            }
+            <Problems Items="_addProblems" />
+        </div>
+    </div>
+</section>
+
+<section class="ark-section">
+    <SectionHead Title="Library">
+        <Summary>@Presentation.Plural(_library.Count, "mod")</Summary>
+    </SectionHead>
+    @if (_library.Count == 0)
+    {
+        <p class="muted" style="padding:12px 0">Empty. Mods added here become available in the instance and cluster mod lists.</p>
+    }
+    else
+    {
+        <div class="mod-list">
+            @foreach (var mod in _library)
+            {
+                var usage = _usage.GetValueOrDefault(mod.Id);
+                <div class="mod-item" style="grid-template-columns: 40px minmax(0,1fr) minmax(0,1fr) auto">
+                    <ModThumb Url="@mod.ThumbnailUrl" />
+                    <div class="title">
+                        <strong>@mod.Name</strong>
+                        <span><span class="num">@mod.Id</span>@(mod.DateModified is { } modified ? $" · updated {Presentation.Ago(modified, _now)}" : null)@(string.IsNullOrWhiteSpace(mod.Summary) ? null : " · " + mod.Summary)</span>
+                    </div>
+                    <div class="title">
+                        @if (usage is { IsReferenced: true })
+                        {
+                            <span>@string.Join(", ", usage.Clusters.Select(c => $"cluster {c}").Concat(usage.Instances))</span>
+                        }
+                        else
+                        {
+                            <span>not used</span>
+                        }
+                    </div>
+                    <div class="actions">
+                        <RadzenButton Icon="open_in_new" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Open on CurseForge" Click="@(() => Navigation.NavigateTo($"https://www.curseforge.com/ark-survival-ascended/search?search={mod.Id}", forceLoad: true))" />
+                        <RadzenButton Icon="close" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="@(usage is { IsReferenced: true } ? "Remove it from every list first" : "Remove from library")" Disabled="@(Busy || usage is { IsReferenced: true })" Click="@(() => RemoveAsync(mod))" />
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    private IReadOnlyList<ModLibraryEntry> _library = [];
+    private IReadOnlyDictionary<int, ModUsage> _usage = new Dictionary<int, ModUsage>();
+    private IReadOnlyList<ModSearchHit>? _hits;
+    private string? _searchError;
+    private string? _term;
+    private int? _addId;
+    private string? _addName;
+    private IReadOnlyList<string>? _addProblems;
+    private bool _hasKey;
+    private DateTimeOffset _now = DateTimeOffset.UtcNow;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private Task LoadAsync() => GuardedAsync(async () =>
+    {
+        _hasKey = await ModCommands.IsApiKeyConfiguredAsync();
+        _library = await ModCommands.ListLibraryAsync();
+        _usage = await ModCommands.GetUsageAsync();
+        _now = DateTimeOffset.UtcNow;
+    });
+
+    private async Task SearchAsync()
+    {
+        _searchError = null;
+        await GuardedAsync(async () =>
+        {
+            var result = await ModCommands.SearchAsync(_term ?? string.Empty);
+            _hits = result.Value;
+            _searchError = result.Error;
+        });
+    }
+
+    private async Task AddAsync(int id)
+    {
+        _addProblems = null;
+        await GuardedAsync(async () =>
+        {
+            var result = await ModCommands.AddAsync(id);
+            if (result.Succeeded)
+            {
+                Notifications.Done($"Added {result.Value!.Name}");
+            }
+            else
+            {
+                _addProblems = result.Errors;
+            }
+        });
+        await LoadAsync();
+    }
+
+    private async Task AddByIdAsync()
+    {
+        if (_addId is { } id)
+        {
+            await AddAsync(id);
+            _addId = null;
+        }
+    }
+
+    private async Task AddManualAsync()
+    {
+        _addProblems = null;
+        await GuardedAsync(async () =>
+        {
+            var result = await ModCommands.AddManualAsync(_addId ?? 0, _addName ?? string.Empty);
+            if (result.Succeeded)
+            {
+                Notifications.Done($"Added {result.Value!.Name}");
+                _addId = null;
+                _addName = null;
+            }
+            else
+            {
+                _addProblems = result.Errors;
+            }
+        });
+        await LoadAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        await GuardedAsync(async () =>
+        {
+            var result = await ModCommands.RefreshMetadataAsync();
+            if (result.Succeeded)
+            {
+                Notifications.Done("Refreshed names", result.Value == 0 ? "Nothing changed." : $"{Presentation.Plural(result.Value, "entry", "entries")} updated.");
+            }
+            else
+            {
+                Notifications.Failed("Could not refresh", result.Error);
+            }
+        });
+        await LoadAsync();
+    }
+
+    private async Task RemoveAsync(ModLibraryEntry mod)
+    {
+        await GuardedAsync(async () =>
+        {
+            var result = await ModCommands.RemoveAsync(mod.Id);
+            Notifications.Report(result, "Removed", mod.Name);
+        });
+        await LoadAsync();
+    }
+}

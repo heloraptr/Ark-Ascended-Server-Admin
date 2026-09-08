@@ -8,27 +8,37 @@
 
 <PageTitle>Sign in · Ark Ascended Server Admin</PageTitle>
 
-<RadzenCard Style="width: 100%; max-width: 24rem;">
-    <RadzenStack Gap="1rem">
-        <RadzenText TextStyle="TextStyle.H5" TagName="TagName.H1" class="rz-m-0">Ark Ascended Server Admin</RadzenText>
-        <RadzenText TextStyle="TextStyle.Body2">Enter the password from <code>appsettings.json</code> to continue.</RadzenText>
-
-        <EditForm Model="Input!" FormName="login" OnValidSubmit="SubmitAsync" method="post">
-            <DataAnnotationsValidator />
-            <RadzenStack Gap="0.75rem">
-                @if (_error is not null)
-                {
-                    <RadzenAlert AlertStyle="AlertStyle.Danger" Variant="Variant.Flat" AllowClose="false">@_error</RadzenAlert>
-                }
-                <RadzenFormField Text="Password" Style="width: 100%;">
-                    <InputText type="password" @bind-Value="Input!.Password" class="rz-textbox" autocomplete="current-password" autofocus />
-                </RadzenFormField>
-                <ValidationMessage For="() => Input!.Password" />
-                <RadzenButton ButtonType="ButtonType.Submit" Text="Sign in" Icon="login" Style="width: 100%;" />
-            </RadzenStack>
-        </EditForm>
-    </RadzenStack>
-</RadzenCard>
+<div class="ark-gate-card">
+    <div class="ark-gate-brand">
+        <BrandMark />
+        <span>
+            <span class="ark-brand-name">ARK</span>
+            <span class="ark-brand-sub">Ascended server admin</span>
+        </span>
+    </div>
+    <div class="ark-panel">
+        <div class="horizon"></div>
+        <div class="ark-panel-body">
+            <EditForm Model="Input!" FormName="login" OnValidSubmit="SubmitAsync" method="post">
+                <DataAnnotationsValidator />
+                <div style="display:flex;flex-direction:column;gap:14px">
+                    <h1 style="font-size:20px">Sign in</h1>
+                    @if (_error is not null)
+                    {
+                        <Problems Items="@([_error])" />
+                    }
+                    <div class="field">
+                        <label for="password">Password</label>
+                        <InputText id="password" type="password" @bind-Value="Input!.Password" class="rz-textbox" autocomplete="current-password" autofocus />
+                        <ValidationMessage For="() => Input!.Password" class="tone-bad" style="font-size:12.5px" />
+                        <span class="hint">The one in appsettings.json on the server box. Five wrong tries lock this address out for five minutes.</span>
+                    </div>
+                    <RadzenButton ButtonType="ButtonType.Submit" Text="Sign in" Icon="login" ButtonStyle="ButtonStyle.Primary" Style="width:100%" />
+                </div>
+            </EditForm>
+        </div>
+    </div>
+</div>
 
 @code {
     private string? _error;

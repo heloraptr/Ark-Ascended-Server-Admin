@@ -1,0 +1,237 @@
+@page "/clusters/{Id:int}"
+@inherits ArkPage
+@implements IDisposable
+@inject IClusterCommands ClusterCommands
+@inject IModCommands ModCommands
+@inject IProcessManager Processes
+
+@if (_detail is null)
+{
+    <PageHead Title="@(_missing ? "Cluster not found" : "Loading…")" />
+    @if (_missing)
+    {
+        <EmptyState Title="There is no cluster with this id.">
+            <Actions><RadzenButton Text="Back to clusters" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Click="@(() => Navigation.NavigateTo("clusters"))" /></Actions>
+        </EmptyState>
+    }
+}
+else
+{
+    var cluster = _detail.Cluster;
+    <PageHead Title="@cluster.Name">
+        <Crumb><a href="clusters">Clusters</a></Crumb>
+        <LeadContent>
+            cluster id <span class="mono">@cluster.ClusterKey</span>
+            <span class="faint"> · </span>@Presentation.Plural(_detail.Instances.Count, "member")
+            <span class="faint"> · </span>@Presentation.Plural(_detail.Mods.Count, "mod")
+        </LeadContent>
+        <Actions>
+            <RadzenButton Text="Start all" Icon="play_arrow" ButtonStyle="ButtonStyle.Success" Variant="Variant.Outlined" Disabled="@(!_detail.Instances.Any(i => !Processes.GetRuntime(i.Id).HasLiveProcess))" Click="@(() => FireMany(() => InstanceCommands.StartManyAsync(_detail.Instances.Where(i => !Processes.GetRuntime(i.Id).HasLiveProcess).Select(i => i.Id).ToList()), "Started"))" />
+            <RadzenButton Text="Stop all" Icon="stop" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Outlined" Disabled="@(!_detail.Instances.Any(i => Processes.GetRuntime(i.Id).HasLiveProcess))" Click="@(() => FireMany(() => InstanceCommands.StopManyAsync(_detail.Instances.Where(i => Processes.GetRuntime(i.Id).HasLiveProcess).Select(i => i.Id).ToList()), "Stopped"))" />
+            <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Text" title="Delete cluster" Disabled="@(_detail.Instances.Count > 0)" Click="DeleteAsync" />
+        </Actions>
+    </PageHead>
+
+    @if (_detail.Instances.Any(i => Processes.GetRuntime(i.Id).HasLiveProcess))
+    {
+        <Notice Tone="is-info">
+            <p>Members are running. INI, mod, and launch changes apply to each member at its next start.</p>
+        </Notice>
+    }
+
+    <RadzenTabs RenderMode="TabRenderMode.Client">
+        <Tabs>
+            <RadzenTabsItem Text="Members">
+                @if (_detail.Instances.Count == 0)
+                {
+                    <EmptyState Title="No members yet.">
+                        <ChildContent>Create an instance and choose this cluster in the wizard.</ChildContent>
+                        <Actions><RadzenButton Text="New instance" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@(() => Navigation.NavigateTo("instances/new"))" /></Actions>
+                    </EmptyState>
+                }
+                else
+                {
+                    <div class="ark-rows">
+                        @foreach (var instance in _detail.Instances)
+                        {
+                            var runtime = Processes.GetRuntime(instance.Id);
+                            <div class="ark-row" style="grid-template-columns: 22px minmax(180px,1.4fr) minmax(120px,1fr) 150px 170px auto">
+                                <Lamp Tone="@Presentation.Tone(runtime.State)" Hollow="@Presentation.IsHollow(runtime.State)" />
+                                <div class="name"><a href="instances/@instance.Id">@instance.Name</a><small>@instance.SessionName</small></div>
+                                <div class="cell"><strong>@instance.MapName</strong></div>
+                                <div class="cell ports"><strong class="num">@instance.GamePort <span class="faint">game</span></strong><span class="num">@instance.RconPort <span class="faint">rcon</span></span></div>
+                                <div class="cell"><InstanceStateView Runtime="runtime" ShowHint="false" /></div>
+                                <div class="actions">
+                                    <RadzenButton Icon="arrow_forward" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Open" Click="@(() => Navigation.NavigateTo($"instances/{instance.Id}"))" />
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </RadzenTabsItem>
+
+            <RadzenTabsItem Text="Config">
+                <RadzenTabs RenderMode="TabRenderMode.Client">
+                    <Tabs>
+                        <RadzenTabsItem Text="GameUserSettings.ini">
+                            <IniEditor Owner="@IniOwner.ForCluster(Id)" File="IniFile.GameUserSettings" />
+                        </RadzenTabsItem>
+                        <RadzenTabsItem Text="Game.ini">
+                            <IniEditor Owner="@IniOwner.ForCluster(Id)" File="IniFile.Game" />
+                        </RadzenTabsItem>
+                    </Tabs>
+                </RadzenTabs>
+            </RadzenTabsItem>
+
+            <RadzenTabsItem Text="Mods">
+                <p class="muted">Mandatory for every member and loaded before each member's own mods.</p>
+                <ModListEditor Mods="_detail.Mods" Library="_library" Busy="Busy" OnSave="SaveModsAsync" />
+            </RadzenTabsItem>
+
+            <RadzenTabsItem Text="Launch">
+                <p class="muted">The base every member starts from; a member can override each flag.</p>
+                <LaunchFlagsEditor Flags="cluster.LaunchFlags" Busy="Busy" OnSave="SaveLaunchFlagsAsync" />
+            </RadzenTabsItem>
+
+            <RadzenTabsItem Text="Settings">
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="c-name">Cluster name</label>
+                        <RadzenTextBox id="c-name" @bind-Value="_name" />
+                        <span class="hint">The folder stays <code>Clusters\@cluster.Slug</code>.</span>
+                    </div>
+                    <div class="field">
+                        <label for="c-key">Cluster id</label>
+                        <RadzenTextBox id="c-key" @bind-Value="_key" />
+                        <span class="hint">Passed as -clusterid; every member must share it for transfers to work. Changing it strands existing transfers.</span>
+                    </div>
+                    <div class="field span-2">
+                        <label for="c-whitelist">Admin whitelist</label>
+                        <RadzenTextArea id="c-whitelist" @bind-Value="_whitelist" Rows="4" Placeholder="One EOS id per line" />
+                        <span class="hint">Merged with each member's own list at start.</span>
+                    </div>
+                </div>
+                <Problems Items="_problems" />
+                <div class="form-actions">
+                    <RadzenButton Text="Save settings" Icon="save" ButtonStyle="ButtonStyle.Primary" Disabled="Busy" Click="SaveAsync" />
+                    <RadzenButton Text="Reset" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="Busy" Click="ResetEdit" />
+                </div>
+            </RadzenTabsItem>
+        </Tabs>
+    </RadzenTabs>
+}
+
+@code {
+    [Inject]
+    private IInstanceCommands InstanceCommands { get; set; } = default!;
+
+    private ClusterDetail? _detail;
+    private IReadOnlyList<ModLibraryEntry> _library = [];
+    private string? _name;
+    private string? _key;
+    private string? _whitelist;
+    private IReadOnlyList<string>? _problems;
+    private bool _missing;
+    private int _loadedId;
+
+    [Parameter]
+    public int Id { get; set; }
+
+    protected override void OnInitialized() => Processes.RuntimeChanged += OnRuntimeChanged;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedId == Id)
+        {
+            return;
+        }
+
+        _loadedId = Id;
+        await LoadAsync();
+    }
+
+    private Task LoadAsync() => GuardedAsync(async () =>
+    {
+        _detail = await ClusterCommands.GetAsync(Id);
+        _missing = _detail is null;
+        if (_detail is null)
+        {
+            return;
+        }
+
+        _library = await ModCommands.ListLibraryAsync();
+        ResetEdit();
+    });
+
+    private void ResetEdit()
+    {
+        _name = _detail!.Cluster.Name;
+        _key = _detail.Cluster.ClusterKey;
+        _whitelist = _detail.Cluster.AdminWhitelist;
+        _problems = null;
+    }
+
+    private void OnRuntimeChanged(InstanceRuntime runtime) => _ = InvokeAsync(StateHasChanged);
+
+    private async Task SaveAsync()
+    {
+        await GuardedAsync(async () =>
+        {
+            var result = await ClusterCommands.SaveAsync(Id, new ClusterEdit(_name ?? string.Empty, _key ?? string.Empty, _whitelist ?? string.Empty));
+            _problems = result.Succeeded ? null : result.Errors;
+            if (result.Succeeded)
+            {
+                Notifications.Done("Saved settings");
+                _detail = await ClusterCommands.GetAsync(Id);
+                ResetEdit();
+            }
+        });
+    }
+
+    private async Task SaveLaunchFlagsAsync(LaunchFlags flags)
+    {
+        await GuardedAsync(async () =>
+        {
+            var result = await ClusterCommands.SaveLaunchFlagsAsync(Id, flags);
+            Notifications.Report(result, "Saved", "launch options");
+            if (result.Succeeded)
+            {
+                _detail = await ClusterCommands.GetAsync(Id);
+            }
+        });
+    }
+
+    private async Task SaveModsAsync(IReadOnlyList<int> ids)
+    {
+        await GuardedAsync(async () =>
+        {
+            var result = await ClusterCommands.SetModsAsync(Id, ids);
+            Notifications.Report(result, "Saved", "cluster mods");
+            if (result.Succeeded)
+            {
+                _detail = await ClusterCommands.GetAsync(Id);
+            }
+        });
+    }
+
+    private async Task DeleteAsync()
+    {
+        var name = _detail!.Cluster.Name;
+        if (!await ConfirmAsync($"Delete {name}", "The cluster row, its mod list, and its INI mirror rows are removed. The folder under Clusters stays on disk.", "Delete cluster", danger: true))
+        {
+            return;
+        }
+
+        await GuardedAsync(async () =>
+        {
+            var result = await ClusterCommands.DeleteAsync(Id);
+            Notifications.Report(result, "Deleted", name);
+            if (result.Succeeded)
+            {
+                Navigation.NavigateTo("clusters");
+            }
+        });
+    }
+
+    public void Dispose() => Processes.RuntimeChanged -= OnRuntimeChanged;
+}

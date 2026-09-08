@@ -1,0 +1,14 @@
+@if (Items is { Count: > 0 })
+{
+    <ul class="problems" role="alert">
+        @foreach (var item in Items)
+        {
+            <li>@item</li>
+        }
+    </ul>
+}
+
+@code {
+    [Parameter]
+    public IReadOnlyList<string>? Items { get; set; }
+}

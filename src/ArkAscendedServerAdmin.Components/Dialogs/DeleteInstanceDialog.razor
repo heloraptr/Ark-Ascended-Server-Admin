@@ -1,0 +1,52 @@
+@* Plan step 30: the keep/delete world-data choice and the typed name are collected here, before the job is enqueued. *@
+@inject DialogService Dialogs
+
+<div style="display:flex;flex-direction:column;gap:14px">
+    @if (IsLive)
+    {
+        <Notice Tone="is-warn">
+            <p>The server is running. It will be saved and stopped first; the delete waits for the process to exit.</p>
+        </Notice>
+    }
+    <div class="choice-list" role="radiogroup" aria-label="World data">
+        <button type="button" class="choice @(_keep ? "is-on" : null)" @onclick="() => _keep = true">
+            <span class="dot"></span>
+            <span>
+                <strong>Keep the world data</strong>
+                <span>The Saved folder moves to Archive under DataRoot with a timestamp. The slug stays reserved.</span>
+            </span>
+        </button>
+        <button type="button" class="choice @(!_keep ? "is-on" : null)" @onclick="() => _keep = false">
+            <span class="dot"></span>
+            <span>
+                <strong>Delete the world data</strong>
+                <span>The Saved folder, including the world and player files, is removed. Backups under Backups\@Slug are not touched.</span>
+            </span>
+        </button>
+    </div>
+    @if (!_keep)
+    {
+        <div class="field">
+            <label for="del-confirm">Type the instance name to confirm: <code>@Name</code></label>
+            <RadzenTextBox id="del-confirm" @bind-Value="_typed" @oninput="@((ChangeEventArgs e) => _typed = e.Value?.ToString())" autocomplete="off" />
+        </div>
+    }
+    <div class="form-actions" style="justify-content:flex-end;margin-top:4px">
+        <RadzenButton Text="Cancel" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => Dialogs.Close(null))" />
+        <RadzenButton Text="@(_keep ? "Delete instance, keep world" : "Delete instance and world")" Icon="delete" ButtonStyle="ButtonStyle.Danger" Disabled="@(!_keep && !string.Equals(_typed?.Trim(), Name, StringComparison.Ordinal))" Click="@(() => Dialogs.Close(_keep))" />
+    </div>
+</div>
+
+@code {
+    private bool _keep = true;
+    private string? _typed;
+
+    [Parameter]
+    public string Name { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Slug { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool IsLive { get; set; }
+}

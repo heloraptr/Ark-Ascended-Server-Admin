@@ -1,0 +1,40 @@
+@* Inline notice with a tone stripe: is-info / is-warn / is-bad / is-ok. *@
+<div class="notice @Tone" role="@(Tone == "is-bad" ? "alert" : "status")">
+    <RadzenIcon Icon="@Icon" />
+    <div class="body">
+        @if (Title is not null)
+        {
+            <strong>@Title</strong>
+        }
+        @ChildContent
+    </div>
+    @if (Actions is not null)
+    {
+        <div class="actions">@Actions</div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string Tone { get; set; } = "is-info";
+
+    [Parameter]
+    public string? Title { get; set; }
+
+    [Parameter]
+    public string? IconName { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public RenderFragment? Actions { get; set; }
+
+    private string Icon => IconName ?? Tone switch
+    {
+        "is-warn" => "warning",
+        "is-bad" => "error",
+        "is-ok" => "check_circle",
+        _ => "info",
+    };
+}

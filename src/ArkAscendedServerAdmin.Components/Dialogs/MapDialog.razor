@@ -1,0 +1,33 @@
+@inject DialogService Dialogs
+
+<div style="display:flex;flex-direction:column;gap:12px">
+    <div class="form-grid">
+        <div class="field">
+            <label for="map-key">Map key</label>
+            <RadzenTextBox id="map-key" @bind-Value="_key" Placeholder="TheIsland_WP" />
+            <span class="hint">Exactly what the server takes on the command line.</span>
+        </div>
+        <div class="field">
+            <label for="map-name">Display name</label>
+            <RadzenTextBox id="map-name" @bind-Value="_name" Placeholder="The Island" />
+        </div>
+    </div>
+    <div class="form-actions" style="justify-content:flex-end;margin-top:4px">
+        <RadzenButton Text="Cancel" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => Dialogs.Close(null))" />
+        <RadzenButton Text="@(Map.Id == 0 ? "Add map" : "Save map")" Icon="save" ButtonStyle="ButtonStyle.Primary" Click="@(() => Dialogs.Close(new Map { Id = Map.Id, Key = _key ?? string.Empty, Name = _name ?? string.Empty, IsOfficial = Map.IsOfficial }))" />
+    </div>
+</div>
+
+@code {
+    private string? _key;
+    private string? _name;
+
+    [Parameter]
+    public Map Map { get; set; } = default!;
+
+    protected override void OnInitialized()
+    {
+        _key = Map.Key;
+        _name = Map.Name;
+    }
+}

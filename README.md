@@ -49,6 +49,35 @@ Two kinds of settings, deliberately kept apart:
 `appsettings.Development.json` points `DataRoot` at `./data` in the repo (git-ignored), sets the
 password to `dev`, and allows plain HTTP so `dotnet run` works without a proxy.
 
+## Web UI
+
+Every screen lives in the `Components` Razor Class Library and talks only to `Core` interfaces:
+the scoped command facades (`IInstanceCommands`, `IClusterCommands`, `IConfigCommands`,
+`IModCommands`, `IPlayerCommands`, `IMapCommands`, `ISettingsCommands`, `IMaintenanceCommands`)
+re-check the session on every call, and live state (instance runtimes, console lines, readiness,
+maintenance) is observed through the singleton services' events.
+
+| Page | What it does |
+|---|---|
+| Instances (`/`) | Rows grouped by cluster, standalone last; start/stop/restart/back up per row, selected, or per cluster; update-recovery banner. |
+| Instance (`/instances/{id}`) | Console with RCON input, INI editors (source files) and overrides, mods, launch options with a command-line preview, settings, backups. |
+| New instance (`/instances/new`) | Wizard: name, cluster, map, INI starting point, mods, launch options, ports, summary. |
+| Clusters | Shared INI files, cluster mods, base launch options, cluster id and whitelist. |
+| Mods | CurseForge search with an API key, manual ids without one. |
+| Players | On-demand `ListPlayers` across running instances; pick an EOS id into a whitelist. |
+| Maps, Settings, Setup | Map list, App Settings plus read-only host values and config export, install console. |
+
+The visual system (fonts, tokens, the horizon rule, the state lamp) is in
+`src/ArkAscendedServerAdmin.Components/wwwroot/css/ark.css`; Radzen's `standard-dark` theme is
+re-tokened rather than restyled.
+
+### Developing without the 12 GB download
+
+The readiness pipeline only needs `DataRoot\Server\steamapps\appmanifest_2430930.acf` with
+`StateFlags 4`, the game tree under `Server`, and `DataRoot\SteamCMD\steamcmd.exe`. With an existing
+SteamCMD install elsewhere, junction `Server\Engine` and `Server\ShooterGame` at the installed game,
+copy the manifest and `steamcmd.exe`, and `dotnet run` reaches Ready in a few seconds.
+
 ## Running as a Windows service
 
 Publish, then register the service under LocalSystem (an elevated PowerShell):

@@ -1,0 +1,23 @@
+@inject DialogService Dialogs
+
+<div style="display:flex;flex-direction:column;gap:12px">
+    <p>@Message</p>
+    <div class="form-actions" style="justify-content:flex-end;margin-top:4px">
+        <RadzenButton Text="Cancel" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => Dialogs.Close(false))" />
+        <RadzenButton Text="@ConfirmText" Icon="@Icon" ButtonStyle="@(Danger ? ButtonStyle.Danger : ButtonStyle.Primary)" Click="@(() => Dialogs.Close(true))" />
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public string Message { get; set; } = string.Empty;
+
+    [Parameter]
+    public string ConfirmText { get; set; } = "Confirm";
+
+    [Parameter]
+    public string? Icon { get; set; }
+
+    [Parameter]
+    public bool Danger { get; set; }
+}

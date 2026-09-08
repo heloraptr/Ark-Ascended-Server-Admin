@@ -1,0 +1,117 @@
+@implements IDisposable
+@inject IReadinessMonitor Readiness
+@inject IUpdateService Updates
+@inject IProcessManager Processes
+@inject IMaintenanceCommands Maintenance
+@inject DialogService Dialogs
+@inject NotificationService Notifications
+@inject NavigationManager Navigation
+
+<aside class="ark-rail">
+    <a class="ark-brand" href="">
+        <BrandMark />
+        <span>
+            <span class="ark-brand-name">ARK</span>
+            <span class="ark-brand-sub">Ascended server admin</span>
+        </span>
+    </a>
+
+    <nav class="ark-nav" aria-label="Main">
+        <NavLink href="" Match="NavLinkMatch.All"><RadzenIcon Icon="dns" /> Instances</NavLink>
+        <NavLink href="clusters"><RadzenIcon Icon="hub" /> Clusters</NavLink>
+        <NavLink href="mods"><RadzenIcon Icon="extension" /> Mods</NavLink>
+        <NavLink href="players"><RadzenIcon Icon="group" /> Players</NavLink>
+        <NavLink href="maps"><RadzenIcon Icon="map" /> Maps</NavLink>
+        <NavLink href="settings"><RadzenIcon Icon="tune" /> Settings</NavLink>
+    </nav>
+
+    <div class="ark-rail-foot">
+        <div class="ark-system">
+            <div class="ark-system-row">
+                <Lamp Tone="@Presentation.Tone(_readiness.Phase)" />
+                <strong>@Presentation.Label(_readiness.Phase)</strong>
+            </div>
+            @if (_maintenance.Phase != MaintenancePhase.None)
+            {
+                <div class="ark-system-row">
+                    <Lamp Tone="st-transit" />
+                    <span>@Presentation.Label(_maintenance.Phase)</span>
+                </div>
+                @if (_maintenance.Detail is { } detail)
+                {
+                    <div class="ark-system-detail">@detail</div>
+                }
+            }
+            else
+            {
+                <div class="ark-system-detail">@Presentation.Plural(_live, "instance") up</div>
+            }
+            <RadzenButton Text="Update game" Icon="system_update_alt" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base"
+                          Disabled="@(_maintenance.Phase != MaintenancePhase.None || !_readiness.IsReady)" Click="UpdateAsync" />
+        </div>
+        <AuthorizeView>
+            <Authorized>
+                <div class="ark-signout">
+                    <form method="post" action="logout">
+                        <AntiforgeryToken />
+                        <button type="submit">Sign out</button>
+                    </form>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+    </div>
+</aside>
+
+@code {
+    private ReadinessState _readiness = default!;
+    private MaintenanceSnapshot _maintenance = default!;
+    private int _live;
+
+    protected override void OnInitialized()
+    {
+        _readiness = Readiness.Current;
+        _maintenance = Updates.Current;
+        _live = CountLive();
+        Readiness.Changed += OnReadiness;
+        Updates.Changed += OnMaintenance;
+        Processes.RuntimeChanged += OnRuntime;
+    }
+
+    private int CountLive() => Processes.GetAllRuntimes().Count(r => r.HasLiveProcess);
+
+    private void OnReadiness(ReadinessState state) => _ = InvokeAsync(() => { _readiness = state; StateHasChanged(); });
+
+    private void OnMaintenance(MaintenanceSnapshot snapshot) => _ = InvokeAsync(() => { _maintenance = snapshot; StateHasChanged(); });
+
+    private void OnRuntime(InstanceRuntime runtime) => _ = InvokeAsync(() => { _live = CountLive(); StateHasChanged(); });
+
+    private async Task UpdateAsync()
+    {
+        var live = Processes.GetAllRuntimes().Where(r => r.HasLiveProcess).Select(r => r.InstanceId).ToList();
+        var confirmed = await Dialogs.OpenAsync<UpdateGameDialog>("Update the game", new Dictionary<string, object?> { ["LiveCount"] = live.Count }, new DialogOptions { Width = "460px" });
+        if (confirmed is not true)
+        {
+            return;
+        }
+
+        await Navigation.GuardedAsync(async () =>
+        {
+            var outcome = await Maintenance.StartUpdateAsync(confirmStopRunningInstances: live.Count > 0);
+            if (outcome.Succeeded)
+            {
+                Notifications.Info("Update started", live.Count > 0 ? "Running instances are being stopped first." : "SteamCMD is checking for a new build.");
+            }
+            else
+            {
+                Notifications.Failed("Could not start the update", outcome.Error);
+            }
+        }, Notifications);
+    }
+
+    public void Dispose()
+    {
+        Readiness.Changed -= OnReadiness;
+        Updates.Changed -= OnMaintenance;
+        Processes.RuntimeChanged -= OnRuntime;
+    }
+}

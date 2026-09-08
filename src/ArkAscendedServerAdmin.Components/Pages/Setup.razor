@@ -1,66 +1,72 @@
 @page "/setup"
+@inherits ArkPage
 @implements IDisposable
 @inject IReadinessMonitor Readiness
+@inject ISteamCmdProgressMonitor Progress
 @inject IMaintenanceCommands Maintenance
-@inject NavigationManager Navigation
 
-<PageTitle>Setup · Ark Ascended Server Admin</PageTitle>
+<PageHead Title="Setup" Lead="The service gets ready in the background: database, surviving processes, then the game install." />
 
-<RadzenText TextStyle="TextStyle.H4" TagName="TagName.H1">Setup</RadzenText>
-
-<RadzenCard>
-    <RadzenStack Gap="0.75rem">
-        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem">
-            <RadzenBadge BadgeStyle="@BadgeStyle(_state.Phase)" Text="@_state.Phase.ToString()" />
-            <RadzenText TextStyle="TextStyle.Body1" class="rz-m-0">@_state.Message</RadzenText>
-            @if (_state.Phase is ReadinessPhase.Initializing or ReadinessPhase.Recovering or ReadinessPhase.Installing)
-            {
-                <RadzenProgressBarCircular ProgressBarStyle="ProgressBarStyle.Primary" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" ShowValue="false" />
-            }
-        </RadzenStack>
-
+<div class="ark-panel" style="margin-bottom:20px">
+    <div class="ark-panel-body" style="display:flex;flex-direction:column;gap:10px">
+        <div class="state @Presentation.Tone(_state.Phase)" style="font-size:15px">
+            <Lamp Tone="@Presentation.Tone(_state.Phase)" />
+            <span>@Presentation.Label(_state.Phase)</span>
+            <span class="faint" style="font-size:12.5px;margin-left:8px">since @Presentation.Clock(_state.ChangedAt)</span>
+        </div>
+        <p style="margin:0;max-width:none">@_state.Message</p>
+        @if (_progress is { } progress)
+        {
+            <div>
+                <RadzenProgressBar Value="@Math.Round(progress.Percent, 1)" ShowValue="true" Style="height:8px" />
+                <span class="hint muted">@progress.State · @Presentation.Bytes(progress.Done) of @Presentation.Bytes(progress.Total)</span>
+            </div>
+        }
         @if (_state.Error is not null)
         {
-            <RadzenAlert AlertStyle="AlertStyle.Danger" Variant="Variant.Flat" AllowClose="false">@_state.Error</RadzenAlert>
+            <Problems Items="@([_state.Error])" />
         }
-
-        @if (_actionError is not null)
-        {
-            <RadzenAlert AlertStyle="AlertStyle.Warning" Variant="Variant.Flat" AllowClose="true" Close="@(() => _actionError = null)">@_actionError</RadzenAlert>
-        }
-
         @if (_state.CanRetryInstall)
         {
             <div>
-                <RadzenButton Text="Retry install" Icon="refresh" Click="RetryAsync" Disabled="_busy" />
+                <RadzenButton Text="Retry install" Icon="refresh" ButtonStyle="ButtonStyle.Primary" Disabled="Busy" Click="RetryAsync" />
+                <span class="hint muted" style="margin-left:10px">SteamCMD retried five times with backoff before giving up. Anonymous Steam downloads are sometimes throttled; trying again later usually works.</span>
             </div>
         }
+        @if (_state.Phase == ReadinessPhase.Failed)
+        {
+            <p class="hint muted" style="margin:0">Only a service restart clears a failed pipeline step. The service log has the stack trace.</p>
+        }
+    </div>
+</div>
 
-        <RadzenText TextStyle="TextStyle.Caption">
-            Last change @_state.ChangedAt.ToLocalTime().ToString("HH:mm:ss"). The install console arrives with the SteamCMD runner.
-        </RadzenText>
-    </RadzenStack>
-</RadzenCard>
+<ConsolePanel Channel="@ConsoleChannels.SteamCmd" Title="SteamCMD" Height="calc(100vh - 360px)" EmptyText="SteamCMD has not printed anything yet. The first run downloads SteamCMD itself, updates it, and then fetches roughly 12 GB." />
 
 @code {
     private ReadinessState _state = default!;
-    private string? _actionError;
-    private bool _busy;
+    private SteamCmdProgress? _progress;
 
     protected override void OnInitialized()
     {
         _state = Readiness.Current;
+        _progress = Progress.Current;
         Readiness.Changed += OnChanged;
+        Progress.Changed += OnProgress;
         RedirectIfReady();
     }
 
-    private void OnChanged(ReadinessState state) =>
-        _ = InvokeAsync(() =>
-        {
-            _state = state;
-            RedirectIfReady();
-            StateHasChanged();
-        });
+    private void OnChanged(ReadinessState state) => _ = InvokeAsync(() =>
+    {
+        _state = state;
+        RedirectIfReady();
+        StateHasChanged();
+    });
+
+    private void OnProgress(SteamCmdProgress? progress) => _ = InvokeAsync(() =>
+    {
+        _progress = progress;
+        StateHasChanged();
+    });
 
     private void RedirectIfReady()
     {
@@ -72,29 +78,16 @@
 
     private async Task RetryAsync()
     {
-        _busy = true;
-        _actionError = null;
-        try
+        await GuardedAsync(async () =>
         {
             await Maintenance.RetryInstallAsync();
-        }
-        catch (NotAuthorizedException ex)
-        {
-            _actionError = ex.Message;
-        }
-        finally
-        {
-            _busy = false;
-        }
+            Notifications.Info("Install restarted");
+        });
     }
 
-    private static BadgeStyle BadgeStyle(ReadinessPhase phase) => phase switch
+    public void Dispose()
     {
-        ReadinessPhase.Ready => Radzen.BadgeStyle.Success,
-        ReadinessPhase.InstallFailed or ReadinessPhase.Failed => Radzen.BadgeStyle.Danger,
-        ReadinessPhase.Installing => Radzen.BadgeStyle.Warning,
-        _ => Radzen.BadgeStyle.Info,
-    };
-
-    public void Dispose() => Readiness.Changed -= OnChanged;
+        Readiness.Changed -= OnChanged;
+        Progress.Changed -= OnProgress;
+    }
 }

@@ -1,8 +1,273 @@
 @page "/"
+@inherits ArkPage
+@implements IDisposable
+@inject IInstanceCommands Instances
+@inject IMaintenanceCommands MaintenanceCommands
+@inject IProcessManager Processes
+@inject IUpdateService Updates
 
-<PageTitle>Dashboard · Ark Ascended Server Admin</PageTitle>
+<PageHead Title="Instances" Lead="@Lead">
+    <Actions>
+        <RadzenButton Text="New instance" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@(() => Navigation.NavigateTo("instances/new"))" />
+    </Actions>
+</PageHead>
 
-<RadzenText TextStyle="TextStyle.H4">Dashboard</RadzenText>
-<RadzenText TextStyle="TextStyle.Body1">
-    No instances yet. The instance list, cluster grouping, and start/stop controls arrive with Phase 5 of the plan.
-</RadzenText>
+@if (_maintenance.Phase != MaintenancePhase.None)
+{
+    <Notice Tone="@(_maintenance.HasFailedEntries ? "is-bad" : "is-warn")" IconName="@(_maintenance.HasFailedEntries ? "error" : "system_update_alt")"
+            Title="@(_maintenance.HasFailedEntries ? "Update recovery incomplete." : Presentation.Label(_maintenance.Phase))">
+        <ChildContent>
+        @if (_maintenance.Detail is { } detail)
+        {
+            <p>@detail</p>
+        }
+        @if (_maintenance.Entries.Count > 0)
+        {
+            <ul>
+                @foreach (var entry in _maintenance.Entries)
+                {
+                    <li>
+                        @NameOf(entry.InstanceId):
+                        @if (entry.Error is { } error)
+                        {
+                            <span class="tone-bad">@error</span>
+                            <RadzenButton Text="Retry" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Primary" Click="@(() => Fire(() => MaintenanceCommands.RetryEntryAsync(entry.InstanceId), "Re-queued", NameOf(entry.InstanceId)))" />
+                            <RadzenButton Text="Skip" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => Fire(() => MaintenanceCommands.SkipEntryAsync(entry.InstanceId), "Skipped", NameOf(entry.InstanceId)))" />
+                        }
+                        else
+                        {
+                            <span class="@(entry.Done ? "tone-ok" : "muted")">@(entry.Done ? "done" : "waiting")</span>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+        </ChildContent>
+        <Actions>
+            @if (_maintenance.Phase is MaintenancePhase.Stopping or MaintenancePhase.Updating)
+            {
+                <RadzenButton Text="Resume update" Icon="replay" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" title="Re-runs the interrupted phase if SteamCMD failed and nothing is running." Click="@(() => Fire(() => MaintenanceCommands.ResumeMaintenanceAsync(), "Resumed", "the update"))" />
+            }
+        </Actions>
+    </Notice>
+}
+
+@if (_data is null)
+{
+    <p class="muted">Loading…</p>
+}
+else if (_data.Instances.Count == 0)
+{
+    <EmptyState Title="No instances yet.">
+        <ChildContent>Create one to start a server. The wizard picks the map, ports, mods, and where the INI files start from.</ChildContent>
+        <Actions>
+            <RadzenButton Text="Create the first instance" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@(() => Navigation.NavigateTo("instances/new"))" />
+        </Actions>
+    </EmptyState>
+}
+else
+{
+    @if (_selected.Count > 0)
+    {
+        <div class="notice is-info" style="align-items:center">
+            <RadzenIcon Icon="check_box" />
+            <div class="body"><p>@Presentation.Plural(_selected.Count, "instance") selected</p></div>
+            <div class="actions">
+                <RadzenButton Text="Start selected" Icon="play_arrow" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Success" Variant="Variant.Outlined" Disabled="@(!_selected.Any(id => !Runtime(id).HasLiveProcess))" Click="@(() => StartMany(_selected.Where(id => !Runtime(id).HasLiveProcess).ToList()))" />
+                <RadzenButton Text="Stop selected" Icon="stop" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Outlined" Disabled="@(!_selected.Any(id => Runtime(id).HasLiveProcess))" Click="@(() => StopMany(_selected.Where(id => Runtime(id).HasLiveProcess).ToList()))" />
+                <RadzenButton Text="Clear" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => _selected.Clear())" />
+            </div>
+        </div>
+    }
+
+    @foreach (var group in Groups)
+    {
+        <section class="ark-section">
+            <SectionHead Title="@group.Title">
+                <Summary>
+                    @if (group.Cluster is { } cluster)
+                    {
+                        <a href="clusters/@cluster.Id">cluster @cluster.ClusterKey</a>
+                        <text> · </text>
+                    }
+                    @group.Instances.Count(i => Runtime(i.Id).State == InstanceState.Running) of @group.Instances.Count up
+                </Summary>
+                <Actions>
+                    <RadzenButton Text="Start all" Icon="play_arrow" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Success" Disabled="@(!group.Instances.Any(i => !Runtime(i.Id).HasLiveProcess))" Click="@(() => StartMany(group.Instances.Where(i => !Runtime(i.Id).HasLiveProcess).Select(i => i.Id).ToList()))" />
+                    <RadzenButton Text="Stop all" Icon="stop" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Danger" Disabled="@(!group.Instances.Any(i => Runtime(i.Id).HasLiveProcess))" Click="@(() => StopMany(group.Instances.Where(i => Runtime(i.Id).HasLiveProcess).Select(i => i.Id).ToList()))" />
+                </Actions>
+            </SectionHead>
+            <div class="ark-rows">
+                @foreach (var instance in group.Instances)
+                {
+                    var runtime = Runtime(instance.Id);
+                    <div class="ark-row @(_selected.Contains(instance.Id) ? "is-selected" : null)">
+                        <RadzenCheckBox TValue="bool" Value="@_selected.Contains(instance.Id)" Change="@((bool on) => Select(instance.Id, on))" aria-label="@($"Select {instance.Name}")" />
+                        <Lamp Tone="@Presentation.Tone(runtime.State)" Hollow="@Presentation.IsHollow(runtime.State)" />
+                        <div class="name">
+                            <a href="instances/@instance.Id">@instance.Name</a>
+                            <small>@instance.SessionName</small>
+                        </div>
+                        <div class="cell"><strong>@instance.MapName</strong>@(instance.ModCount > 0 ? Presentation.Plural(instance.ModCount, "mod") : "vanilla")</div>
+                        <div class="cell ports"><strong class="num">@instance.GamePort <span class="faint">game</span></strong><span class="num">@instance.RconPort <span class="faint">rcon</span></span></div>
+                        <div class="cell">
+                            <InstanceStateView Runtime="runtime" ShowHint="false" />
+                            <span class="backup" style="display:block;font-size:12px" title="@instance.LastBackup?.Reason">
+                                @if (instance.LastBackup is { } backup)
+                                {
+                                    <span class="@Presentation.Tone(backup.Outcome)">@Presentation.Label(backup.Outcome)</span> <span class="faint">@Presentation.Ago(backup.CreatedAt, _now)</span>
+                                }
+                                else
+                                {
+                                    <span class="faint">no backup yet</span>
+                                }
+                            </span>
+                        </div>
+                        <div class="actions">
+                            @if (runtime.State == InstanceState.Stopping)
+                            {
+                                <RadzenButton Text="Stop now" Icon="skip_next" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Warning" title="Skip the countdown" Click="@(() => SkipCountdown(instance))" />
+                            }
+                            else if (runtime.HasLiveProcess)
+                            {
+                                <RadzenButton Icon="stop" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Danger" title="Stop" Click="@(() => Fire(() => Instances.StopAsync(instance.Id, false), "Stopped", instance.Name))" />
+                                <RadzenButton Icon="restart_alt" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Restart" Click="@(() => Fire(() => Instances.RestartAsync(instance.Id), "Restarted", instance.Name))" />
+                                <RadzenButton Icon="save" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Back up now" Disabled="@(runtime.State != InstanceState.Running)" Click="@(() => BackupNow(instance))" />
+                            }
+                            else
+                            {
+                                <RadzenButton Icon="play_arrow" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Success" title="Start" Disabled="@(runtime.State == InstanceState.Unknown)" Click="@(() => Fire(() => Instances.StartAsync(instance.Id), "Started", instance.Name))" />
+                            }
+                            <RadzenButton Icon="terminal" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Open console" Click="@(() => Navigation.NavigateTo($"instances/{instance.Id}"))" />
+                        </div>
+                    </div>
+                }
+            </div>
+        </section>
+    }
+}
+
+@code {
+    private sealed record Group(string Title, ClusterSummary? Cluster, IReadOnlyList<InstanceSummary> Instances);
+
+    private DashboardData? _data;
+    private MaintenanceSnapshot _maintenance = default!;
+    private readonly HashSet<int> _selected = [];
+    private DateTimeOffset _now = DateTimeOffset.UtcNow;
+
+    private string Lead => _data is null || _data.Instances.Count == 0
+        ? "Every server this box runs, grouped by cluster."
+        : $"{Presentation.Plural(_data.Instances.Count(i => Runtime(i.Id).State == InstanceState.Running), "instance")} running of {_data.Instances.Count}.";
+
+    private IEnumerable<Group> Groups
+    {
+        get
+        {
+            if (_data is null)
+            {
+                yield break;
+            }
+
+            foreach (var cluster in _data.Clusters)
+            {
+                var members = _data.Instances.Where(i => i.ClusterId == cluster.Id).ToList();
+                if (members.Count > 0)
+                {
+                    yield return new Group(cluster.Name, cluster, members);
+                }
+            }
+
+            var standalone = _data.Instances.Where(i => i.ClusterId is null).ToList();
+            if (standalone.Count > 0)
+            {
+                yield return new Group("Standalone", null, standalone);
+            }
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _maintenance = Updates.Current;
+        Processes.RuntimeChanged += OnRuntimeChanged;
+        Updates.Changed += OnMaintenanceChanged;
+        await LoadAsync();
+    }
+
+    private Task LoadAsync() => GuardedAsync(async () =>
+    {
+        _data = await Instances.GetDashboardAsync();
+        _now = DateTimeOffset.UtcNow;
+    });
+
+    private InstanceRuntime Runtime(int id) => Processes.GetRuntime(id);
+
+    private string NameOf(int id) => _data?.Instances.FirstOrDefault(i => i.Id == id)?.Name ?? $"instance #{id}";
+
+    private void OnRuntimeChanged(InstanceRuntime runtime) => _ = InvokeAsync(StateHasChanged);
+
+    private void OnMaintenanceChanged(MaintenanceSnapshot snapshot) => _ = InvokeAsync(async () =>
+    {
+        var wasBusy = _maintenance.Phase != MaintenancePhase.None;
+        _maintenance = snapshot;
+        if (wasBusy && snapshot.Phase == MaintenancePhase.None)
+        {
+            await LoadAsync();
+        }
+
+        StateHasChanged();
+    });
+
+    private void Select(int id, bool on)
+    {
+        if (on)
+        {
+            _selected.Add(id);
+        }
+        else
+        {
+            _selected.Remove(id);
+        }
+    }
+
+    private void StartMany(IReadOnlyList<int> ids) => FireMany(() => Instances.StartManyAsync(ids), "Started");
+
+    private void StopMany(IReadOnlyList<int> ids) => FireMany(() => Instances.StopManyAsync(ids), "Stopped");
+
+    private async Task SkipCountdown(InstanceSummary instance)
+    {
+        await GuardedAsync(async () =>
+        {
+            var skipped = await Instances.SkipCountdownAsync(instance.Id);
+            Notifications.Info(skipped ? $"Stopping {instance.Name} now" : "No countdown to skip", skipped ? null : "The stop is already past the broadcast phase.");
+        });
+    }
+
+    private void BackupNow(InstanceSummary instance) => _ = InvokeAsync(async () =>
+    {
+        Notifications.Info($"Backing up {instance.Name}", "Saving the world, then copying and verifying the archive.");
+        await GuardedAsync(async () =>
+        {
+            var result = await Instances.BackupNowAsync(instance.Id);
+            if (!result.Succeeded)
+            {
+                Notifications.Failed($"Could not back up {instance.Name}", result.Error);
+            }
+            else if (result.Value!.Outcome == BackupOutcome.Success)
+            {
+                Notifications.Done($"Backed up {instance.Name}", $"{result.Value.FileName} ({Presentation.Bytes(result.Value.SizeBytes)})");
+            }
+            else
+            {
+                Notifications.Warn($"Backup of {instance.Name} {Presentation.Label(result.Value.Outcome).ToLowerInvariant()}", result.Value.Reason);
+            }
+        });
+        await LoadAsync();
+        StateHasChanged();
+    });
+
+    public void Dispose()
+    {
+        Processes.RuntimeChanged -= OnRuntimeChanged;
+        Updates.Changed -= OnMaintenanceChanged;
+    }
+}

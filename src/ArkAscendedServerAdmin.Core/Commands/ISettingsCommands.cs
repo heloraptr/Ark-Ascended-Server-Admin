@@ -1,4 +1,5 @@
 using ArkAscendedServerAdmin.Configuration;
+using ArkAscendedServerAdmin.Processes;
 
 namespace ArkAscendedServerAdmin.Commands;
 
@@ -21,8 +22,24 @@ public interface ISettingsCommands
     Task<string> ExportConfigBackupAsync(CancellationToken cancellationToken = default);
 }
 
-/// <summary>Scoped command facade for install/update actions; guarded like every other facade.</summary>
+/// <summary>Scoped command facade for install/update actions (plan steps 11, 20, 29); guarded like every other facade.</summary>
 public interface IMaintenanceCommands
 {
+    /// <summary>Re-runs the install after an <c>InstallFailed</c> readiness phase.</summary>
     Task RetryInstallAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Starts the update flow in the background; the outcome reports acceptance or the refusal reason.</summary>
+    Task<OperationOutcome> StartUpdateAsync(bool confirmStopRunningInstances, CancellationToken cancellationToken = default);
+
+    /// <summary>Re-enqueues a <c>Restarting</c> entry that recorded an error.</summary>
+    Task<OperationOutcome> RetryEntryAsync(int instanceId, CancellationToken cancellationToken = default);
+
+    /// <summary>Marks a failed entry done without launching it.</summary>
+    Task<OperationOutcome> SkipEntryAsync(int instanceId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resumes the persisted maintenance phase in the background, e.g. re-runs SteamCMD after a failed
+    /// update left the phase at <c>Updating</c>. Rejected when nothing is pending.
+    /// </summary>
+    Task<OperationOutcome> ResumeMaintenanceAsync(CancellationToken cancellationToken = default);
 }

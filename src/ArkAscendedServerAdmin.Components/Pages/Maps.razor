@@ -1,0 +1,88 @@
+@page "/maps"
+@inherits ArkPage
+@inject IMapCommands MapCommands
+
+<PageHead Title="Maps" Lead="What the wizard offers. The key is what the server takes on the command line.">
+    <Actions>
+        <RadzenButton Text="Add map" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@(() => EditAsync(new Map { Key = string.Empty, Name = string.Empty }))" />
+    </Actions>
+</PageHead>
+
+@if (_maps is null)
+{
+    <p class="muted">Loading…</p>
+}
+else
+{
+    <RadzenDataGrid Data="_maps" TItem="Map" Density="Density.Compact" AllowSorting="true">
+        <Columns>
+            <RadzenDataGridColumn TItem="Map" Property="Name" Title="Name" />
+            <RadzenDataGridColumn TItem="Map" Property="Key" Title="Key">
+                <Template Context="m"><span class="mono">@m.Key</span></Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="Map" Property="IsOfficial" Title="Source" Width="120px">
+                <Template Context="m">@(m.IsOfficial ? "official" : "custom")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="Map" Title="Used by" Width="120px" Sortable="false">
+                <Template Context="m"><span class="num">@Presentation.Plural(_usage.GetValueOrDefault(m.Id), "instance")</span></Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="Map" Width="90px" Sortable="false">
+                <Template Context="m">
+                    <RadzenButton Icon="edit" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => EditAsync(m))" />
+                    <RadzenButton Icon="close" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="@(_usage.GetValueOrDefault(m.Id) > 0)" title="@(_usage.GetValueOrDefault(m.Id) > 0 ? "In use" : "Delete")" Click="@(() => DeleteAsync(m))" />
+                </Template>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+}
+
+@code {
+    private IReadOnlyList<Map>? _maps;
+    private IReadOnlyDictionary<int, int> _usage = new Dictionary<int, int>();
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private Task LoadAsync() => GuardedAsync(async () =>
+    {
+        _maps = await MapCommands.ListAsync();
+        _usage = await MapCommands.GetUsageAsync();
+    });
+
+    private async Task EditAsync(Map map)
+    {
+        var edited = await Dialogs.OpenAsync<MapDialog>(map.Id == 0 ? "Add map" : "Edit map", new Dictionary<string, object?> { ["Map"] = map }, new DialogOptions { Width = "520px" });
+        if (edited is not Map value)
+        {
+            return;
+        }
+
+        await GuardedAsync(async () =>
+        {
+            var result = await MapCommands.SaveAsync(value);
+            if (result.Succeeded)
+            {
+                Notifications.Done($"Saved {result.Value!.Name}");
+            }
+            else
+            {
+                Notifications.Failed("Could not save the map", result.Error);
+            }
+        });
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(Map map)
+    {
+        if (!await ConfirmAsync($"Delete {map.Name}", "The map is removed from the list. Nothing on disk changes.", "Delete map", danger: true))
+        {
+            return;
+        }
+
+        await GuardedAsync(async () =>
+        {
+            var result = await MapCommands.DeleteAsync(map.Id);
+            Notifications.Report(result, "Deleted", map.Name);
+        });
+        await LoadAsync();
+    }
+}

@@ -1,0 +1,19 @@
+@* Lamp + label + optional hint for one instance's live runtime. *@
+<span class="state @Presentation.Tone(Runtime.State)" title="@Presentation.Hint(Runtime)">
+    <Lamp Tone="@Presentation.Tone(Runtime.State)" Hollow="@Presentation.IsHollow(Runtime.State)" />
+    <span>
+        @Presentation.Label(Runtime.State)
+        @if (ShowHint && Presentation.Hint(Runtime) is { } hint)
+        {
+            <small>@hint</small>
+        }
+    </span>
+</span>
+
+@code {
+    [Parameter, EditorRequired]
+    public InstanceRuntime Runtime { get; set; } = default!;
+
+    [Parameter]
+    public bool ShowHint { get; set; } = true;
+}

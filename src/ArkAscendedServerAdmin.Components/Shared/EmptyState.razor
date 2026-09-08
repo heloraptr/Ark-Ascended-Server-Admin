@@ -1,0 +1,22 @@
+<div class="ark-empty">
+    <h3>@Title</h3>
+    @if (ChildContent is not null)
+    {
+        <p>@ChildContent</p>
+    }
+    @if (Actions is not null)
+    {
+        <div>@Actions</div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public RenderFragment? Actions { get; set; }
+}

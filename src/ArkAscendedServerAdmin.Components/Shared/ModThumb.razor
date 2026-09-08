@@ -1,0 +1,16 @@
+@if (string.IsNullOrWhiteSpace(Url))
+{
+    <span class="thumb is-empty @Class"><RadzenIcon Icon="extension" /></span>
+}
+else
+{
+    <img class="thumb @Class" src="@Url" alt="" loading="lazy" />
+}
+
+@code {
+    [Parameter]
+    public string? Url { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+}

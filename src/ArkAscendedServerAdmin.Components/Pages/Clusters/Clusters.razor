@@ -1,0 +1,122 @@
+@page "/clusters"
+@inherits ArkPage
+@inject IClusterCommands ClusterCommands
+@inject IInstanceCommands Instances
+
+<PageHead Title="Clusters" Lead="A cluster is a set of servers that share INI files, mods, launch options, and a transfer directory.">
+    <Actions>
+        <RadzenButton Text="New cluster" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@(() => _creating = true)" />
+    </Actions>
+</PageHead>
+
+@if (_creating)
+{
+    <div class="ark-panel" style="margin-bottom:28px">
+        <div class="ark-panel-body">
+            <h2 style="margin-bottom:14px">New cluster</h2>
+            <div class="form-grid">
+                <div class="field">
+                    <label for="c-name">Cluster name</label>
+                    <RadzenTextBox id="c-name" @bind-Value="_newName" @oninput="@((ChangeEventArgs e) => _newName = e.Value?.ToString())" Placeholder="Survivors" autofocus />
+                    <span class="hint">Also the initial cluster id passed as -clusterid; both can be changed on the cluster page.</span>
+                </div>
+                <div class="field">
+                    <label>INI files start from</label>
+                    <RadzenDropDown TValue="string" @bind-Value="_newSource" Data="SourceChoices" TextProperty="Text" ValueProperty="Value" />
+                </div>
+            </div>
+            <Problems Items="_createProblems" />
+            <div class="form-actions">
+                <RadzenButton Text="Create cluster" Icon="add" ButtonStyle="ButtonStyle.Primary" Disabled="@(Busy || string.IsNullOrWhiteSpace(_newName))" Click="CreateAsync" />
+                <RadzenButton Text="Cancel" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => { _creating = false; _createProblems = null; })" />
+            </div>
+        </div>
+    </div>
+}
+
+@if (_clusters is null)
+{
+    <p class="muted">Loading…</p>
+}
+else if (_clusters.Count == 0 && !_creating)
+{
+    <EmptyState Title="No clusters yet.">
+        <ChildContent>Standalone instances work without one. Create a cluster when you want players to travel between maps.</ChildContent>
+        <Actions><RadzenButton Text="Create a cluster" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@(() => _creating = true)" /></Actions>
+    </EmptyState>
+}
+else
+{
+    <div class="ark-rows">
+        @foreach (var cluster in _clusters)
+        {
+            <div class="ark-row" style="grid-template-columns: 22px minmax(180px,1.4fr) minmax(120px,1fr) 150px auto">
+                <RadzenIcon Icon="hub" Style="color:var(--ark-steel-3)" />
+                <div class="name">
+                    <a href="clusters/@cluster.Id">@cluster.Name</a>
+                    <small>id @cluster.ClusterKey · <span class="mono">@cluster.Slug</span></small>
+                </div>
+                <div class="cell"><strong>@Presentation.Plural(cluster.InstanceCount, "member")</strong>@Presentation.Plural(cluster.ModCount, "cluster mod")</div>
+                <div class="cell"></div>
+                <div class="actions">
+                    <RadzenButton Icon="arrow_forward" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Open" Click="@(() => Navigation.NavigateTo($"clusters/{cluster.Id}"))" />
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private sealed record Choice(string Text, string Value);
+
+    private IReadOnlyList<ClusterListItem>? _clusters;
+    private IReadOnlyList<InstanceSummary> _instances = [];
+    private bool _creating;
+    private string? _newName;
+    private string _newSource = "defaults";
+    private IReadOnlyList<string>? _createProblems;
+
+    private IReadOnlyList<Choice> SourceChoices
+    {
+        get
+        {
+            var choices = new List<Choice> { new("Game defaults", "defaults"), new("Blank files", "blank") };
+            choices.AddRange(_instances.Where(i => i.ClusterId is null).Select(i => new Choice($"Copy from {i.Name}", $"i{i.Id}")));
+            choices.AddRange((_clusters ?? []).Select(c => new Choice($"Copy from the {c.Name} cluster", $"c{c.Id}")));
+            return choices;
+        }
+    }
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private Task LoadAsync() => GuardedAsync(async () =>
+    {
+        _clusters = await ClusterCommands.ListAsync();
+        _instances = (await Instances.GetDashboardAsync()).Instances;
+    });
+
+    private async Task CreateAsync()
+    {
+        var (kind, id) = _newSource switch
+        {
+            "blank" => (ConfigSourceKind.Blank, (int?)null),
+            var s when s.StartsWith('i') => (ConfigSourceKind.CopyFromInstance, int.Parse(s[1..], System.Globalization.CultureInfo.InvariantCulture)),
+            var s when s.StartsWith('c') => (ConfigSourceKind.CopyFromCluster, int.Parse(s[1..], System.Globalization.CultureInfo.InvariantCulture)),
+            _ => (ConfigSourceKind.GameDefaults, null),
+        };
+
+        await GuardedAsync(async () =>
+        {
+            var result = await ClusterCommands.CreateAsync(_newName ?? string.Empty, kind, id);
+            if (result.Succeeded)
+            {
+                Notifications.Done($"Created {_newName}");
+                Navigation.NavigateTo($"clusters/{result.Value}");
+            }
+            else
+            {
+                _createProblems = result.Errors;
+            }
+        });
+    }
+}
