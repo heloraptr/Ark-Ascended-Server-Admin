@@ -77,8 +77,10 @@ public sealed class PlayerCommands(
 
         if (seen.Count > 0)
         {
-            var ids = seen.Keys.ToList();
-            var existing = await db.KnownPlayers.Where(p => ids.Contains(p.EosId)).ToListAsync(cancellationToken);
+            // SQLite compares text with its binary collation, so the lookup lowercases both sides; otherwise an id
+            // reported in different casing would insert a second row next to the one already known.
+            var ids = seen.Keys.Select(id => id.ToLowerInvariant()).ToList();
+            var existing = await db.KnownPlayers.Where(p => ids.Contains(p.EosId.ToLower())).ToListAsync(cancellationToken);
             foreach (var (eosId, name) in seen)
             {
                 var row = existing.SingleOrDefault(p => p.EosId.Equals(eosId, StringComparison.OrdinalIgnoreCase));

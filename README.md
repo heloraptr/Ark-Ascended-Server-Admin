@@ -21,9 +21,13 @@ Requires the .NET 10 SDK (see `global.json`). Package versions are managed centr
 
 ```
 dotnet build ArkAscendedServerAdmin.slnx
-dotnet test --project test/ArkAscendedServerAdmin.UnitTests/ArkAscendedServerAdmin.UnitTests.csproj
-dotnet test --project test/ArkAscendedServerAdmin.Infrastructure.IntegrationTests/ArkAscendedServerAdmin.Infrastructure.IntegrationTests.csproj
+dotnet run --project test/ArkAscendedServerAdmin.UnitTests/ArkAscendedServerAdmin.UnitTests.csproj --no-build
+dotnet run --project test/ArkAscendedServerAdmin.Infrastructure.IntegrationTests/ArkAscendedServerAdmin.Infrastructure.IntegrationTests.csproj --no-build
 ```
+
+The test projects are Microsoft.Testing.Platform executables, so `dotnet run` (or the built `.exe`)
+runs them directly. With SDK 10.0.400 and xunit.v3 4.0.0, `dotnet test --project ...` reports
+"Zero tests ran" for both projects; use `dotnet run` until that combination is sorted out.
 
 The Windows-targeted projects (`Infrastructure`, `Server`, `Infrastructure.IntegrationTests`) build
 and run on Windows; on Linux/WSL they compile with `-p:EnableWindowsTargeting=true` but cannot run.
