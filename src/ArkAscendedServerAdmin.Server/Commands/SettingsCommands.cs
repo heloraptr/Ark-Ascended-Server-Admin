@@ -3,6 +3,7 @@ using ArkAscendedServerAdmin.Auth;
 using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Domain;
+using ArkAscendedServerAdmin.Install;
 using ArkAscendedServerAdmin.Maintenance;
 using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Startup;
@@ -53,6 +54,7 @@ public sealed class MaintenanceCommands(
     IStartupControl startupControl,
     IUpdateService updateService,
     IMaintenanceRecovery recovery,
+    IGameInstallChecker installChecker,
     ILogger<MaintenanceCommands> logger) : IMaintenanceCommands
 {
     public async Task RetryInstallAsync(CancellationToken cancellationToken = default)
@@ -61,10 +63,16 @@ public sealed class MaintenanceCommands(
         await startupControl.RetryInstallAsync(cancellationToken);
     }
 
-    public async Task<OperationOutcome> StartUpdateAsync(bool confirmStopRunningInstances, CancellationToken cancellationToken = default)
+    public async Task<GameInstallStatus> GetInstallStatusAsync(CancellationToken cancellationToken = default)
     {
         await guard.EnsureAuthorizedAsync(cancellationToken);
-        return await updateService.StartUpdateAsync(confirmStopRunningInstances, cancellationToken);
+        return installChecker.Check();
+    }
+
+    public async Task<OperationOutcome> StartUpdateAsync(bool confirmStopRunningInstances, bool validate, CancellationToken cancellationToken = default)
+    {
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        return await updateService.StartUpdateAsync(confirmStopRunningInstances, validate, cancellationToken);
     }
 
     public async Task<OperationOutcome> RetryEntryAsync(int instanceId, CancellationToken cancellationToken = default)

@@ -1,4 +1,5 @@
 using ArkAscendedServerAdmin.Configuration;
+using ArkAscendedServerAdmin.Install;
 using ArkAscendedServerAdmin.Processes;
 
 namespace ArkAscendedServerAdmin.Commands;
@@ -28,8 +29,14 @@ public interface IMaintenanceCommands
     /// <summary>Re-runs the install after an <c>InstallFailed</c> readiness phase.</summary>
     Task RetryInstallAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Starts the update flow in the background; the outcome reports acceptance or the refusal reason.</summary>
-    Task<OperationOutcome> StartUpdateAsync(bool confirmStopRunningInstances, CancellationToken cancellationToken = default);
+    /// <summary>The on-disk install as the checker sees it right now, including the installed build id.</summary>
+    Task<GameInstallStatus> GetInstallStatusAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Starts the update flow in the background; the outcome reports acceptance or the refusal reason.
+    /// <paramref name="validate"/> forces SteamCMD's <c>validate</c> for this run even when the setting is off.
+    /// </summary>
+    Task<OperationOutcome> StartUpdateAsync(bool confirmStopRunningInstances, bool validate, CancellationToken cancellationToken = default);
 
     /// <summary>Re-enqueues a <c>Restarting</c> entry that recorded an error.</summary>
     Task<OperationOutcome> RetryEntryAsync(int instanceId, CancellationToken cancellationToken = default);

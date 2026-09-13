@@ -101,6 +101,44 @@ public class InstanceCommandsTests
     }
 
     [Fact]
+    public async Task Create_WithAdminPassword_WritesItIntoTheSeededGameUserSettings()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (host, mapId) = await StartAsync(ct);
+        using (host)
+        {
+            var defaults = await host.Instances.CreateAsync(Draft(mapId, "Defaults") with { AdminPassword = " hunter2 " }, ct);
+            var blank = await host.Instances.CreateAsync(Draft(mapId, "Blank", 7779, 27021) with { ConfigSource = ConfigSourceKind.Blank, AdminPassword = "s3cret" }, ct);
+            var copied = await host.Instances.CreateAsync(
+                Draft(mapId, "Copied", 7781, 27022) with { ConfigSource = ConfigSourceKind.CopyFromInstance, ConfigSourceId = defaults.Value, AdminPassword = "different" }, ct);
+            var kept = await host.Instances.CreateAsync(
+                Draft(mapId, "Kept", 7783, 27023) with { ConfigSource = ConfigSourceKind.CopyFromInstance, ConfigSourceId = defaults.Value }, ct);
+            var rejected = await host.Instances.CreateAsync(Draft(mapId, "Rejected", 7785, 27024) with { AdminPassword = "two\nlines" }, ct);
+
+            Assert.True(defaults.Succeeded, defaults.Error);
+            Assert.True(blank.Succeeded, blank.Error);
+            Assert.True(copied.Succeeded, copied.Error);
+            Assert.True(kept.Succeeded, kept.Error);
+            Assert.False(rejected.Succeeded);
+            Assert.Contains(rejected.Errors, e => e.Contains("Admin password", StringComparison.Ordinal) && e.Contains("line breaks", StringComparison.Ordinal));
+
+            Assert.Equal("hunter2", await PasswordAsync(host, defaults.Value, ct));
+            Assert.Equal("s3cret", await PasswordAsync(host, blank.Value, ct));
+            Assert.Equal("different", await PasswordAsync(host, copied.Value, ct));
+            Assert.Equal("hunter2", await PasswordAsync(host, kept.Value, ct));
+
+            // The template's slot is replaced in place, not appended a second time.
+            var text = (await host.IniStore.LoadAsync(IniOwner.ForInstance(defaults.Value), IniFile.GameUserSettings, ct)).Text;
+            Assert.Equal(1, text.Split("ServerAdminPassword=").Length - 1);
+            Assert.Null((await host.Instances.PreviewLaunchAsync(defaults.Value, ct)).Value!.Problem);
+        }
+
+        static async Task<string?> PasswordAsync(CommandTestHost host, int instanceId, CancellationToken ct) =>
+            IniText.Parse((await host.IniStore.LoadAsync(IniOwner.ForInstance(instanceId), IniFile.GameUserSettings, ct)).Text)
+                .Get(IniGenerator.ServerSettingsSection, "ServerAdminPassword");
+    }
+
+    [Fact]
     public async Task Create_Blank_SeedsEmptyFiles()
     {
         var ct = TestContext.Current.CancellationToken;

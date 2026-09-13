@@ -137,13 +137,14 @@ maintenance) is observed through the singleton services' events.
 
 | Page | What it does |
 |---|---|
-| Instances (`/`) | Rows grouped by cluster, standalone last; start/stop/restart/back up per row, selected, or per cluster; game update; update-recovery banner with retry/skip. |
+| Instances (`/`) | Rows grouped by cluster, standalone last; start/stop/restart/back up per row, selected, or per cluster; update-recovery banner with retry/skip. |
 | Instance (`/instances/{id}`) | Console with RCON input, INI editors (source files) and overrides, mods, launch options with a command-line preview, settings, backups. |
 | New instance (`/instances/new`) | Wizard: name, cluster, map, INI starting point and admin password, mods, launch options, ports, summary with "start right away". |
 | Clusters | Shared INI files, cluster mods, base launch options, cluster id and whitelist. |
 | Mods | CurseForge search with an API key, manual ids without one, usage per cluster and instance. |
 | Players | On-demand `ListPlayers` across running instances; pick an EOS id into a whitelist. |
 | Maps, Settings, Setup | Map list, App Settings plus read-only host values and config export, install console. |
+| Update (`/update`) | Installed build, a "verify game files" switch, the SteamCMD console, and the run's outcome: already current, or updated from one build to another. The rail's "Update game" button lands here. |
 
 The visual system (fonts, tokens, the horizon rule, the state lamp) is in
 `src/ArkAscendedServerAdmin.Components/wwwroot/css/ark.css`; Radzen's `standard-dark` theme is

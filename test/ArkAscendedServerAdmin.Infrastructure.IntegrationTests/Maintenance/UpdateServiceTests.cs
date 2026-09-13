@@ -23,7 +23,7 @@ public class UpdateServiceTests
         f.Processes.Set(f.Alpha.Id, InstanceState.Running);
         f.Processes.Set(f.Beta.Id, InstanceState.Unreachable);
 
-        var outcome = await f.Service.StartUpdateAsync(confirmStopRunningInstances: true, ct);
+        var outcome = await f.Service.StartUpdateAsync(confirmStopRunningInstances: true, validate: false, ct);
         Assert.True(outcome.Succeeded, outcome.Error);
         await f.Service.Completion.WaitAsync(_timeout, ct);
 
@@ -47,13 +47,44 @@ public class UpdateServiceTests
     }
 
     [Fact]
+    public async Task RequestedValidate_IsForwardedOnce_AndTheBuildComparisonIsRecorded()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        var f = await Fixture.CreateAsync(root, ct);
+        f.Checker.Check().Returns(
+            new GameInstallStatus(true, true, "Install verified.", "100"),
+            new GameInstallStatus(true, true, "Install verified.", "101"));
+
+        Assert.True((await f.Service.StartUpdateAsync(confirmStopRunningInstances: false, validate: true, ct)).Succeeded);
+        await f.Service.Completion.WaitAsync(_timeout, ct);
+
+        await f.SteamCmd.Received(1).InstallOrUpdateAsync(true, Arg.Any<CancellationToken>());
+        var result = Assert.IsType<UpdateResult>(f.Service.Current.LastResult);
+        Assert.Equal("100", result.PreviousBuild);
+        Assert.Equal("101", result.InstalledBuild);
+        Assert.True(result.BuildChanged);
+        Assert.True(result.Validated);
+
+        // The request applies to one run only; the next one falls back to the setting (off).
+        f.Checker.Check().Returns(new GameInstallStatus(true, true, "Install verified.", "101"));
+        Assert.True((await f.Service.StartUpdateAsync(confirmStopRunningInstances: false, validate: false, ct)).Succeeded);
+        await f.Service.Completion.WaitAsync(_timeout, ct);
+
+        await f.SteamCmd.Received(1).InstallOrUpdateAsync(false, Arg.Any<CancellationToken>());
+        var second = Assert.IsType<UpdateResult>(f.Service.Current.LastResult);
+        Assert.False(second.BuildChanged);
+        Assert.Equal("Already on the latest build (101).", second.Summary);
+    }
+
+    [Fact]
     public async Task HappyPath_WithNothingRunning_UpdatesWithoutStopsOrLaunches()
     {
         using var root = new TempDataRoot();
         var ct = TestContext.Current.CancellationToken;
         var f = await Fixture.CreateAsync(root, ct);
 
-        var outcome = await f.Service.StartUpdateAsync(confirmStopRunningInstances: false, ct);
+        var outcome = await f.Service.StartUpdateAsync(confirmStopRunningInstances: false, validate: false, ct);
         Assert.True(outcome.Succeeded, outcome.Error);
         await f.Service.Completion.WaitAsync(_timeout, ct);
 
@@ -71,7 +102,7 @@ public class UpdateServiceTests
         var f = await Fixture.CreateAsync(root, ct);
         f.Processes.Set(f.Alpha.Id, InstanceState.Running);
 
-        var outcome = await f.Service.StartUpdateAsync(confirmStopRunningInstances: false, ct);
+        var outcome = await f.Service.StartUpdateAsync(confirmStopRunningInstances: false, validate: false, ct);
 
         Assert.False(outcome.Succeeded);
         Assert.Contains("confirm", outcome.Error, StringComparison.OrdinalIgnoreCase);
@@ -88,7 +119,7 @@ public class UpdateServiceTests
         var f = await Fixture.CreateAsync(root, ct);
         f.Processes.Set(f.Alpha.Id, InstanceState.Unknown);
 
-        var outcome = await f.Service.StartUpdateAsync(confirmStopRunningInstances: true, ct);
+        var outcome = await f.Service.StartUpdateAsync(confirmStopRunningInstances: true, validate: false, ct);
 
         Assert.False(outcome.Succeeded);
         Assert.Equal(UpdateStateMachine.AmbiguousInstancesReason, outcome.Error);
@@ -103,7 +134,7 @@ public class UpdateServiceTests
         var f = await Fixture.CreateAsync(root, ct);
         await TestSeed.MaintenanceAsync(root, MaintenancePhase.Restarting, [new MaintenanceEntry(f.Alpha.Id, Error: "port conflict")], ct);
 
-        var outcome = await f.Service.StartUpdateAsync(confirmStopRunningInstances: true, ct);
+        var outcome = await f.Service.StartUpdateAsync(confirmStopRunningInstances: true, validate: false, ct);
 
         Assert.False(outcome.Succeeded);
         Assert.Contains("unresolved", outcome.Error, StringComparison.OrdinalIgnoreCase);
@@ -119,10 +150,10 @@ public class UpdateServiceTests
         f.Processes.Set(f.Alpha.Id, InstanceState.Running);
         f.Processes.StartBarrier = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        Assert.True((await f.Service.StartUpdateAsync(true, ct)).Succeeded);
+        Assert.True((await f.Service.StartUpdateAsync(true, false, ct)).Succeeded);
         await f.WaitForPhaseAsync(MaintenancePhase.Restarting, ct);
 
-        var second = await f.Service.StartUpdateAsync(true, ct);
+        var second = await f.Service.StartUpdateAsync(true, false, ct);
         Assert.False(second.Succeeded);
         Assert.Equal(UpdateStateMachine.AlreadyRunningReason, second.Error);
 
@@ -140,7 +171,7 @@ public class UpdateServiceTests
         f.Processes.Set(f.Alpha.Id, InstanceState.Running);
         f.Enumerator.Enumerate().Returns([new GameProcessInfo(4242, root.Layout.InstanceExecutable("ghost"), null, DateTimeOffset.UnixEpoch)]);
 
-        Assert.True((await f.Service.StartUpdateAsync(true, ct)).Succeeded);
+        Assert.True((await f.Service.StartUpdateAsync(true, false, ct)).Succeeded);
         await f.Service.Completion.WaitAsync(_timeout, ct);
 
         Assert.Equal([MaintenancePhase.Stopping, MaintenancePhase.None], f.DistinctPhases());
@@ -161,7 +192,7 @@ public class UpdateServiceTests
         var f = await Fixture.CreateAsync(root, ct);
         f.Enumerator.Enumerate().Returns([new GameProcessInfo(1, @"C:\Elsewhere\ArkAscendedServer.exe", "elsewhere", DateTimeOffset.UnixEpoch)]);
 
-        Assert.True((await f.Service.StartUpdateAsync(true, ct)).Succeeded);
+        Assert.True((await f.Service.StartUpdateAsync(true, false, ct)).Succeeded);
         await f.Service.Completion.WaitAsync(_timeout, ct);
 
         Assert.True(f.Service.Current.IsResolved);
@@ -177,7 +208,7 @@ public class UpdateServiceTests
         f.Processes.Set(f.Alpha.Id, InstanceState.Running);
         f.SteamCmd.InstallOrUpdateAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(SteamCmdResult.Failure(8, "download failed"));
 
-        Assert.True((await f.Service.StartUpdateAsync(true, ct)).Succeeded);
+        Assert.True((await f.Service.StartUpdateAsync(true, false, ct)).Succeeded);
         await f.Service.Completion.WaitAsync(_timeout, ct);
 
         Assert.Equal(MaintenancePhase.Updating, f.Service.Current.Phase);
@@ -185,7 +216,7 @@ public class UpdateServiceTests
         Assert.Equal(MaintenancePhase.Updating, (await TestSeed.MaintenanceRowAsync(root, ct)).Phase);
         Assert.False(f.Service.IsOperationInProgress);
         Assert.False(f.Gate.IsHeldExclusively);
-        Assert.False((await f.Service.StartUpdateAsync(true, ct)).Succeeded);
+        Assert.False((await f.Service.StartUpdateAsync(true, false, ct)).Succeeded);
 
         f.SteamCmd.InstallOrUpdateAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(SteamCmdResult.Success);
         await f.Service.ResumeAsync(ct);
@@ -204,7 +235,7 @@ public class UpdateServiceTests
         var f = await Fixture.CreateAsync(root, ct);
         f.Checker.Check().Returns(new GameInstallStatus(true, false, "StateFlags 1026"));
 
-        Assert.True((await f.Service.StartUpdateAsync(true, ct)).Succeeded);
+        Assert.True((await f.Service.StartUpdateAsync(true, false, ct)).Succeeded);
         await f.Service.Completion.WaitAsync(_timeout, ct);
 
         Assert.Equal(MaintenancePhase.Updating, f.Service.Current.Phase);
@@ -377,7 +408,7 @@ public class UpdateServiceTests
         var f = await Fixture.CreateAsync(root, ct);
         f.Processes.Set(f.Alpha.Id, InstanceState.Running);
 
-        Assert.True((await f.Service.StartUpdateAsync(true, ct)).Succeeded);
+        Assert.True((await f.Service.StartUpdateAsync(true, false, ct)).Succeeded);
         await f.Service.Completion.WaitAsync(_timeout, ct);
 
         Assert.Contains(f.Snapshots, s => s.Phase == MaintenancePhase.Stopping && s.Entries.Single().Done);

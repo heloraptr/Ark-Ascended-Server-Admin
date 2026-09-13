@@ -6,6 +6,7 @@ using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Provisioning;
 using ArkAscendedServerAdmin.Infrastructure.Provisioning;
+using ArkAscendedServerAdmin.Install;
 using ArkAscendedServerAdmin.Maintenance;
 using ArkAscendedServerAdmin.Rcon;
 using ArkAscendedServerAdmin.Server.Commands;
@@ -47,6 +48,7 @@ internal sealed class CommandTestHost : IDisposable
         StartupControl = Substitute.For<IStartupControl>();
         UpdateService = Substitute.For<IUpdateService>();
         Recovery = Substitute.For<IMaintenanceRecovery>();
+        InstallChecker = Substitute.For<IGameInstallChecker>();
 
         Instances = new InstanceCommands(
             Guard, Root, Root.Layout, Host, Settings, ProcessManager, Backups, DeleteService, LayoutService, IniStore,
@@ -57,7 +59,7 @@ internal sealed class CommandTestHost : IDisposable
         Players = new PlayerCommands(Guard, Root, Settings, ProcessManager, GeneratedConfig, Rcon, Clock, NullLogger<PlayerCommands>.Instance);
         Maps = new MapCommands(Guard, Root);
         SettingsCommands = new SettingsCommands(Guard, Settings, Exporter, Root.Layout, Host, Clock);
-        Maintenance = new MaintenanceCommands(Guard, StartupControl, UpdateService, Recovery, NullLogger<MaintenanceCommands>.Instance);
+        Maintenance = new MaintenanceCommands(Guard, StartupControl, UpdateService, Recovery, InstallChecker, NullLogger<MaintenanceCommands>.Instance);
     }
 
     public TempDataRoot Root { get; }
@@ -95,6 +97,8 @@ internal sealed class CommandTestHost : IDisposable
     public IUpdateService UpdateService { get; }
 
     public IMaintenanceRecovery Recovery { get; }
+
+    public IGameInstallChecker InstallChecker { get; }
 
     public InstanceCommands Instances { get; }
 

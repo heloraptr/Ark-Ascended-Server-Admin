@@ -9,6 +9,26 @@ public sealed record MaintenanceSnapshot(MaintenancePhase Phase, IReadOnlyList<M
     public bool IsResolved => Phase == MaintenancePhase.None && Entries.Count == 0;
 
     public bool HasFailedEntries => Entries.Any(e => e.Error is not null);
+
+    /// <summary>What the most recent SteamCMD run in this process concluded; in-memory only, null until one completes.</summary>
+    public UpdateResult? LastResult { get; init; }
+}
+
+/// <summary>
+/// The conclusion of one SteamCMD update run: the build id before and after (as Steam writes it to the
+/// app manifest) and whether the files were validated. Equal ids mean the install was already current.
+/// </summary>
+public sealed record UpdateResult(DateTimeOffset CompletedAt, string? PreviousBuild, string? InstalledBuild, bool Validated)
+{
+    public bool BuildChanged => PreviousBuild is not null && InstalledBuild is not null && PreviousBuild != InstalledBuild;
+
+    public string Summary => this switch
+    {
+        { BuildChanged: true } => $"Updated from build {PreviousBuild} to build {InstalledBuild}.",
+        { InstalledBuild: not null, Validated: true } => $"Files verified; build {InstalledBuild} is the latest.",
+        { InstalledBuild: not null } => $"Already on the latest build ({InstalledBuild}).",
+        _ => "SteamCMD finished; the app manifest has no build id.",
+    };
 }
 
 /// <summary>
@@ -23,8 +43,11 @@ public interface IUpdateService
     /// <summary>Raised on a background thread whenever the persisted state changes.</summary>
     event Action<MaintenanceSnapshot>? Changed;
 
-    /// <summary>Starts the flow in the background; the outcome only reports acceptance or the refusal reason.</summary>
-    Task<OperationOutcome> StartUpdateAsync(bool confirmStopRunningInstances, CancellationToken cancellationToken);
+    /// <summary>
+    /// Starts the flow in the background; the outcome only reports acceptance or the refusal reason.
+    /// <paramref name="validate"/> forces SteamCMD's <c>validate</c> for this run even when the setting is off.
+    /// </summary>
+    Task<OperationOutcome> StartUpdateAsync(bool confirmStopRunningInstances, bool validate, CancellationToken cancellationToken);
 
     /// <summary>Re-enqueues a <c>Restarting</c> entry that recorded an error.</summary>
     Task<OperationOutcome> RetryEntryAsync(int instanceId, CancellationToken cancellationToken);

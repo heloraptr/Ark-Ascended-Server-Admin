@@ -15,6 +15,8 @@ public sealed class InMemoryConsoleService(ILogger<InMemoryConsoleService> logge
 
     public event Action<string, ConsoleLine>? LineAppended;
 
+    public event Action<string>? Cleared;
+
     public IReadOnlyList<ConsoleLine> Snapshot(string channel)
     {
         ArgumentException.ThrowIfNullOrEmpty(channel);
@@ -70,6 +72,24 @@ public sealed class InMemoryConsoleService(ILogger<InMemoryConsoleService> logge
         lock (_gate)
         {
             _channels.Remove(channel);
+        }
+
+        var handlers = Cleared;
+        if (handlers is null)
+        {
+            return;
+        }
+
+        foreach (var handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                ((Action<string>)handler)(channel);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "A console subscriber threw on clearing channel {Channel}.", channel);
+            }
         }
     }
 }

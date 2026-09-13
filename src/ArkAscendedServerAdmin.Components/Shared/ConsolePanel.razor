@@ -88,6 +88,7 @@
         if (_subscribedChannel is null)
         {
             Console.LineAppended += OnLineAppended;
+            Console.Cleared += OnCleared;
         }
 
         _subscribedChannel = Channel;
@@ -170,6 +171,17 @@
         }
     }
 
+    private void OnCleared(string channel)
+    {
+        if (channel != Channel)
+        {
+            return;
+        }
+
+        ClearView();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
     private async Task CopyAsync()
     {
         string text;
@@ -238,6 +250,7 @@
         if (_subscribedChannel is not null)
         {
             Console.LineAppended -= OnLineAppended;
+            Console.Cleared -= OnCleared;
         }
 
         return ValueTask.CompletedTask;

@@ -2,8 +2,6 @@
 @inject IReadinessMonitor Readiness
 @inject IUpdateService Updates
 @inject IProcessManager Processes
-@inject IMaintenanceCommands Maintenance
-@inject DialogService Dialogs
 @inject NotificationService Notifications
 @inject NavigationManager Navigation
 
@@ -45,9 +43,16 @@
             else
             {
                 <div class="ark-system-detail">@Presentation.Plural(_live, "instance") up</div>
+                @if (_maintenance.LastResult is { } result)
+                {
+                    <div class="ark-system-detail" title="@result.Summary">
+                        @(result.BuildChanged ? $"Updated to build {result.InstalledBuild}" : result.InstalledBuild is null ? "Update checked" : $"Up to date, build {result.InstalledBuild}")
+                        · @Presentation.Ago(result.CompletedAt, DateTimeOffset.UtcNow)
+                    </div>
+                }
             }
             <RadzenButton Text="Update game" Icon="system_update_alt" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base"
-                          Disabled="@(_maintenance.Phase != MaintenancePhase.None || !_readiness.IsReady)" Click="UpdateAsync" />
+                          Disabled="@(!_readiness.IsReady)" Click="@(() => Navigation.NavigateTo("update"))" />
         </div>
         <AuthorizeView>
             <Authorized>
@@ -81,32 +86,27 @@
 
     private void OnReadiness(ReadinessState state) => _ = InvokeAsync(() => { _readiness = state; StateHasChanged(); });
 
-    private void OnMaintenance(MaintenanceSnapshot snapshot) => _ = InvokeAsync(() => { _maintenance = snapshot; StateHasChanged(); });
-
-    private void OnRuntime(InstanceRuntime runtime) => _ = InvokeAsync(() => { _live = CountLive(); StateHasChanged(); });
-
-    private async Task UpdateAsync()
+    private void OnMaintenance(MaintenanceSnapshot snapshot) => _ = InvokeAsync(() =>
     {
-        var live = Processes.GetAllRuntimes().Where(r => r.HasLiveProcess).Select(r => r.InstanceId).ToList();
-        var confirmed = await Dialogs.OpenAsync<UpdateGameDialog>("Update the game", new Dictionary<string, object?> { ["LiveCount"] = live.Count }, new DialogOptions { Width = "460px" });
-        if (confirmed is not true)
+        // The rail is on every page, so the end of an update is announced here regardless of where the owner is.
+        var wasBusy = _maintenance.Phase != MaintenancePhase.None;
+        _maintenance = snapshot;
+        if (wasBusy && snapshot.Phase == MaintenancePhase.None)
         {
-            return;
+            if (snapshot.Detail is { } reason)
+            {
+                Notifications.Failed("Update stopped", reason);
+            }
+            else if (snapshot.LastResult is { } result)
+            {
+                Notifications.Done(result.BuildChanged ? "Game updated" : "Game is up to date", result.Summary);
+            }
         }
 
-        await Navigation.GuardedAsync(async () =>
-        {
-            var outcome = await Maintenance.StartUpdateAsync(confirmStopRunningInstances: live.Count > 0);
-            if (outcome.Succeeded)
-            {
-                Notifications.Info("Update started", live.Count > 0 ? "Running instances are being stopped first." : "SteamCMD is checking for a new build.");
-            }
-            else
-            {
-                Notifications.Failed("Could not start the update", outcome.Error);
-            }
-        }, Notifications);
-    }
+        StateHasChanged();
+    });
+
+    private void OnRuntime(InstanceRuntime runtime) => _ = InvokeAsync(() => { _live = CountLive(); StateHasChanged(); });
 
     public void Dispose()
     {

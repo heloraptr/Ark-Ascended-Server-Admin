@@ -33,8 +33,9 @@ public sealed class GameInstallChecker(DataRootLayout layout) : IGameInstallChec
             return new GameInstallStatus(steamCmdPresent, false, "The app manifest has no StateFlags entry.");
         }
 
+        AppManifest.TryReadBuildId(manifest, out var buildId);
         return flags == AppManifest.StateFullyInstalled
-            ? new GameInstallStatus(steamCmdPresent, true, steamCmdPresent ? "Install verified." : $"Install verified, but {layout.SteamCmdExecutable} is missing.")
-            : new GameInstallStatus(steamCmdPresent, false, $"The app manifest reports StateFlags {flags}; expected {AppManifest.StateFullyInstalled} (fully installed).");
+            ? new GameInstallStatus(steamCmdPresent, true, steamCmdPresent ? "Install verified." : $"Install verified, but {layout.SteamCmdExecutable} is missing.", buildId)
+            : new GameInstallStatus(steamCmdPresent, false, $"The app manifest reports StateFlags {flags}; expected {AppManifest.StateFullyInstalled} (fully installed).", buildId);
     }
 }

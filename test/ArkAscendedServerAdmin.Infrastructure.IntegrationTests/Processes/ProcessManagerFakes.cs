@@ -93,6 +93,8 @@ internal sealed class RecordingConsole : IConsoleService
 
     public event Action<string, ConsoleLine>? LineAppended;
 
+    public event Action<string>? Cleared;
+
     public IReadOnlyList<ConsoleLine> Snapshot(string channel)
     {
         lock (_channels)
@@ -123,5 +125,7 @@ internal sealed class RecordingConsole : IConsoleService
         {
             _channels.Remove(channel);
         }
+
+        Cleared?.Invoke(channel);
     }
 }

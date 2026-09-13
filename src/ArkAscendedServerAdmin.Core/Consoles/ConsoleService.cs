@@ -41,4 +41,7 @@ public interface IConsoleService
     void Clear(string channel);
 
     event Action<string, ConsoleLine>? LineAppended;
+
+    /// <summary>Raised after <see cref="Clear"/> so open panels drop their copy of the channel too.</summary>
+    event Action<string>? Cleared;
 }

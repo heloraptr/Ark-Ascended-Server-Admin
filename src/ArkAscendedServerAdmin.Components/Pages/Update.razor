@@ -1,0 +1,228 @@
+@page "/update"
+@inherits ArkPage
+@implements IDisposable
+@inject IMaintenanceCommands MaintenanceCommands
+@inject ISettingsCommands SettingsCommands
+@inject IInstanceCommands Instances
+@inject IUpdateService Updates
+@inject IProcessManager Processes
+@inject ISteamCmdProgressMonitor Progress
+
+<PageHead Title="Update game" Lead="SteamCMD compares the installed build with Steam's and downloads only what changed. Running instances are stopped first and started again afterward." />
+
+<div class="ark-panel" style="margin-bottom:20px">
+    <div class="ark-panel-body" style="display:flex;flex-direction:column;gap:14px">
+        <dl class="kv">
+            <dt>Installed build</dt>
+            <dd>
+                @if (_install is null)
+                {
+                    <span class="muted">Loading…</span>
+                }
+                else if (_install.BuildId is { } build)
+                {
+                    <span class="num">@build</span>
+                    @if (!_install.IsComplete)
+                    {
+                        <span class="tone-bad" style="margin-left:8px">@_install.Detail</span>
+                    }
+                }
+                else
+                {
+                    <span class="tone-bad">@_install.Detail</span>
+                }
+            </dd>
+            <dt>Last run</dt>
+            <dd>
+                @if (_maintenance.LastResult is { } result)
+                {
+                    <span>@result.Summary</span>
+                    <span class="faint" style="margin-left:8px">@Presentation.Ago(result.CompletedAt, DateTimeOffset.UtcNow)</span>
+                }
+                else
+                {
+                    <span class="muted">No update has run since the service started.</span>
+                }
+            </dd>
+            <dt>Status</dt>
+            <dd>
+                <span class="state @(_maintenance.Phase == MaintenancePhase.None ? "st-ok" : "st-transit")">
+                    <Lamp Tone="@(_maintenance.Phase == MaintenancePhase.None ? "st-ok" : "st-transit")" />
+                    <span>@(_maintenance.Phase == MaintenancePhase.None ? "Idle" : Presentation.Label(_maintenance.Phase))</span>
+                </span>
+                @if (_maintenance.Phase != MaintenancePhase.None && _maintenance.StartedAt is { } started)
+                {
+                    <span class="faint" style="margin-left:8px">since @Presentation.Clock(started)</span>
+                }
+            </dd>
+        </dl>
+
+        @if (_progress is { } progress)
+        {
+            <div>
+                <RadzenProgressBar Value="@Math.Round(progress.Percent, 1)" ShowValue="true" Style="height:8px" />
+                <span class="hint muted">@progress.State · @Presentation.Bytes(progress.Done) of @Presentation.Bytes(progress.Total)</span>
+            </div>
+        }
+
+        @if (_maintenance.Phase == MaintenancePhase.None && _maintenance.Detail is { } detail)
+        {
+            <Problems Items="@([detail])" />
+        }
+
+        @if (_maintenance.Entries.Count > 0)
+        {
+            <div>
+                <div class="field-label" style="margin-bottom:6px">Instances</div>
+                <ul style="margin:0;padding-left:18px">
+                    @foreach (var entry in _maintenance.Entries)
+                    {
+                        <li>
+                            @NameOf(entry.InstanceId):
+                            @if (entry.Error is { } error)
+                            {
+                                <span class="tone-bad">@error</span>
+                                <RadzenButton Text="Retry" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Primary" Click="@(() => Fire(() => MaintenanceCommands.RetryEntryAsync(entry.InstanceId), "Re-queued", NameOf(entry.InstanceId)))" />
+                                <RadzenButton Text="Skip" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => Fire(() => MaintenanceCommands.SkipEntryAsync(entry.InstanceId), "Skipped", NameOf(entry.InstanceId)))" />
+                            }
+                            else
+                            {
+                                <span class="@(entry.Done ? "tone-ok" : "muted")">@(entry.Done ? "done" : "waiting")</span>
+                            }
+                        </li>
+                    }
+                </ul>
+            </div>
+        }
+
+        @if (_maintenance.Phase == MaintenancePhase.None)
+        {
+            <div class="field">
+                <div class="check-row">
+                    <RadzenCheckBox TValue="bool" @bind-Value="_validate" Name="u-validate" Disabled="@(_settingForcesValidate || Busy)" />
+                    <label for="u-validate">Verify game files</label>
+                </div>
+                <span class="hint">
+                    @if (_settingForcesValidate)
+                    {
+                        <text>Always on: the SteamCMD validate setting is enabled on the Settings page.</text>
+                    }
+                    else
+                    {
+                        <text>Adds <code>validate</code> so SteamCMD checks every file against Steam's manifest and re-downloads anything that differs. Slower; use it when the install looks broken.</text>
+                    }
+                </span>
+            </div>
+            <div class="form-actions">
+                <RadzenButton Text="@(LiveCount > 0 ? $"Stop {Presentation.Plural(LiveCount, "instance")} and update" : "Check for updates")" Icon="system_update_alt"
+                              ButtonStyle="@(LiveCount > 0 ? ButtonStyle.Warning : ButtonStyle.Primary)" Disabled="Busy" Click="StartAsync" />
+                <span class="hint muted">
+                    @if (LiveCount > 0)
+                    {
+                        <text>Each running instance gets the broadcast countdown, a world save, and a graceful stop before SteamCMD runs; they are started again afterward.</text>
+                    }
+                    else
+                    {
+                        <text>Nothing is running, so no instance is affected. Starts are refused while the update runs.</text>
+                    }
+                </span>
+            </div>
+        }
+        else if (_maintenance.Phase is MaintenancePhase.Stopping or MaintenancePhase.Updating)
+        {
+            <div class="form-actions">
+                <RadzenButton Text="Resume update" Icon="replay" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" title="Re-runs the interrupted phase if SteamCMD failed and nothing is running." Click="@(() => Fire(() => MaintenanceCommands.ResumeMaintenanceAsync(), "Resumed", "the update"))" />
+            </div>
+        }
+    </div>
+</div>
+
+<ConsolePanel Channel="@ConsoleChannels.SteamCmd" Title="SteamCMD" Height="calc(100vh - 470px)" InputEnabled="false" EmptyText="SteamCMD has not printed anything since the service started." />
+
+@code {
+    private MaintenanceSnapshot _maintenance = default!;
+    private SteamCmdProgress? _progress;
+    private GameInstallStatus? _install;
+    private Dictionary<int, string> _names = [];
+    private bool _validate;
+    private bool _settingForcesValidate;
+
+    private int LiveCount => Processes.GetAllRuntimes().Count(r => r.HasLiveProcess);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _maintenance = Updates.Current;
+        _progress = Progress.Current;
+        Updates.Changed += OnMaintenance;
+        Progress.Changed += OnProgress;
+        Processes.RuntimeChanged += OnRuntime;
+        await GuardedAsync(async () =>
+        {
+            var settings = await SettingsCommands.GetAppSettingsAsync();
+            _settingForcesValidate = settings.SteamCmdValidate;
+            _validate = _settingForcesValidate;
+            _names = (await Instances.GetDashboardAsync()).Instances.ToDictionary(i => i.Id, i => i.Name);
+            _install = await MaintenanceCommands.GetInstallStatusAsync();
+        });
+    }
+
+    private string NameOf(int instanceId) => _names.TryGetValue(instanceId, out var name) ? name : $"instance #{instanceId}";
+
+    private void OnMaintenance(MaintenanceSnapshot snapshot) => _ = InvokeAsync(async () =>
+    {
+        var wasBusy = _maintenance.Phase != MaintenancePhase.None;
+        _maintenance = snapshot;
+        if (wasBusy && snapshot.Phase == MaintenancePhase.None)
+        {
+            await GuardedAsync(async () => _install = await MaintenanceCommands.GetInstallStatusAsync());
+        }
+
+        StateHasChanged();
+    });
+
+    private void OnProgress(SteamCmdProgress? progress) => _ = InvokeAsync(() =>
+    {
+        _progress = progress;
+        StateHasChanged();
+    });
+
+    private void OnRuntime(InstanceRuntime runtime) => _ = InvokeAsync(StateHasChanged);
+
+    private async Task StartAsync()
+    {
+        var live = LiveCount;
+        if (live > 0)
+        {
+            var confirmed = await ConfirmAsync(
+                "Stop instances and update",
+                $"{Presentation.Plural(live, "instance is", "instances are")} running. Each gets the broadcast countdown, a world save, and a graceful stop before SteamCMD runs, then starts again.",
+                "Stop and update",
+                danger: true,
+                icon: "system_update_alt");
+            if (!confirmed)
+            {
+                return;
+            }
+        }
+
+        await GuardedAsync(async () =>
+        {
+            var outcome = await MaintenanceCommands.StartUpdateAsync(confirmStopRunningInstances: live > 0, validate: _validate);
+            if (outcome.Succeeded)
+            {
+                Notifications.Info("Update started", live > 0 ? "Running instances are being stopped first." : "SteamCMD is comparing the installed build with Steam's.");
+            }
+            else
+            {
+                Notifications.Failed("Could not start the update", outcome.Error);
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        Updates.Changed -= OnMaintenance;
+        Progress.Changed -= OnProgress;
+        Processes.RuntimeChanged -= OnRuntime;
+    }
+}

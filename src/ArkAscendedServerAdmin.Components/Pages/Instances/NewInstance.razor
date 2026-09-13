@@ -110,6 +110,13 @@
                             <span><strong>Blank</strong><span>Empty files. You must add ServerAdminPassword before the first start.</span></span>
                         </button>
                     </div>
+                    <div class="form-grid" style="margin-top:20px">
+                        <div class="field">
+                            <label for="w-admin">Server admin password</label>
+                            <RadzenPassword id="w-admin" @bind-Value="_adminPassword" @oninput="@((ChangeEventArgs e) => _adminPassword = e.Value?.ToString() ?? string.Empty)" autocomplete="new-password" />
+                            <span class="hint">Written as ServerAdminPassword in GameUserSettings.ini. The manager saves and stops the server over RCON with it, so a start is refused while it is empty. @(_configSource is ConfigSourceKind.CopyFromInstance or ConfigSourceKind.CopyFromCluster ? "Leave blank to keep the copied file's password." : "You can also set it in the INI editor later.")</span>
+                        </div>
+                    </div>
                 }
                 break;
 
@@ -155,7 +162,7 @@
 
             case 7:
                 <h2>Summary</h2>
-                <p class="lead">Creating the instance writes the folder tree and the INI files. It does not start the server.</p>
+                <p class="lead">Creating the instance writes the folder tree and the INI files. Tick the box below to start the server right after.</p>
                 <dl class="kv">
                     <dt>Name</dt><dd>@_name <span class="faint mono">@Slug</span></dd>
                     <dt>Session name</dt><dd>@_sessionName</dd>
@@ -164,11 +171,28 @@
                     @if (_clusterId is null)
                     {
                         <dt>INI source</dt><dd>@ConfigSourceText</dd>
+                        <dt>Admin password</dt><dd>@(HasAdminPassword ? "set" : _configSource is ConfigSourceKind.CopyFromInstance or ConfigSourceKind.CopyFromCluster ? "kept from the copied file" : "not set")</dd>
                     }
                     <dt>Mods</dt><dd>@(_modIds.Count == 0 ? "none" : string.Join(", ", _pickedMods.Select(m => m.Name)))</dd>
                     <dt>Ports</dt><dd><span class="num">@_gamePort</span> game, <span class="num">@_rconPort</span> RCON</dd>
                     <dt>Max players</dt><dd>@_maxPlayers</dd>
                 </dl>
+                <div class="field" style="margin-top:20px">
+                    <div class="check-row">
+                        <RadzenCheckBox TValue="bool" @bind-Value="_startAfterCreate" Name="w-start" />
+                        <label for="w-start">Start the server right away</label>
+                    </div>
+                    <span class="hint">
+                        @if (_startAfterCreate && _clusterId is null && !HasAdminPassword && _configSource is ConfigSourceKind.GameDefaults or ConfigSourceKind.Blank)
+                        {
+                            <text>The start will be refused: no admin password is set. Go back to Config source and enter one, or untick this.</text>
+                        }
+                        else
+                        {
+                            <text>Generates the INI files, opens the firewall for the game ports, and launches the server. You land on the instance page with the console open.</text>
+                        }
+                    </span>
+                </div>
                 <Problems Items="_createProblems" />
                 break;
         }
@@ -213,6 +237,8 @@
     private int _rconPort;
     private int _maxPlayers = 70;
     private string _whitelist = string.Empty;
+    private string _adminPassword = string.Empty;
+    private bool _startAfterCreate;
     private IReadOnlyList<string>? _portProblems;
     private IReadOnlyList<string>? _createProblems;
     private IReadOnlyList<ClusterListItem> _clusters = [];
@@ -222,6 +248,8 @@
     private int? _loadedClusterId = -1;
 
     private string Slug => ArkAscendedServerAdmin.Naming.Slug.Generate(_name.Length == 0 ? "instance" : _name, []);
+
+    private bool HasAdminPassword => !string.IsNullOrWhiteSpace(_adminPassword);
 
     private string ConfigSourceText => _configSource switch
     {
@@ -336,11 +364,13 @@
                 ModIds = _modIds,
                 LaunchFlags = _flags,
                 AdminWhitelist = _whitelist,
+                AdminPassword = _adminPassword,
             });
             if (result.Succeeded)
             {
-                Notifications.Done($"Created {_name}", _clusterId is null ? "Set ServerAdminPassword in GameUserSettings.ini before the first start." : null);
-                Navigation.NavigateTo($"instances/{result.Value}");
+                var needsPassword = _clusterId is null && !HasAdminPassword && _configSource is ConfigSourceKind.GameDefaults or ConfigSourceKind.Blank;
+                Notifications.Done($"Created {_name}", needsPassword ? "Set ServerAdminPassword in GameUserSettings.ini before the first start." : null);
+                Navigation.NavigateTo(_startAfterCreate ? $"instances/{result.Value}?start=true" : $"instances/{result.Value}");
             }
             else
             {

@@ -212,6 +212,8 @@ public sealed class FakeConsoleService : IConsoleService
 
     public event Action<string, ConsoleLine>? LineAppended;
 
+    public event Action<string>? Cleared;
+
     public IReadOnlyList<ConsoleLine> Snapshot(string channel) =>
         _lines.TryGetValue(channel, out var lines) ? lines.ToList() : [];
 
@@ -221,7 +223,11 @@ public sealed class FakeConsoleService : IConsoleService
         LineAppended?.Invoke(channel, line);
     }
 
-    public void Clear(string channel) => _lines.TryRemove(channel, out _);
+    public void Clear(string channel)
+    {
+        _lines.TryRemove(channel, out _);
+        Cleared?.Invoke(channel);
+    }
 }
 
 /// <summary>Enough of the junction layout for delete tests: retire moves or deletes the instance's <c>Saved</c>.</summary>

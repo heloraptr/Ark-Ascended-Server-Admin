@@ -47,6 +47,17 @@ public class AppManifestTests
     }
 
     [Fact]
+    public void BuildId_IsReadWhenPresent()
+    {
+        var text = FullyInstalled.Replace("\t\"installdir\"", "\t\"buildid\"\t\t\"20250901\"\n\t\"installdir\"", StringComparison.Ordinal);
+
+        Assert.True(AppManifest.TryReadBuildId(text, out var buildId));
+        Assert.Equal("20250901", buildId);
+        Assert.False(AppManifest.TryReadBuildId(FullyInstalled, out var missing));
+        Assert.Null(missing);
+    }
+
+    [Fact]
     public void NestedKeyWithSameName_DoesNotConfuseTheReader()
     {
         // A value that merely contains the text must not match; the key has to be on its own line.

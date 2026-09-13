@@ -104,8 +104,8 @@ else
 
     <Problems Items="_problems" />
     <div class="form-actions" style="margin-bottom:40px">
-        <RadzenButton Text="Save settings" Icon="save" ButtonStyle="ButtonStyle.Primary" Disabled="Busy" Click="SaveAsync" />
-        <RadzenButton Text="Reset" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="Busy" Click="LoadAsync" />
+        <RadzenButton Text="Save settings" Icon="save" ButtonStyle="ButtonStyle.Primary" Disabled="@(Busy || _saving)" IsBusy="_saving" BusyText="Saving…" Click="SaveAsync" />
+        <RadzenButton Text="Reset" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="@(Busy || _saving)" Click="LoadAsync" />
     </div>
 
     <section class="ark-section">
@@ -145,6 +145,9 @@ else
 }
 
 @code {
+    private static readonly TimeSpan _saveFeedback = TimeSpan.FromSeconds(2);
+    private bool _saving;
+
     private sealed class EditModel
     {
         public int StaggerDelaySeconds { get; set; }
@@ -221,18 +224,34 @@ else
             return;
         }
 
-        await GuardedAsync(async () =>
+        // The save itself takes milliseconds; hold the busy state so the click visibly did something.
+        _saving = true;
+        var started = DateTimeOffset.UtcNow;
+        try
         {
-            try
+            await GuardedAsync(async () =>
             {
-                await SettingsCommands.SaveAppSettingsAsync(settings);
-                Notifications.Done("Saved settings");
-            }
-            catch (ArgumentException ex)
-            {
-                _problems = [ex.Message];
-            }
-        });
+                try
+                {
+                    await SettingsCommands.SaveAppSettingsAsync(settings);
+                    var remaining = _saveFeedback - (DateTimeOffset.UtcNow - started);
+                    if (remaining > TimeSpan.Zero)
+                    {
+                        await Task.Delay(remaining);
+                    }
+
+                    Notifications.Done("Saved settings");
+                }
+                catch (ArgumentException ex)
+                {
+                    _problems = [ex.Message];
+                }
+            });
+        }
+        finally
+        {
+            _saving = false;
+        }
     }
 
     private async Task ExportAsync()

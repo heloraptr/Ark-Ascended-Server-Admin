@@ -75,12 +75,12 @@ public class MaintenanceCommandsTests
         host.Guard.Deny = true;
 
         await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Maintenance.RetryInstallAsync(ct));
-        await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Maintenance.StartUpdateAsync(true, ct));
+        await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Maintenance.StartUpdateAsync(true, false, ct));
         await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Maintenance.RetryEntryAsync(1, ct));
         await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Maintenance.SkipEntryAsync(1, ct));
         await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Maintenance.ResumeMaintenanceAsync(ct));
         await host.StartupControl.DidNotReceiveWithAnyArgs().RetryInstallAsync(ct);
-        await host.UpdateService.DidNotReceiveWithAnyArgs().StartUpdateAsync(default, ct);
+        await host.UpdateService.DidNotReceiveWithAnyArgs().StartUpdateAsync(default, default, ct);
         await host.Recovery.DidNotReceiveWithAnyArgs().ResumeAsync(ct);
     }
 
@@ -89,12 +89,12 @@ public class MaintenanceCommandsTests
     {
         var ct = TestContext.Current.CancellationToken;
         using var host = new CommandTestHost();
-        host.UpdateService.StartUpdateAsync(true, Arg.Any<CancellationToken>()).Returns(OperationOutcome.Rejected("Update already running."));
+        host.UpdateService.StartUpdateAsync(true, false, Arg.Any<CancellationToken>()).Returns(OperationOutcome.Rejected("Update already running."));
         host.UpdateService.RetryEntryAsync(3, Arg.Any<CancellationToken>()).Returns(OperationOutcome.Success);
         host.UpdateService.SkipEntryAsync(4, Arg.Any<CancellationToken>()).Returns(OperationOutcome.Rejected("Not failed."));
 
         await host.Maintenance.RetryInstallAsync(ct);
-        var update = await host.Maintenance.StartUpdateAsync(true, ct);
+        var update = await host.Maintenance.StartUpdateAsync(true, false, ct);
         var retry = await host.Maintenance.RetryEntryAsync(3, ct);
         var skip = await host.Maintenance.SkipEntryAsync(4, ct);
 

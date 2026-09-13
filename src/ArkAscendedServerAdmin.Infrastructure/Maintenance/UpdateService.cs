@@ -41,6 +41,7 @@ public sealed class UpdateService(
     private readonly object _sync = new();
     private MaintenanceSnapshot _current = _idle;
     private bool _loaded;
+    private bool _validateRequested;
     private IDisposable? _gateLease;
     private Task _flow = Task.CompletedTask;
 
@@ -72,7 +73,7 @@ public sealed class UpdateService(
     /// <summary>True while an update or recovery holds the maintenance operation lock.</summary>
     public bool IsOperationInProgress => _operationLock.CurrentCount == 0;
 
-    public async Task<OperationOutcome> StartUpdateAsync(bool confirmStopRunningInstances, CancellationToken cancellationToken)
+    public async Task<OperationOutcome> StartUpdateAsync(bool confirmStopRunningInstances, bool validate, CancellationToken cancellationToken)
     {
         var current = await LoadAsync(cancellationToken);
         var precheck = UpdateStateMachine.Begin(current, IsOperationInProgress, processManager.GetAllRuntimes(), confirmStopRunningInstances, timeProvider.GetUtcNow());
@@ -99,7 +100,11 @@ public sealed class UpdateService(
                 return OperationOutcome.Rejected(transition.Action.Reason!);
             }
 
+            // In-memory only: a flow resumed after a service restart falls back to the SteamCmdValidate setting.
+            _validateRequested = validate;
             await PersistAsync(transition.State, cancellationToken);
+            // Each owner-initiated run starts with an empty SteamCMD console so its output is not mixed with the last one's.
+            console.Clear(ConsoleChannels.SteamCmd);
             Announce($"Update started; stopping {transition.State.Entries.Count} instance(s).");
             StartBackgroundFlow();
             return OperationOutcome.Success;
@@ -349,15 +354,33 @@ public sealed class UpdateService(
     private async Task<InstallResult> RunSteamCmdAsync(CancellationToken cancellationToken)
     {
         var settings = await settingsStore.GetAsync(cancellationToken);
-        Announce($"Running SteamCMD app_update {DataRootLayout.ServerAppId}{(settings.SteamCmdValidate ? " validate" : string.Empty)}.");
-        var result = await steamCmd.InstallOrUpdateAsync(settings.SteamCmdValidate, cancellationToken);
+        var validate = settings.SteamCmdValidate || _validateRequested;
+        _validateRequested = false;
+        var before = installChecker.Check().BuildId;
+        Announce($"Running SteamCMD app_update {DataRootLayout.ServerAppId}{(validate ? " validate" : string.Empty)}{(before is null ? string.Empty : $"; installed build {before}")}.");
+        var result = await steamCmd.InstallOrUpdateAsync(validate, cancellationToken);
         if (!result.Succeeded)
         {
             return InstallResult.Failure(result.Error ?? $"SteamCMD exited with code {result.ExitCode}.");
         }
 
         var status = installChecker.Check();
-        return status.IsComplete ? InstallResult.Success : InstallResult.Failure(status.Detail);
+        if (!status.IsComplete)
+        {
+            return InstallResult.Failure(status.Detail);
+        }
+
+        var outcome = new UpdateResult(timeProvider.GetUtcNow(), before, status.BuildId, validate);
+        Announce(outcome.Summary);
+        MaintenanceSnapshot snapshot;
+        lock (_sync)
+        {
+            _current = _current with { LastResult = outcome };
+            snapshot = _current;
+        }
+
+        Changed?.Invoke(snapshot);
+        return InstallResult.Success;
     }
 
     private async Task<Dictionary<int, OperationOutcome>> LaunchAllAsync(IReadOnlyList<int> instanceIds, CancellationToken cancellationToken)

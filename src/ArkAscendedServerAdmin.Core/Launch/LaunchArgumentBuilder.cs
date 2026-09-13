@@ -10,7 +10,9 @@ namespace ArkAscendedServerAdmin.Launch;
 /// because the INI <c>Port</c> is ignored, and <c>AltSaveDirectoryName</c> rides in the map string as a
 /// <c>?</c>-token because it is the re-attach key (plan step 21). <c>SessionName</c>, <c>RCONPort</c>,
 /// <c>RCONEnabled</c>, and <c>MaxPlayers</c> also reach the game through the generated INI (plan step 16);
-/// <c>-WinLiveMaxPlayers</c> is emitted as well because the INI value alone does not raise the player cap.
+/// <c>-WinLiveMaxPlayers</c> is the authoritative player cap: ASA ignores the INI <c>MaxPlayers</c> and
+/// resets it to the default (ark.wiki.gg, Server configuration: "This currently replaces the MaxPlayers
+/// setting from the GameUserSettings.ini option"), so the flag is emitted from the same field.
 /// </para>
 /// <para>
 /// Output order: map string, <c>-port</c>, <c>-WinLiveMaxPlayers</c>, cluster options, <c>-mods</c>,

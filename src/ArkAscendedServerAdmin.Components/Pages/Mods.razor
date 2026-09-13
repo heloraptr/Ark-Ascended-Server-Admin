@@ -46,16 +46,17 @@
                                             <span>@hit.Author</span>
                                         }
                                         <span>updated @Presentation.Ago(hit.DateModified, _now)</span>
-                                        <span class="spacer"></span>
-                                        @if (hit.InLibrary || _library.Any(m => m.Id == hit.Id))
-                                        {
-                                            <span class="tone-ok">in library</span>
-                                        }
-                                        else
-                                        {
-                                            <RadzenButton Text="Add" Icon="add" Size="ButtonSize.ExtraSmall" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="Busy" Click="@(() => AddAsync(hit.Id))" />
-                                        }
                                     </div>
+                                </div>
+                                <div class="action">
+                                    @if (hit.InLibrary || _library.Any(m => m.Id == hit.Id))
+                                    {
+                                        <span class="tone-ok">in library</span>
+                                    }
+                                    else
+                                    {
+                                        <RadzenButton Text="Add" Icon="add" Size="ButtonSize.ExtraSmall" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="Busy" Click="@(() => AddAsync(hit.Id))" />
+                                    }
                                 </div>
                             </div>
                         }

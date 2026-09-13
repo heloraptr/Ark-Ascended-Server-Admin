@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
@@ -29,12 +30,24 @@ public static partial class AppManifest
         return false;
     }
 
+    /// <summary>Reads the top-level <c>buildid</c>, the number Steam bumps on every depot update.</summary>
+    public static bool TryReadBuildId(string manifestText, [NotNullWhen(true)] out string? buildId)
+    {
+        ArgumentNullException.ThrowIfNull(manifestText);
+        var match = BuildIdPattern().Match(manifestText);
+        buildId = match.Success ? match.Groups["value"].Value : null;
+        return buildId is not null;
+    }
+
     [GeneratedRegex("""^\s*"StateFlags"\s+"(?<value>\d+)"\s*$""", RegexOptions.Multiline | RegexOptions.CultureInvariant)]
     private static partial Regex StateFlagsPattern();
+
+    [GeneratedRegex("""^\s*"buildid"\s+"(?<value>\d+)"\s*$""", RegexOptions.Multiline | RegexOptions.CultureInvariant)]
+    private static partial Regex BuildIdPattern();
 }
 
-/// <summary>Result of checking the on-disk install (plan step 11).</summary>
-public sealed record GameInstallStatus(bool SteamCmdPresent, bool InstallComplete, string Detail)
+/// <summary>Result of checking the on-disk install (plan step 11). <paramref name="BuildId"/> is the manifest's <c>buildid</c> when readable.</summary>
+public sealed record GameInstallStatus(bool SteamCmdPresent, bool InstallComplete, string Detail, string? BuildId = null)
 {
     public bool IsComplete => SteamCmdPresent && InstallComplete;
 }

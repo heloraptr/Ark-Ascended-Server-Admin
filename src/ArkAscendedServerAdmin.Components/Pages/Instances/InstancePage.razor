@@ -290,6 +290,10 @@ else
     [Parameter]
     public int Id { get; set; }
 
+    /// <summary>Set by the wizard's "start after creation" option; consumed once, then dropped from the URL.</summary>
+    [SupplyParameterFromQuery(Name = "start")]
+    public bool StartRequested { get; set; }
+
     protected override void OnInitialized() => Processes.RuntimeChanged += OnRuntimeChanged;
 
     protected override async Task OnParametersSetAsync()
@@ -302,6 +306,13 @@ else
         _loadedId = Id;
         _runtime = Processes.GetRuntime(Id);
         await LoadAsync();
+
+        if (StartRequested && _detail is { } detail)
+        {
+            StartRequested = false;
+            Fire(() => Instances.StartAsync(Id), "Started", detail.Instance.Name);
+            Navigation.NavigateTo($"instances/{Id}", replace: true);
+        }
     }
 
     private async Task LoadAsync()

@@ -289,6 +289,12 @@ public sealed class InstanceCommands(
         problems.AddRange(CommandSupport.ValidatePlayers(draft.MaxPlayers));
         problems.AddRange(CommandSupport.ValidateLaunchFlags(draft.LaunchFlags));
         problems.AddRange(CommandSupport.ValidateBackupSettings(draft.BackupIntervalMinutes, draft.BackupRetention));
+        var adminPassword = CommandSupport.Trimmed(draft.AdminPassword);
+        if (adminPassword is not null)
+        {
+            problems.AddRange(IniOverrideValidator.Validate(IniGenerator.ServerSettingsSection, "ServerAdminPassword", adminPassword)
+                .Select(p => p.Replace("Value", "Admin password", StringComparison.Ordinal)));
+        }
 
         var map = await db.Maps.AsNoTracking().SingleOrDefaultAsync(m => m.Id == draft.MapId, cancellationToken);
         if (map is null)
@@ -349,7 +355,7 @@ public sealed class InstanceCommands(
             await layoutService.EnsureAsync(slug, cancellationToken);
             if (cluster is null)
             {
-                await SeedIniAsync(IniOwner.ForInstance(instance.Id), draft.ConfigSource, draft.ConfigSourceId, cancellationToken);
+                await SeedIniAsync(IniOwner.ForInstance(instance.Id), draft.ConfigSource, draft.ConfigSourceId, cancellationToken, adminPassword);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
@@ -364,8 +370,12 @@ public sealed class InstanceCommands(
         return CommandResult<int>.Ok(instance.Id);
     }
 
-    /// <summary>Writes both source files for a new owner from the chosen starting point (plan step 16, DESIGN §5).</summary>
-    internal async Task SeedIniAsync(IniOwner owner, ConfigSourceKind source, int? sourceId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Writes both source files for a new owner from the chosen starting point (plan step 16, DESIGN §5).
+    /// A non-null <paramref name="adminPassword"/> is set as <c>ServerAdminPassword</c> in the seeded
+    /// <c>GameUserSettings.ini</c>, replacing whatever the source had.
+    /// </summary>
+    internal async Task SeedIniAsync(IniOwner owner, ConfigSourceKind source, int? sourceId, CancellationToken cancellationToken, string? adminPassword = null)
     {
         foreach (var file in new[] { IniFile.Game, IniFile.GameUserSettings })
         {
@@ -376,6 +386,13 @@ public sealed class InstanceCommands(
                 ConfigSourceKind.CopyFromCluster when sourceId is { } id => (await iniStore.LoadAsync(IniOwner.ForCluster(id), file, cancellationToken)).Text,
                 _ => file == IniFile.Game ? IniTemplates.DefaultGameIni : IniTemplates.DefaultGameUserSettings,
             };
+
+            if (file == IniFile.GameUserSettings && adminPassword is not null)
+            {
+                var ini = IniText.Parse(text);
+                ini.Set(IniGenerator.ServerSettingsSection, "ServerAdminPassword", adminPassword);
+                text = ini.ToString();
+            }
 
             var current = await iniStore.LoadAsync(owner, file, cancellationToken);
             var result = await iniStore.SaveAsync(owner, file, text, current.Sha256, cancellationToken);

@@ -61,6 +61,13 @@ public sealed record InstanceDraft
     /// <summary>The instance or cluster id to copy from when <see cref="ConfigSource"/> is a copy.</summary>
     public int? ConfigSourceId { get; init; }
 
+    /// <summary>
+    /// Written as <c>ServerAdminPassword</c> under <c>[ServerSettings]</c> into the seeded
+    /// <c>GameUserSettings.ini</c> of a standalone instance so the first start can succeed. Blank keeps
+    /// whatever the chosen source has; ignored for a clustered instance (the cluster's INI owns it).
+    /// </summary>
+    public string AdminPassword { get; init; } = string.Empty;
+
     public IReadOnlyList<int> ModIds { get; init; } = [];
 
     public LaunchFlags LaunchFlags { get; init; } = new();

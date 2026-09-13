@@ -1042,6 +1042,19 @@ h1:focus-visible {
   line-height: 1.4;
 }
 
+/* A checkbox with its caption on the same line, in place of a field label. */
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.check-row label {
+  color: var(--ark-white);
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
 .field .rz-textbox,
 .field .rz-numeric,
 .field .rz-dropdown,
@@ -1254,13 +1267,14 @@ h1:focus-visible {
 
 .mod-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: 10px;
 }
 
 .mod-card {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  align-items: start;
   gap: 12px;
   padding: 10px;
   border: 1px solid var(--ark-hairline);
@@ -1310,14 +1324,22 @@ h1:focus-visible {
 
 .mod-card .body .meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 4px 10px;
   color: var(--ark-steel-3);
   font-size: 12px;
 }
 
-.mod-card .body .meta .spacer {
-  flex: 1;
+.mod-card .body .meta > * {
+  white-space: nowrap;
+}
+
+/* The Add button (or "in library") sits at the card's bottom right whatever the meta row does. */
+.mod-card .action {
+  align-self: end;
+  white-space: nowrap;
+  font-size: 12px;
 }
 
 /* ---- key/value lists ---------------------------------------------------------------------------- */
