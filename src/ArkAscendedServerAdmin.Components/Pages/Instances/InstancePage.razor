@@ -5,6 +5,7 @@
 @inject IConfigCommands Config
 @inject IModCommands ModCommands
 @inject IProcessManager Processes
+@inject IBackupService BackupService
 
 @if (_detail is null)
 {
@@ -294,7 +295,26 @@ else
     [SupplyParameterFromQuery(Name = "start")]
     public bool StartRequested { get; set; }
 
-    protected override void OnInitialized() => Processes.RuntimeChanged += OnRuntimeChanged;
+    protected override void OnInitialized()
+    {
+        Processes.RuntimeChanged += OnRuntimeChanged;
+        BackupService.Recorded += OnBackupRecorded;
+    }
+
+    /// <summary>Scheduled backups finish on their own timer; the Backups tab follows them without a reload.</summary>
+    private void OnBackupRecorded(BackupRecord record)
+    {
+        if (record.InstanceId != Id)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            await GuardedAsync(async () => _backups = await Instances.GetBackupsAsync(Id));
+            StateHasChanged();
+        });
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -522,5 +542,9 @@ else
         await RefreshPreviewAsync();
     }
 
-    public void Dispose() => Processes.RuntimeChanged -= OnRuntimeChanged;
+    public void Dispose()
+    {
+        Processes.RuntimeChanged -= OnRuntimeChanged;
+        BackupService.Recorded -= OnBackupRecorded;
+    }
 }

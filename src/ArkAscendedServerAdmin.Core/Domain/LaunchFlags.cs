@@ -27,12 +27,8 @@ public sealed class LaunchFlags
 
     public bool? ConvertToStore { get; set; }
 
-    /// <summary>
-    /// The manager defaults the server game log on (plan step 17) because the log tail is the console's
-    /// output source: <see langword="null"/> and <see langword="true"/> both emit <c>-servergamelog</c>;
-    /// only <see langword="false"/> omits it.
-    /// </summary>
-    public bool? ServerGameLog { get; set; }
+    // -servergamelog is not a flag here on purpose: the console tails the log it produces, so the
+    // launch-argument builder always emits it.
 
     public bool? ServerGameLogIncludeTribeLogs { get; set; }
 

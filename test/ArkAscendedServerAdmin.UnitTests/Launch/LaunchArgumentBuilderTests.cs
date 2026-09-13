@@ -105,18 +105,12 @@ public class LaunchArgumentBuilderTests
         Assert.Equal(emitted, arguments.Contains("-NoBattlEye"));
     }
 
-    [Theory]
-    [InlineData(null, true)]
-    [InlineData(true, true)]
-    [InlineData(false, false)]
-    public void ServerGameLog_DefaultsOn_OnlyFalseOmitsIt(bool? flag, bool emitted)
+    [Fact]
+    public void LogAndServerGameLog_AreAlwaysEmitted()
     {
-        var request = Standalone(new LaunchFlags { ServerGameLog = flag });
+        var arguments = LaunchArgumentBuilder.Build(Standalone()).Arguments;
 
-        var arguments = LaunchArgumentBuilder.Build(request).Arguments;
-
-        Assert.Contains("-log", arguments);
-        Assert.Equal(emitted, arguments.Contains("-servergamelog"));
+        Assert.Equal(["-log", "-servergamelog"], arguments.SkipWhile(a => a != "-log").Take(2));
     }
 
     public static TheoryData<string, Func<bool?, LaunchFlags>> BoolFlags => new()
@@ -175,7 +169,6 @@ public class LaunchArgumentBuilderTests
             PreventSpawnAnimations = true,
             UseStore = true,
             ConvertToStore = true,
-            ServerGameLog = true,
             ServerGameLogIncludeTribeLogs = true,
             ServerRconOutputTribeLogs = true,
             ActiveEvent = "Summer",

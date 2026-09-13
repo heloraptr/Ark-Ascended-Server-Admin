@@ -445,11 +445,24 @@ public class BackupService(
         }
     }
 
+    public event Action<BackupRecord>? Recorded;
+
     private async Task PersistAsync(BackupRecord record, CancellationToken cancellationToken)
     {
-        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
-        db.BackupRecords.Add(record);
-        await db.SaveChangesAsync(cancellationToken);
+        await using (var db = await contextFactory.CreateDbContextAsync(cancellationToken))
+        {
+            db.BackupRecords.Add(record);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        try
+        {
+            Recorded?.Invoke(record);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "A backup subscriber threw for instance {InstanceId}.", record.InstanceId);
+        }
     }
 
     private async Task PruneAsync(Instance instance, AppSettings settings, CancellationToken cancellationToken)

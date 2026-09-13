@@ -34,7 +34,6 @@ public class LaunchFlagResolverTests
         Assert.True(resolved.PreventSpawnAnimations);
         Assert.True(resolved.UseStore);
         Assert.True(resolved.ConvertToStore);
-        Assert.True(resolved.ServerGameLog);
         Assert.True(resolved.ServerGameLogIncludeTribeLogs);
         Assert.True(resolved.ServerRconOutputTribeLogs);
         Assert.Equal("Summer", resolved.ActiveEvent);
@@ -55,7 +54,6 @@ public class LaunchFlagResolverTests
         Assert.False(resolved.PreventSpawnAnimations);
         Assert.False(resolved.UseStore);
         Assert.False(resolved.ConvertToStore);
-        Assert.False(resolved.ServerGameLog);
         Assert.False(resolved.ServerGameLogIncludeTribeLogs);
         Assert.False(resolved.ServerRconOutputTribeLogs);
         Assert.Equal("Winter", resolved.ActiveEvent);
@@ -123,7 +121,6 @@ public class LaunchFlagResolverTests
         PreventSpawnAnimations = value,
         UseStore = value,
         ConvertToStore = value,
-        ServerGameLog = value,
         ServerGameLogIncludeTribeLogs = value,
         ServerRconOutputTribeLogs = value,
         ActiveEvent = activeEvent,

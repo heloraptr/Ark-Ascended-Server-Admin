@@ -1115,10 +1115,18 @@ h1:focus-visible {
   line-height: 1.35;
 }
 
-.flag .flag-inherit {
+/* What "Default" or "Inherit" resolves to, and which switch that means on the command line. Spans the
+   whole box under the name and the buttons so it rarely wraps. */
+.flag .flag-effective {
+  grid-column: 1 / -1;
   display: block;
+  margin-top: -4px;
   color: var(--ark-rim);
   font-size: 12px;
+}
+
+.flag .flag-effective strong {
+  font-weight: 500;
 }
 
 .tri {

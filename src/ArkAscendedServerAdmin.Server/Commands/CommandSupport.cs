@@ -132,7 +132,6 @@ internal static class CommandSupport
         target.PreventSpawnAnimations = source.PreventSpawnAnimations;
         target.UseStore = source.UseStore;
         target.ConvertToStore = source.ConvertToStore;
-        target.ServerGameLog = source.ServerGameLog;
         target.ServerGameLogIncludeTribeLogs = source.ServerGameLogIncludeTribeLogs;
         target.ServerRconOutputTribeLogs = source.ServerRconOutputTribeLogs;
         target.ActiveEvent = Trimmed(source.ActiveEvent);

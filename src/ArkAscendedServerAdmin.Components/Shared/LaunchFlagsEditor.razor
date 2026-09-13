@@ -1,6 +1,8 @@
 @* Typed -Flag options plus free-text additional arguments (plan step 17). A clustered instance can inherit each flag from its cluster. *@
 @using ArkAscendedServerAdmin.Launch
 
+<p class="hint muted" style="margin:0 0 12px">Every start also passes <code>-log -servergamelog</code>; the console depends on the log they produce, so they are not optional.</p>
+
 <div class="flag-list">
     @foreach (var flag in _flags)
     {
@@ -8,16 +10,19 @@
             <div>
                 <span class="flag-name">@flag.Label</span>
                 <span class="flag-desc">@flag.Description</span>
-                @if (CanInherit && flag.Get(_edit) is null)
-                {
-                    <span class="flag-inherit">Inherited: @(Effective(flag) ? "on" : "off")</span>
-                }
             </div>
             <div class="tri" role="group" aria-label="@flag.Label">
                 <button type="button" class="@(flag.Get(_edit) is null ? (CanInherit ? "on is-inherit" : "on") : null)" @onclick="() => Set(flag, null)">@(CanInherit ? "Inherit" : "Default")</button>
                 <button type="button" class="@(flag.Get(_edit) == true ? "on" : null)" @onclick="() => Set(flag, true)">On</button>
                 <button type="button" class="@(flag.Get(_edit) == false ? "on" : null)" @onclick="() => Set(flag, false)">Off</button>
             </div>
+            @if (flag.Get(_edit) is null)
+            {
+                <span class="flag-effective">
+                    @(CanInherit ? "Inherited from the cluster: " : "Default: ")<strong>@(Effective(flag) ? "on" : "off")</strong>
+                    · @(Effective(flag) ? $"passes {flag.Switch}" : $"{flag.Switch} is not passed")
+                </span>
+            }
         </div>
     }
 </div>
@@ -58,19 +63,19 @@
 </div>
 
 @code {
-    private sealed record FlagSpec(string Label, string Description, Func<LaunchFlags, bool?> Get, Action<LaunchFlags, bool?> Set, bool DefaultOn);
+    // Switch: the command-line switch "on" passes. DefaultOn: what "Default" resolves to on a standalone instance or a cluster.
+    private sealed record FlagSpec(string Label, string Switch, string Description, Func<LaunchFlags, bool?> Get, Action<LaunchFlags, bool?> Set, bool DefaultOn);
 
     private static readonly FlagSpec[] _flags =
     [
-        new("BattlEye disabled", "Passes -NoBattlEye. Default on: the manager runs without BattlEye unless this is off.", f => f.NoBattlEye, (f, v) => f.NoBattlEye = v, true),
-        new("Server game log", "Passes -servergamelog. Default on: the console reads the log this produces.", f => f.ServerGameLog, (f, v) => f.ServerGameLog = v, true),
-        new("Tribe logs in game log", "Passes -ServerGameLogIncludeTribeLogs.", f => f.ServerGameLogIncludeTribeLogs, (f, v) => f.ServerGameLogIncludeTribeLogs = v, false),
-        new("Tribe logs over RCON", "Passes -ServerRconOutputTribeLogs.", f => f.ServerRconOutputTribeLogs, (f, v) => f.ServerRconOutputTribeLogs = v, false),
-        new("Exclusive join", "Passes -exclusivejoin: only whitelisted players can join.", f => f.ExclusiveJoin, (f, v) => f.ExclusiveJoin = v, false),
-        new("No wild babies", "Passes -NoWildBabies.", f => f.NoWildBabies, (f, v) => f.NoWildBabies = v, false),
-        new("Prevent spawn animations", "Passes -PreventSpawnAnimations.", f => f.PreventSpawnAnimations, (f, v) => f.PreventSpawnAnimations = v, false),
-        new("Use store", "Passes -UseStore (cluster profile storage).", f => f.UseStore, (f, v) => f.UseStore = v, false),
-        new("Convert to store", "Passes -ConvertToStore, a one-time migration to store-based profiles.", f => f.ConvertToStore, (f, v) => f.ConvertToStore = v, false),
+        new("BattlEye disabled", "-NoBattlEye", "The anti-cheat is skipped; it only matters for public servers. Off enables BattlEye.", f => f.NoBattlEye, (f, v) => f.NoBattlEye = v, true),
+        new("Tribe logs in game log", "-ServerGameLogIncludeTribeLogs", "Tribe events are written into ShooterGame.log, so they show in the console.", f => f.ServerGameLogIncludeTribeLogs, (f, v) => f.ServerGameLogIncludeTribeLogs = v, false),
+        new("Tribe logs over RCON", "-ServerRconOutputTribeLogs", "Tribe events are also sent to RCON clients.", f => f.ServerRconOutputTribeLogs, (f, v) => f.ServerRconOutputTribeLogs = v, false),
+        new("Exclusive join", "-exclusivejoin", "Only whitelisted players can join.", f => f.ExclusiveJoin, (f, v) => f.ExclusiveJoin = v, false),
+        new("No wild babies", "-NoWildBabies", "Wild creatures never spawn as babies.", f => f.NoWildBabies, (f, v) => f.NoWildBabies = v, false),
+        new("Prevent spawn animations", "-PreventSpawnAnimations", "Players and creatures appear without the spawn-in animation.", f => f.PreventSpawnAnimations, (f, v) => f.PreventSpawnAnimations = v, false),
+        new("Use store", "-UseStore", "Player profiles are kept in the cluster's store rather than per server.", f => f.UseStore, (f, v) => f.UseStore = v, false),
+        new("Convert to store", "-ConvertToStore", "One-time migration of existing profiles into the store; turn it off again after one start.", f => f.ConvertToStore, (f, v) => f.ConvertToStore = v, false),
     ];
 
     private LaunchFlags _edit = new();
@@ -148,7 +153,6 @@
         to.PreventSpawnAnimations = from.PreventSpawnAnimations;
         to.UseStore = from.UseStore;
         to.ConvertToStore = from.ConvertToStore;
-        to.ServerGameLog = from.ServerGameLog;
         to.ServerGameLogIncludeTribeLogs = from.ServerGameLogIncludeTribeLogs;
         to.ServerRconOutputTribeLogs = from.ServerRconOutputTribeLogs;
         to.ActiveEvent = from.ActiveEvent;

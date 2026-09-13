@@ -26,7 +26,6 @@ public static class LaunchFlagResolver
             PreventSpawnAnimations = instanceOverride.PreventSpawnAnimations ?? clusterBase?.PreventSpawnAnimations,
             UseStore = instanceOverride.UseStore ?? clusterBase?.UseStore,
             ConvertToStore = instanceOverride.ConvertToStore ?? clusterBase?.ConvertToStore,
-            ServerGameLog = instanceOverride.ServerGameLog ?? clusterBase?.ServerGameLog,
             ServerGameLogIncludeTribeLogs = instanceOverride.ServerGameLogIncludeTribeLogs ?? clusterBase?.ServerGameLogIncludeTribeLogs,
             ServerRconOutputTribeLogs = instanceOverride.ServerRconOutputTribeLogs ?? clusterBase?.ServerRconOutputTribeLogs,
             ActiveEvent = instanceOverride.ActiveEvent ?? clusterBase?.ActiveEvent,

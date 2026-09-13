@@ -116,6 +116,8 @@ public class BackupSchedulerTests
         private readonly object _sync = new();
         private Task _completion = Task.CompletedTask;
 
+        public event Action<BackupRecord>? Recorded { add { } remove { } }
+
         public List<(int InstanceId, bool IsManual)> Calls { get; } = [];
 
         public TaskCompletionSource? Barrier { get; set; }

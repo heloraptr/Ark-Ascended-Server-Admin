@@ -11,4 +11,7 @@ namespace ArkAscendedServerAdmin.Backups;
 public interface IBackupService
 {
     Task<BackupRecord> BackupNowAsync(int instanceId, bool isManual, CancellationToken cancellationToken);
+
+    /// <summary>Raised on a background thread after every attempt's record is persisted, whatever its outcome.</summary>
+    event Action<BackupRecord>? Recorded;
 }

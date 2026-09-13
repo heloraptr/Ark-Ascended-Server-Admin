@@ -65,10 +65,7 @@ public static class LaunchArgumentBuilder
         }
 
         arguments.Add("-log");
-        if (flags.ServerGameLog != false)
-        {
-            arguments.Add("-servergamelog");
-        }
+        arguments.Add("-servergamelog"); // always: the console tails ShooterGame.log, which this produces
 
         AddIfTrue(arguments, flags.ServerGameLogIncludeTribeLogs, "-ServerGameLogIncludeTribeLogs");
         AddIfTrue(arguments, flags.ServerRconOutputTribeLogs, "-ServerRconOutputTribeLogs");
