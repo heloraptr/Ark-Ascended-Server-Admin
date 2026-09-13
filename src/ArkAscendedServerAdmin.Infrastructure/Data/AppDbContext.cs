@@ -131,7 +131,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         {
             b.Property(x => x.Name).HasMaxLength(200).IsRequired();
             b.Property(x => x.EosId).HasMaxLength(64).IsRequired();
+            b.Property(x => x.Platform).HasMaxLength(32);
             b.HasIndex(x => x.EosId).IsUnique();
+            b.HasOne(x => x.LastInstance).WithMany().HasForeignKey(x => x.LastInstanceId).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<BackupRecord>(b =>

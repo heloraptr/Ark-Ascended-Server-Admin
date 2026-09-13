@@ -14,6 +14,7 @@ namespace ArkAscendedServerAdmin.Ini;
 /// <param name="Overrides">Per-instance <c>[Section] Key=Value</c> lines applied on top of the source text.</param>
 /// <param name="ClusterAdminWhitelist">Cluster-level <c>AllowedCheaterAccountIDs</c> text, one EOS id per line (DESIGN §12).</param>
 /// <param name="InstanceAdminWhitelist">Instance-level whitelist text in the same shape; the union is written to the instance.</param>
+/// <param name="ManagerAdminWhitelist">The App Settings whitelist (every instance gets it); listed first in the union.</param>
 public sealed record GenerationInput(
     string GameIniSource,
     string GameUserSettingsSource,
@@ -23,12 +24,13 @@ public sealed record GenerationInput(
     int MaxPlayers,
     IReadOnlyList<IniOverrideSpec> Overrides,
     string ClusterAdminWhitelist,
-    string InstanceAdminWhitelist);
+    string InstanceAdminWhitelist,
+    string ManagerAdminWhitelist = "");
 
 /// <summary>The generated file texts, ready for Phase 4 to write under <c>Saved\Config\WindowsServer</c>.</summary>
 /// <param name="GameIni">Generated <c>Game.ini</c> text.</param>
 /// <param name="GameUserSettingsIni">Generated <c>GameUserSettings.ini</c> text.</param>
-/// <param name="AdminWhitelist">Union of cluster and instance whitelist lines, deduplicated, order preserved.</param>
+/// <param name="AdminWhitelist">Union of manager, cluster, and instance whitelist lines, deduplicated, order preserved.</param>
 /// <param name="ServerAdminPassword">Read back from the generated GameUserSettings.ini; null when missing or empty (Start is refused, plan step 23).</param>
 /// <param name="Warnings">Content problems that were handled rather than fatal: replaced reserved keys, skipped overrides.</param>
 public sealed record GeneratedConfig(
@@ -65,6 +67,7 @@ public static class IniGenerator
         ArgumentNullException.ThrowIfNull(input.Overrides);
         ArgumentNullException.ThrowIfNull(input.ClusterAdminWhitelist);
         ArgumentNullException.ThrowIfNull(input.InstanceAdminWhitelist);
+        ArgumentNullException.ThrowIfNull(input.ManagerAdminWhitelist);
 
         // 1. Typed values.
         var problems = ValidateTypedValues(input);
@@ -129,24 +132,23 @@ public static class IniGenerator
         }
 
         // 7. Whitelist union.
-        var whitelist = UnionWhitelist(input.ClusterAdminWhitelist, input.InstanceAdminWhitelist);
+        var whitelist = UnionWhitelist(input.ManagerAdminWhitelist, input.ClusterAdminWhitelist, input.InstanceAdminWhitelist);
 
         return new GeneratedConfig(game.ToString(), gameUserSettings.ToString(), whitelist, password, warnings);
     }
 
     /// <summary>
-    /// Cluster lines then instance lines, trimmed, blanks and <c>;</c>/<c>#</c> comment lines skipped,
-    /// deduplicated (ordinal) with first-seen order preserved.
+    /// The lists in the order given (manager, cluster, instance), trimmed, blanks and <c>;</c>/<c>#</c>
+    /// comment lines skipped, deduplicated (ordinal) with first-seen order preserved.
     /// </summary>
-    public static IReadOnlyList<string> UnionWhitelist(string clusterWhitelist, string instanceWhitelist)
+    public static IReadOnlyList<string> UnionWhitelist(params string[] whitelists)
     {
-        ArgumentNullException.ThrowIfNull(clusterWhitelist);
-        ArgumentNullException.ThrowIfNull(instanceWhitelist);
+        ArgumentNullException.ThrowIfNull(whitelists);
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var result = new List<string>();
 
-        foreach (var text in new[] { clusterWhitelist, instanceWhitelist })
+        foreach (var text in whitelists)
         {
             foreach (var rawLine in text.Split('\n'))
             {

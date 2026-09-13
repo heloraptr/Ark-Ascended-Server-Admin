@@ -65,16 +65,18 @@ public sealed class InstanceDeleteService(
             return OperationOutcome.Rejected("An operation is in progress for this instance; try again when it finishes.");
         }
 
+        // The job is detached from the caller (a closed browser tab must not abort a half-done delete), but the
+        // caller waits for it so "Deleted" is only reported, and the instance list only reloaded, once the rows are gone.
         var job = Task.Run(() => RunAsync(instanceId, slug, keepWorldData, lease, lifetime.ApplicationStopping), CancellationToken.None);
         lock (_sync)
         {
             _lastJob = job;
         }
 
-        return OperationOutcome.Success;
+        return await job.WaitAsync(cancellationToken);
     }
 
-    private async Task RunAsync(int instanceId, string slug, bool keepWorldData, IDisposable lease, CancellationToken cancellationToken)
+    private async Task<OperationOutcome> RunAsync(int instanceId, string slug, bool keepWorldData, IDisposable lease, CancellationToken cancellationToken)
     {
         try
         {
@@ -85,7 +87,7 @@ public sealed class InstanceDeleteService(
                 if (!stop.Succeeded)
                 {
                     Announce(instanceId, $"Delete aborted: the instance could not be stopped with a verified exit ({stop.Error}).", ConsoleLineKind.Error);
-                    return;
+                    return OperationOutcome.Rejected($"The instance could not be stopped with a verified exit: {stop.Error}");
                 }
             }
 
@@ -102,15 +104,18 @@ public sealed class InstanceDeleteService(
             Announce(instanceId, archive is null
                 ? $"Instance '{slug}' deleted; its world data was removed."
                 : $"Instance '{slug}' deleted; its world data was archived to {archive}.");
+            return OperationOutcome.Success;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             logger.LogInformation("Delete of instance {InstanceId} interrupted by shutdown.", instanceId);
+            return OperationOutcome.Rejected("The delete was interrupted by a service shutdown.");
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Delete of instance {InstanceId} failed.", instanceId);
             Announce(instanceId, $"Delete failed: {ex.Message}", ConsoleLineKind.Error);
+            return OperationOutcome.Rejected($"Delete failed: {ex.Message}");
         }
         finally
         {
@@ -127,6 +132,8 @@ public sealed class InstanceDeleteService(
         await db.ExtraOverrides.Where(o => o.InstanceId == instanceId).ExecuteDeleteAsync(cancellationToken);
         await db.IniDocuments.Where(d => d.InstanceId == instanceId).ExecuteDeleteAsync(cancellationToken);
         await db.BackupRecords.Where(b => b.InstanceId == instanceId).ExecuteDeleteAsync(cancellationToken);
+        await db.KnownPlayers.Where(p => p.LastInstanceId == instanceId)
+            .ExecuteUpdateAsync(set => set.SetProperty(p => p.LastInstanceId, (int?)null).SetProperty(p => p.IsOnline, false), cancellationToken);
         await db.Instances.Where(i => i.Id == instanceId).ExecuteDeleteAsync(cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);

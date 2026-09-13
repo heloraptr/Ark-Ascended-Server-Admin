@@ -147,8 +147,9 @@
                         <RadzenNumeric TValue="int" id="w-players" @bind-Value="_maxPlayers" Min="1" Max="500" />
                     </div>
                     <div class="field span-2">
-                        <label for="w-whitelist">Admin whitelist</label>
-                        <RadzenTextArea id="w-whitelist" @bind-Value="_whitelist" Rows="3" Placeholder="One EOS id per line (optional)" />
+                        <label>Admin whitelist</label>
+                        <WhitelistEditor @bind-Value="_whitelist" />
+                        <span class="hint">Optional. The Settings list is always included; a cluster's list is merged in at start.</span>
                     </div>
                 </div>
                 <Problems Items="_portProblems" />

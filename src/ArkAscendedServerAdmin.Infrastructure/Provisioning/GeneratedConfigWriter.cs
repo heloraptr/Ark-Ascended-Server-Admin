@@ -26,6 +26,7 @@ public sealed class GeneratedConfigWriter(
     DataRootLayout layout,
     IDbContextFactory<AppDbContext> contextFactory,
     IIniSourceStore sourceStore,
+    IAppSettingsStore settings,
     ILogger<GeneratedConfigWriter> logger) : IGeneratedConfigWriter
 {
     public const string AdminWhitelistFileName = "AllowedCheaterAccountIDs.txt";
@@ -59,7 +60,8 @@ public sealed class GeneratedConfigWriter(
             instance.MaxPlayers,
             instance.ExtraOverrides.OrderBy(o => o.Id).Select(IniOverrideSpec.From).ToList(),
             instance.Cluster?.AdminWhitelist ?? string.Empty,
-            instance.AdminWhitelist);
+            instance.AdminWhitelist,
+            (await settings.GetAsync(cancellationToken)).AdminWhitelist);
 
         var generated = IniGenerator.Generate(input);
 

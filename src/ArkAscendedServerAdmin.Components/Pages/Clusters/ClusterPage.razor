@@ -106,9 +106,9 @@ else
                         <span class="hint">Passed as -clusterid; every member must share it for transfers to work. Changing it strands existing transfers.</span>
                     </div>
                     <div class="field span-2">
-                        <label for="c-whitelist">Admin whitelist</label>
-                        <RadzenTextArea id="c-whitelist" @bind-Value="_whitelist" Rows="4" Placeholder="One EOS id per line" />
-                        <span class="hint">Merged with each member's own list at start.</span>
+                        <label>Admin whitelist</label>
+                        <WhitelistEditor @bind-Value="_whitelist" />
+                        <span class="hint">Merged with the Settings list and each member's own list at start.</span>
                     </div>
                 </div>
                 <Problems Items="_problems" />
@@ -129,7 +129,7 @@ else
     private IReadOnlyList<ModLibraryEntry> _library = [];
     private string? _name;
     private string? _key;
-    private string? _whitelist;
+    private string _whitelist = string.Empty;
     private IReadOnlyList<string>? _problems;
     private bool _missing;
     private int _loadedId;

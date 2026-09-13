@@ -7,6 +7,7 @@ using ArkAscendedServerAdmin.Infrastructure.CurseForge;
 using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Infrastructure.Install;
 using ArkAscendedServerAdmin.Infrastructure.Maintenance;
+using ArkAscendedServerAdmin.Infrastructure.Players;
 using ArkAscendedServerAdmin.Infrastructure.Processes;
 using ArkAscendedServerAdmin.Infrastructure.Provisioning;
 using ArkAscendedServerAdmin.Infrastructure.Startup;
@@ -48,6 +49,7 @@ public static class ServiceCollectionExtensions
         services.AddArkProvisioning();
         services.AddArkProcesses();
         services.AddArkBackups();
+        services.AddArkPlayers();
         services.AddArkMaintenance();
 
         services.AddSingleton<ReadinessMonitor>();

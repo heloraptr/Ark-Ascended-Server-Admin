@@ -5,6 +5,7 @@ using ArkAscendedServerAdmin.CurseForge.Models.Services;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Provisioning;
+using ArkAscendedServerAdmin.Infrastructure.Players;
 using ArkAscendedServerAdmin.Infrastructure.Provisioning;
 using ArkAscendedServerAdmin.Install;
 using ArkAscendedServerAdmin.Maintenance;
@@ -36,7 +37,7 @@ internal sealed class CommandTestHost : IDisposable
         Host = new HostConfiguration(Root.Layout.Root, [$"http://127.0.0.1:{WebPort}"], [], true, true, false);
         Settings = new AppSettingsStore(Root);
         IniStore = new IniSourceStore(Root.Layout, Root, Clock, NullLogger<IniSourceStore>.Instance);
-        GeneratedConfig = new GeneratedConfigWriter(Root.Layout, Root, IniStore, NullLogger<GeneratedConfigWriter>.Instance);
+        GeneratedConfig = new GeneratedConfigWriter(Root.Layout, Root, IniStore, Settings, NullLogger<GeneratedConfigWriter>.Instance);
         ProcessManager = new FakeProcessManager();
         LayoutService = new FakeInstanceLayoutService(Root, Clock);
         Console = new FakeConsoleService();
@@ -56,7 +57,8 @@ internal sealed class CommandTestHost : IDisposable
         Clusters = new ClusterCommands(Guard, Root, Root.Layout, Instances, Clock, NullLogger<ClusterCommands>.Instance);
         Config = new ConfigCommands(Guard, Root, IniStore, NullLogger<ConfigCommands>.Instance);
         Mods = new ModCommands(Guard, Root, Settings, CurseForge, Clock, NullLogger<ModCommands>.Instance);
-        Players = new PlayerCommands(Guard, Root, Settings, ProcessManager, GeneratedConfig, Rcon, Clock, NullLogger<PlayerCommands>.Instance);
+        Tracker = new PlayerTracker(Root, Console, ProcessManager, Clock, NullLogger<PlayerTracker>.Instance);
+        Players = new PlayerCommands(Guard, Root, Settings, ProcessManager, GeneratedConfig, Rcon, Tracker, Clock, NullLogger<PlayerCommands>.Instance);
         Maps = new MapCommands(Guard, Root, Mods);
         SettingsCommands = new SettingsCommands(Guard, Settings, Exporter, Root.Layout, Host, Clock);
         Maintenance = new MaintenanceCommands(Guard, StartupControl, UpdateService, Recovery, InstallChecker, NullLogger<MaintenanceCommands>.Instance);
@@ -107,6 +109,8 @@ internal sealed class CommandTestHost : IDisposable
     public ConfigCommands Config { get; }
 
     public ModCommands Mods { get; }
+
+    public PlayerTracker Tracker { get; }
 
     public PlayerCommands Players { get; }
 

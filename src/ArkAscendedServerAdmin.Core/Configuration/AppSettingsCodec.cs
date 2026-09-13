@@ -25,12 +25,13 @@ public static class AppSettingsCodec
         public const string RconCommandTimeoutSeconds = "RconCommandTimeoutSeconds";
         public const string ConsoleBackfillLines = "ConsoleBackfillLines";
         public const string CurseForgeApiKey = "CurseForgeApiKey";
+        public const string AdminWhitelist = "AdminWhitelist";
 
         public static readonly IReadOnlyList<string> All =
         [
             StaggerDelaySeconds, SteamCmdValidate, GamePortStart, GamePortStep, RconPortStart, RconPortStep,
             DefaultBackupIntervalMinutes, DefaultBackupRetention, BackupQuiescenceSeconds, PreStopBroadcastMinutes,
-            GracefulStopTimeoutSeconds, RconCommandTimeoutSeconds, ConsoleBackfillLines, CurseForgeApiKey,
+            GracefulStopTimeoutSeconds, RconCommandTimeoutSeconds, ConsoleBackfillLines, CurseForgeApiKey, AdminWhitelist,
         ];
     }
 
@@ -54,6 +55,7 @@ public static class AppSettingsCodec
             [Keys.RconCommandTimeoutSeconds] = Int(settings.RconCommandTimeoutSeconds),
             [Keys.ConsoleBackfillLines] = Int(settings.ConsoleBackfillLines),
             [Keys.CurseForgeApiKey] = settings.CurseForgeApiKey,
+            [Keys.AdminWhitelist] = settings.AdminWhitelist,
         };
     }
 
@@ -78,6 +80,7 @@ public static class AppSettingsCodec
             RconCommandTimeoutSeconds = GetInt(rows, Keys.RconCommandTimeoutSeconds, defaults.RconCommandTimeoutSeconds),
             ConsoleBackfillLines = GetInt(rows, Keys.ConsoleBackfillLines, defaults.ConsoleBackfillLines),
             CurseForgeApiKey = rows.TryGetValue(Keys.CurseForgeApiKey, out var key) ? key.Trim() : defaults.CurseForgeApiKey,
+            AdminWhitelist = rows.TryGetValue(Keys.AdminWhitelist, out var whitelist) ? whitelist : defaults.AdminWhitelist,
         };
     }
 

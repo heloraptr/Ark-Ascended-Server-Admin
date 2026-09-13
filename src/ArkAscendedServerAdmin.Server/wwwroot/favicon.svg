@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- The rail's BrandMark (Components/Shared/BrandMark.razor) on the basalt plate, so the tab matches the header. -->
+  <defs>
+    <linearGradient id="arm-l" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#d9452f"/>
+      <stop offset="0.55" stop-color="#c6d1d9"/>
+    </linearGradient>
+    <linearGradient id="arm-r" x1="1" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#8ccc4d"/>
+      <stop offset="0.55" stop-color="#c6d1d9"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="12" fill="#0d141a"/>
+  <rect x="1.5" y="1.5" width="61" height="61" rx="10.5" fill="none" stroke="#2a3946" stroke-width="1"/>
+  <g transform="translate(6 7) scale(2)">
+    <path d="M3 21 A12 12 0 0 1 23 21" fill="none" stroke="#38c6ff" stroke-width="0.9" opacity="0.8"/>
+    <polygon points="13,0 14,2 14,11 12,11 12,2" fill="#38c6ff"/>
+    <polygon points="12,2 1,22 6,22 12,11" fill="url(#arm-l)"/>
+    <polygon points="14,2 25,22 20,22 14,11" fill="url(#arm-r)"/>
+    <polygon points="13,7 10,16 16,16" fill="#eef3f6" opacity="0.9"/>
+  </g>
+</svg>

@@ -7,7 +7,6 @@ namespace ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Commands;
 
 public class PlayerCommandsTests
 {
-    // The parser only accepts 32-hex EOS ids or 17-digit Steam ids (format unverified, HANDOVER §5).
     private const string EosA = "0002aaaa0002aaaa0002aaaa0002aaaa";
     private const string EosB = "0002bbbb0002bbbb0002bbbb0002bbbb";
 
@@ -19,6 +18,23 @@ public class PlayerCommandsTests
         return created.Value;
     }
 
+    private static async Task<int> SeedAsync(CommandTestHost host, string name, string eosId, int? lastInstanceId, bool online, CancellationToken ct)
+    {
+        await using var db = host.Db();
+        var row = new KnownPlayer
+        {
+            Name = name,
+            EosId = eosId,
+            FirstSeenAt = DateTimeOffset.UnixEpoch,
+            LastSeenAt = DateTimeOffset.UnixEpoch,
+            LastInstanceId = lastInstanceId,
+            IsOnline = online,
+        };
+        db.KnownPlayers.Add(row);
+        await db.SaveChangesAsync(ct);
+        return row.Id;
+    }
+
     [Fact]
     public async Task EveryMethod_RefusesWhenTheGuardDenies()
     {
@@ -28,12 +44,12 @@ public class PlayerCommandsTests
         host.Guard.Deny = true;
 
         await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Players.ListAsync(ct));
-        await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Players.RefreshAsync(ct));
+        await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Players.ListOnlineAsync(1, ct));
         await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Players.DeleteAsync(1, ct));
     }
 
     [Fact]
-    public async Task Refresh_WithNothingRunning_ExplainsThatItNeedsALiveServer()
+    public async Task ListOnline_WhenTheInstanceIsNotRunning_SaysSoWithoutAsking()
     {
         var ct = TestContext.Current.CancellationToken;
         using var host = new CommandTestHost();
@@ -41,55 +57,45 @@ public class PlayerCommandsTests
         var id = await CreateAsync(host, "Idle", 7777, 27020, ct);
         host.ProcessManager.Set(id, InstanceState.Starting);
 
-        var result = await host.Players.RefreshAsync(ct);
+        var result = await host.Players.ListOnlineAsync(id, ct);
 
-        Assert.Equal("No instance is running. ListPlayers needs a live server to ask.", result.Error);
+        Assert.Equal("The instance is not running, so there is no server to ask.", result.Error);
         Assert.Empty(host.Rcon.Calls);
     }
 
     [Fact]
-    public async Task Refresh_AsksEveryRunningInstance_MergesPlayers_AndNotesTheOnesItCouldNotAsk()
+    public async Task ListOnline_AsksThatInstanceOnly_RecordsThePlayers_AndReportsThem()
     {
         var ct = TestContext.Current.CancellationToken;
         using var host = new CommandTestHost();
         await host.InitializeAsync(ct);
         var alpha = await CreateAsync(host, "Alpha", 7777, 27020, ct);
         var bravo = await CreateAsync(host, "Bravo", 7779, 27021, ct);
-        var charlie = await CreateAsync(host, "Charlie", 7781, 27022, ct);
-        var stopped = await CreateAsync(host, "Delta", 7783, 27023, ct);
-        foreach (var id in new[] { alpha, bravo, charlie })
-        {
-            host.ProcessManager.Set(id, InstanceState.Running);
-        }
-
-        host.ProcessManager.Set(stopped, InstanceState.Stopped);
+        host.ProcessManager.Set(alpha, InstanceState.Running);
+        host.ProcessManager.Set(bravo, InstanceState.Running);
         await host.WriteGeneratedSettingsAsync("alpha", "pw", 27020, ct);
-        await host.WriteGeneratedSettingsAsync("charlie", "pw", 27022, ct);
-        host.Rcon.Replies[RconCommands.ListPlayers] = $"0. Survivor One, {EosA.ToUpperInvariant()}\r\n1. Two, {EosB}\r\n";
-        host.Rcon.FailuresByPort[27022] = new RconException(RconFailure.Timeout, "Timed out.");
+        await host.WriteGeneratedSettingsAsync("bravo", "pw", 27021, ct);
+        await SeedAsync(host, "Old Name", EosA, null, false, ct);
+        host.Rcon.Replies[RconCommands.ListPlayers] = $"0. New Name, {EosA.ToUpperInvariant()}\r\n1. Two, {EosB}\r\n";
 
-        var result = await host.Players.RefreshAsync(ct);
+        var result = await host.Players.ListOnlineAsync(alpha, ct);
 
         Assert.True(result.Succeeded, result.Error);
-        Assert.Equal(2, result.Value!.PlayersSeen);
-        Assert.Equal(
-            [
-                "Alpha: 2 players.",
-                "Bravo: RCON credentials could not be read from the generated GameUserSettings.ini.",
-                "Charlie: RCON timeout failure: Timed out.",
-            ],
-            result.Value.Notes);
-        Assert.Equal([27020, 27022], host.Rcon.Calls.Select(c => c.Endpoint.Port));
-        Assert.All(host.Rcon.Calls, c => Assert.Equal(RconCommands.ListPlayers, c.Command));
+        Assert.Equal(["New Name", "Two"], result.Value!.Players.Select(p => p.Name));
+        Assert.Equal(CommandTestHost.Now, result.Value.AsOf);
+        var call = Assert.Single(host.Rcon.Calls);
+        Assert.Equal((27020, RconCommands.ListPlayers), (call.Endpoint.Port, call.Command));
 
         var players = await host.Players.ListAsync(ct);
-        Assert.Equal(["Survivor One", "Two"], players.Select(p => p.Name));
-        Assert.All(players, p => Assert.Equal((CommandTestHost.Now, CommandTestHost.Now), (p.FirstSeenAt, p.LastSeenAt)));
-        Assert.Equal(EosA.ToUpperInvariant(), players[0].EosId);
+        Assert.Equal(["New Name", "Two"], players.Select(p => p.Name));
+        Assert.All(players, p => Assert.True(p.IsOnline));
+        Assert.All(players, p => Assert.Equal("Alpha", p.LastInstance?.Name));
+        Assert.Equal((EosA, DateTimeOffset.UnixEpoch, CommandTestHost.Now), (players[0].EosId, players[0].FirstSeenAt, players[0].LastSeenAt));
+        Assert.Equal((CommandTestHost.Now, CommandTestHost.Now), (players[1].FirstSeenAt, players[1].LastSeenAt));
     }
 
     [Fact]
-    public async Task Refresh_UpdatesKnownPlayersInPlace_KeepingTheirFirstSeenTime()
+    public async Task ListOnline_WithNoPlayersConnected_ReturnsNobody_AndMarksTheInstancesPlayersOffline()
     {
         var ct = TestContext.Current.CancellationToken;
         using var host = new CommandTestHost();
@@ -97,38 +103,64 @@ public class PlayerCommandsTests
         var alpha = await CreateAsync(host, "Alpha", 7777, 27020, ct);
         host.ProcessManager.Set(alpha, InstanceState.Running);
         await host.WriteGeneratedSettingsAsync("alpha", "pw", 27020, ct);
-        await using (var db = host.Db())
-        {
-            db.KnownPlayers.Add(new KnownPlayer { Name = "Old Name", EosId = EosA, FirstSeenAt = DateTimeOffset.UnixEpoch, LastSeenAt = DateTimeOffset.UnixEpoch });
-            await db.SaveChangesAsync(ct);
-        }
-
-        host.Rcon.Replies[RconCommands.ListPlayers] = $"0. New Name, {EosA.ToUpperInvariant()}\r\n";
-
-        var result = await host.Players.RefreshAsync(ct);
-
-        Assert.Equal(1, result.Value!.PlayersSeen);
-        var player = Assert.Single(await host.Players.ListAsync(ct));
-        Assert.Equal(("New Name", EosA, DateTimeOffset.UnixEpoch, CommandTestHost.Now), (player.Name, player.EosId, player.FirstSeenAt, player.LastSeenAt));
-    }
-
-    [Fact]
-    public async Task Refresh_WithNoPlayersConnected_NotesItAndWritesNothing()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        using var host = new CommandTestHost();
-        await host.InitializeAsync(ct);
-        var alpha = await CreateAsync(host, "Alpha", 7777, 27020, ct);
-        host.ProcessManager.Set(alpha, InstanceState.Running);
-        await host.WriteGeneratedSettingsAsync("alpha", "pw", 27020, ct);
+        await SeedAsync(host, "Gone", EosA, alpha, true, ct);
         host.Rcon.Replies[RconCommands.ListPlayers] = RconCommands.NoPlayersReply;
 
-        var result = await host.Players.RefreshAsync(ct);
+        var result = await host.Players.ListOnlineAsync(alpha, ct);
 
-        Assert.True(result.Succeeded);
-        Assert.Equal(0, result.Value!.PlayersSeen);
-        Assert.Equal(["Alpha: no players connected."], result.Value.Notes);
+        Assert.True(result.Succeeded, result.Error);
+        Assert.Empty(result.Value!.Players);
+        var player = Assert.Single(await host.Players.ListAsync(ct));
+        Assert.False(player.IsOnline);
+    }
+
+    [Fact]
+    public async Task ListOnline_WithoutCredentials_Explains()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var host = new CommandTestHost();
+        await host.InitializeAsync(ct);
+        var alpha = await CreateAsync(host, "Alpha", 7777, 27020, ct);
+        host.ProcessManager.Set(alpha, InstanceState.Running);
+
+        var result = await host.Players.ListOnlineAsync(alpha, ct);
+
+        Assert.Equal("RCON credentials could not be read from the generated GameUserSettings.ini.", result.Error);
+        Assert.Empty(host.Rcon.Calls);
+    }
+
+    [Fact]
+    public async Task ListOnline_WhenRconFails_ReportsTheFailure()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var host = new CommandTestHost();
+        await host.InitializeAsync(ct);
+        var alpha = await CreateAsync(host, "Alpha", 7777, 27020, ct);
+        host.ProcessManager.Set(alpha, InstanceState.Running);
+        await host.WriteGeneratedSettingsAsync("alpha", "pw", 27020, ct);
+        host.Rcon.FailuresByPort[27020] = new RconException(RconFailure.Timeout, "Timed out.");
+
+        var result = await host.Players.ListOnlineAsync(alpha, ct);
+
+        Assert.Equal("RCON timeout failure: Timed out.", result.Error);
         Assert.Empty(await host.Players.ListAsync(ct));
+    }
+
+    [Fact]
+    public async Task List_OrdersByName_AndLoadsTheLastInstance()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var host = new CommandTestHost();
+        await host.InitializeAsync(ct);
+        var alpha = await CreateAsync(host, "Alpha", 7777, 27020, ct);
+        await SeedAsync(host, "Zed", EosA, alpha, true, ct);
+        await SeedAsync(host, "Amy", EosB, null, false, ct);
+
+        var players = await host.Players.ListAsync(ct);
+
+        Assert.Equal(["Amy", "Zed"], players.Select(p => p.Name));
+        Assert.Null(players[0].LastInstance);
+        Assert.Equal("Alpha", players[1].LastInstance?.Name);
     }
 
     [Fact]
@@ -137,14 +169,7 @@ public class PlayerCommandsTests
         var ct = TestContext.Current.CancellationToken;
         using var host = new CommandTestHost();
         await host.InitializeAsync(ct);
-        int id;
-        await using (var db = host.Db())
-        {
-            var row = new KnownPlayer { Name = "Gone", EosId = "0002gone", FirstSeenAt = CommandTestHost.Now, LastSeenAt = CommandTestHost.Now };
-            db.KnownPlayers.Add(row);
-            await db.SaveChangesAsync(ct);
-            id = row.Id;
-        }
+        var id = await SeedAsync(host, "Gone", "0002gone", null, false, ct);
 
         Assert.True((await host.Players.DeleteAsync(id, ct)).Succeeded);
         Assert.True((await host.Players.DeleteAsync(id, ct)).Succeeded);

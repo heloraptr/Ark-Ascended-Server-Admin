@@ -11,8 +11,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260913164606_MapTypeReleaseDateAndMapMod")]
-    partial class MapTypeReleaseDateAndMapMod
+    [Migration("20260913200705_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -303,6 +303,18 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                     b.Property<DateTimeOffset>("FirstSeenAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("IsOnline")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("LastInstanceId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset?>("LastJoinedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("LastLeftAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTimeOffset>("LastSeenAt")
                         .HasColumnType("TEXT");
 
@@ -311,10 +323,16 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Platform")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
                     b.HasKey("Id");
 
                     b.HasIndex("EosId")
                         .IsUnique();
+
+                    b.HasIndex("LastInstanceId");
 
                     b.ToTable("KnownPlayers");
                 });
@@ -465,9 +483,6 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                             b1.Property<bool?>("PreventSpawnAnimations")
                                 .HasColumnType("INTEGER");
 
-                            b1.Property<bool?>("ServerGameLog")
-                                .HasColumnType("INTEGER");
-
                             b1.Property<bool?>("ServerGameLogIncludeTribeLogs")
                                 .HasColumnType("INTEGER");
 
@@ -579,9 +594,6 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                             b1.Property<bool?>("PreventSpawnAnimations")
                                 .HasColumnType("INTEGER");
 
-                            b1.Property<bool?>("ServerGameLog")
-                                .HasColumnType("INTEGER");
-
                             b1.Property<bool?>("ServerGameLogIncludeTribeLogs")
                                 .HasColumnType("INTEGER");
 
@@ -628,6 +640,16 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                     b.Navigation("Instance");
 
                     b.Navigation("Mod");
+                });
+
+            modelBuilder.Entity("ArkAscendedServerAdmin.Domain.KnownPlayer", b =>
+                {
+                    b.HasOne("ArkAscendedServerAdmin.Domain.Instance", "LastInstance")
+                        .WithMany()
+                        .HasForeignKey("LastInstanceId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("LastInstance");
                 });
 
             modelBuilder.Entity("ArkAscendedServerAdmin.Domain.Cluster", b =>

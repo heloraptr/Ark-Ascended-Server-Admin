@@ -52,4 +52,14 @@ public sealed class ListPlayersParserTests
         var player = Assert.Single(players);
         Assert.Equal("Last, First", player.Name);
     }
+
+    [Fact]
+    public void Parses_the_reply_captured_from_a_live_server_on_2026_09_13()
+    {
+        // One player connected to an ASA dedicated server (build 25241345); the log's join line carried the same id.
+        var players = ListPlayersParser.Parse("0. HeloRaptr, 0002f16bad3d4330b6097fcec38c5610\n");
+
+        var player = Assert.Single(players);
+        Assert.Equal(("HeloRaptr", "0002f16bad3d4330b6097fcec38c5610"), (player.Name, player.EosId));
+    }
 }

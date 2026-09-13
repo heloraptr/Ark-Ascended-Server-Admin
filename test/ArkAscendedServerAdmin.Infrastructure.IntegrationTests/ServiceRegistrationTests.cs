@@ -4,6 +4,7 @@ using ArkAscendedServerAdmin.Consoles;
 using ArkAscendedServerAdmin.Infrastructure.Startup;
 using ArkAscendedServerAdmin.Install;
 using ArkAscendedServerAdmin.Maintenance;
+using ArkAscendedServerAdmin.Players;
 using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Provisioning;
 using ArkAscendedServerAdmin.Startup;
@@ -39,7 +40,7 @@ public class ServiceRegistrationTests
             typeof(IGameInstallChecker), typeof(IGameInstaller), typeof(ISteamCmdRunner), typeof(ISteamCmdReconciler),
             typeof(IInstanceLayoutService), typeof(IIniSourceStore), typeof(IGeneratedConfigWriter),
             typeof(IProcessManager), typeof(IProcessReconciler), typeof(IInstanceLocks), typeof(IMaintenanceGate),
-            typeof(IBackupService), typeof(IUpdateService), typeof(IInstanceDeleteService), typeof(IMaintenanceRecovery),
+            typeof(IPlayerTracker), typeof(IBackupService), typeof(IUpdateService), typeof(IInstanceDeleteService), typeof(IMaintenanceRecovery),
             typeof(IReadinessMonitor), typeof(IStartupControl), typeof(StartupOrchestrator),
         ];
 

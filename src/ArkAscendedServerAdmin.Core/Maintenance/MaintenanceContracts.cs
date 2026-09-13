@@ -56,7 +56,7 @@ public interface IUpdateService
     Task<OperationOutcome> SkipEntryAsync(int instanceId, CancellationToken cancellationToken);
 }
 
-/// <summary>Instance delete (plan step 30), run to completion in the background under the instance lock.</summary>
+/// <summary>Instance delete (plan step 30), run under the instance lock on a detached job that the call nevertheless awaits: it returns once the rows are gone, or with the reason the job stopped.</summary>
 public interface IInstanceDeleteService
 {
     /// <summary>Stop with verified exit → firewall rules → junctions → archive or delete <c>Saved</c> → database rows.</summary>

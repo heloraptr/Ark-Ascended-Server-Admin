@@ -1,0 +1,188 @@
+@* Admin whitelist editor over a one-id-per-line string. Ids from Settings (and the cluster, on an instance) are shown locked; the owner's own ids can be removed; new ones are added by name or EOS id, with suggestions drawn from the known players. An id nobody has joined with yet shows as TBD until they do. *@
+@implements IDisposable
+@inject IPlayerCommands PlayerCommands
+@inject ISettingsCommands SettingsCommands
+@inject IPlayerTracker Tracker
+
+<div class="wl-add">
+    <RadzenAutoComplete @bind-Value="_entry" Data="_choices" TextProperty="Text" FilterOperator="StringFilterOperator.Contains" FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive" Placeholder="Player name or EOS id" Style="min-width:320px" />
+    <RadzenButton Text="Add" Icon="add" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="@(string.IsNullOrWhiteSpace(_entry))" Click="AddAsync" />
+    @if (_problem is not null)
+    {
+        <span class="hint tone-bad">@_problem</span>
+    }
+</div>
+<div class="wl-list">
+    @foreach (var locked in _locked)
+    {
+        <div class="wl-row is-locked">
+            <div class="who">
+                @if (Known(locked.EosId) is { } name)
+                {
+                    <strong>@name</strong>
+                }
+                else
+                {
+                    <strong class="is-tbd" title="Shown once they join a server">TBD</strong>
+                }
+                <span><span class="mono">@locked.EosId</span> · @locked.Source</span>
+            </div>
+            <RadzenIcon Icon="lock" Style="color:var(--ark-steel-3)" title="@($"Comes {locked.Source}; remove it there.")" />
+        </div>
+    }
+    @foreach (var id in Ids)
+    {
+        <div class="wl-row">
+            <div class="who">
+                @if (Known(id) is { } name)
+                {
+                    <strong>@name</strong>
+                }
+                else
+                {
+                    <strong class="is-tbd" title="Shown once they join a server">TBD</strong>
+                }
+                <span class="mono">@id</span>
+            </div>
+            <RadzenButton Icon="close" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Remove" Click="() => RemoveAsync(id)" />
+        </div>
+    }
+    @if (_locked.Count == 0 && Ids.Count == 0)
+    {
+        <p class="muted" style="padding:10px 0">Nobody yet. Add an EOS id, or a player by name once they have joined a server.</p>
+    }
+</div>
+
+@code {
+    private sealed record Choice(string Text, string EosId);
+
+    private sealed record LockedEntry(string EosId, string Source);
+
+    private IReadOnlyList<KnownPlayer> _known = [];
+    private IReadOnlyList<Choice> _choices = [];
+    private List<LockedEntry> _locked = [];
+    private string _managerList = string.Empty;
+    private string _entry = string.Empty;
+    private string? _problem;
+
+    /// <summary>One id per line, the shape the domain stores.</summary>
+    [Parameter]
+    public string Value { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> ValueChanged { get; set; }
+
+    /// <summary>The cluster's list, shown locked on an instance; null for a cluster or a standalone instance.</summary>
+    [Parameter]
+    public string? ClusterWhitelist { get; set; }
+
+    /// <summary>False on the Settings page, which edits the manager list itself.</summary>
+    [Parameter]
+    public bool IncludeManagerList { get; set; } = true;
+
+    private IReadOnlyList<string> Ids => Split(Value);
+
+    protected override async Task OnInitializedAsync()
+    {
+        Tracker.Changed += OnPlayersChanged;
+        try
+        {
+            if (IncludeManagerList)
+            {
+                _managerList = (await SettingsCommands.GetAppSettingsAsync()).AdminWhitelist;
+            }
+
+            await LoadKnownAsync();
+        }
+        catch (NotAuthorizedException)
+        {
+            // The page's own guard sends the owner back to the login page.
+        }
+
+        RebuildLocked();
+    }
+
+    protected override void OnParametersSet() => RebuildLocked();
+
+    private void RebuildLocked()
+    {
+        var locked = Split(_managerList).Select(id => new LockedEntry(id, "from Settings")).ToList();
+        foreach (var id in Split(ClusterWhitelist))
+        {
+            if (!locked.Any(l => Same(l.EosId, id)))
+            {
+                locked.Add(new LockedEntry(id, "from the cluster"));
+            }
+        }
+
+        _locked = locked;
+    }
+
+    private async Task LoadKnownAsync()
+    {
+        _known = await PlayerCommands.ListAsync();
+        _choices = _known.Select(p => new Choice($"{p.Name} · {p.EosId}", p.EosId)).ToList();
+    }
+
+    /// <summary>A join can give a TBD row its name; the list is reloaded so the name appears without a page reload.</summary>
+    private void OnPlayersChanged() => _ = InvokeAsync(async () =>
+    {
+        try
+        {
+            await LoadKnownAsync();
+        }
+        catch (NotAuthorizedException)
+        {
+            return;
+        }
+
+        StateHasChanged();
+    });
+
+    private string? Known(string id) => _known.FirstOrDefault(p => Same(p.EosId, id))?.Name;
+
+    private async Task AddAsync()
+    {
+        var text = _entry.Trim();
+        var choice = _choices.FirstOrDefault(c => c.Text.Equals(text, StringComparison.OrdinalIgnoreCase));
+        var player = choice is not null
+            ? _known.FirstOrDefault(p => Same(p.EosId, choice.EosId))
+            : _known.FirstOrDefault(p => Same(p.EosId, text)) ?? _known.FirstOrDefault(p => p.Name.Equals(text, StringComparison.OrdinalIgnoreCase));
+        var id = player?.EosId ?? (LooksLikeId(text) ? text : null);
+        if (id is null)
+        {
+            _problem = "Not a known player. Enter an EOS id (32 hex characters) or pick a name from the suggestions.";
+            return;
+        }
+
+        if (_locked.FirstOrDefault(l => Same(l.EosId, id)) is { } locked)
+        {
+            _problem = $"{Known(id) ?? id} is already on the list {locked.Source}.";
+            return;
+        }
+
+        if (Ids.Any(existing => Same(existing, id)))
+        {
+            _problem = $"{Known(id) ?? id} is already on the list.";
+            return;
+        }
+
+        _problem = null;
+        _entry = string.Empty;
+        await ValueChanged.InvokeAsync(Join(Ids.Append(id)));
+    }
+
+    private Task RemoveAsync(string id) => ValueChanged.InvokeAsync(Join(Ids.Where(existing => !Same(existing, id))));
+
+    private static bool LooksLikeId(string text) =>
+        (text.Length == 32 && text.All(Uri.IsHexDigit)) || (text.Length == 17 && text.All(char.IsAsciiDigit));
+
+    private static bool Same(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+    private static IReadOnlyList<string> Split(string? text) =>
+        string.IsNullOrWhiteSpace(text) ? [] : text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static string Join(IEnumerable<string> ids) => string.Join("\r\n", ids);
+
+    public void Dispose() => Tracker.Changed -= OnPlayersChanged;
+}

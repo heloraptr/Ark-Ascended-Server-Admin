@@ -43,6 +43,13 @@ public sealed record AppSettings
     /// <summary>Stored in plain text by design (read-only key on the owner's box).</summary>
     public string CurseForgeApiKey { get; init; } = string.Empty;
 
+    /// <summary>
+    /// The manager-wide admin whitelist, one EOS id per line. Unioned into every instance.s
+    /// <c>AllowedCheaterAccountIDs.txt</c> ahead of the cluster and instance lists, so the owner enters
+    /// themselves once; the per-instance editors show these ids locked.
+    /// </summary>
+    public string AdminWhitelist { get; init; } = string.Empty;
+
     /// <summary>Returns the validation problems, or an empty list when the settings are usable.</summary>
     public IReadOnlyList<string> Validate()
     {
@@ -64,6 +71,11 @@ public sealed record AppSettings
         if (CurseForgeApiKey.Any(c => char.IsControl(c) || char.IsWhiteSpace(c)))
         {
             errors.Add($"{nameof(CurseForgeApiKey)} must not contain whitespace or control characters.");
+        }
+
+        if (AdminWhitelist.Split('\n').Select(l => l.Trim()).Any(l => l.Any(c => char.IsControl(c) || char.IsWhiteSpace(c))))
+        {
+            errors.Add($"{nameof(AdminWhitelist)} must hold one id per line with no spaces.");
         }
 
         return errors;

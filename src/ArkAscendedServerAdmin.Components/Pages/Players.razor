@@ -1,31 +1,13 @@
 @page "/players"
 @inherits ArkPage
+@implements IDisposable
 @inject IPlayerCommands PlayerCommands
 @inject IInstanceCommands Instances
 @inject IClusterCommands Clusters
+@inject IPlayerTracker Tracker
 @inject IJSRuntime JS
 
-<PageHead Title="Players" Lead="Everyone ListPlayers has reported, so you can find an EOS id and put it on a whitelist.">
-    <Actions>
-        <RadzenButton Text="Refresh from servers" Icon="sync" ButtonStyle="ButtonStyle.Primary" Disabled="Busy" title="Runs ListPlayers on every running instance" Click="RefreshAsync" />
-    </Actions>
-</PageHead>
-
-@if (_notes.Count > 0)
-{
-    <Notice Tone="is-info" Title="Last refresh">
-        <ul>
-            @foreach (var note in _notes)
-            {
-                <li>@note</li>
-            }
-        </ul>
-    </Notice>
-}
-
-<Notice Tone="is-warn" Title="The player list format is unverified.">
-    <p>The parser expects lines like <code>0. Name, &lt;32-hex EOS id&gt;</code>. If a refresh reports players but none appear here, the real ListPlayers output differs; the raw reply is in each instance's console after a manual <code>ListPlayers</code> command.</p>
-</Notice>
+<PageHead Title="Players" Lead="Everyone who has joined a server, recorded from the game log as it happens. Find an EOS id here and put it on a whitelist." />
 
 @if (_players is null)
 {
@@ -33,15 +15,37 @@
 }
 else if (_players.Count == 0)
 {
-    <EmptyState Title="No players seen yet.">
-        Join a running server, then refresh. Players are only recorded when you ask.
+    <EmptyState Title="No players yet.">
+        A player appears here the moment they join a running server; nothing to press.
     </EmptyState>
 }
 else
 {
+    <p class="muted" style="margin:0 0 12px">
+        @Presentation.Plural(_players.Count, "player") known, @(_players.Count(p => p.IsOnline)) online now.
+    </p>
     <RadzenDataGrid Data="_players" TItem="KnownPlayer" Density="Density.Compact" AllowSorting="true">
         <Columns>
             <RadzenDataGridColumn TItem="KnownPlayer" Property="Name" Title="Name" />
+            <RadzenDataGridColumn TItem="KnownPlayer" Property="IsOnline" Title="Status" Width="230px">
+                <Template Context="p">
+                    @if (p.IsOnline)
+                    {
+                        <span class="tone-ok">Online</span>
+                        @if (p.LastInstance is { } on)
+                        {
+                            <span class="muted"> on @on.Name</span>
+                        }
+                    }
+                    else
+                    {
+                        <span class="muted">Last seen @Presentation.Ago(p.LastSeenAt, _now)@(p.LastInstance is { } was ? $" on {was.Name}" : null)</span>
+                    }
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="KnownPlayer" Property="Platform" Title="Platform" Width="100px">
+                <Template Context="p"><span class="muted">@(p.Platform ?? "—")</span></Template>
+            </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="KnownPlayer" Property="EosId" Title="EOS id">
                 <Template Context="p">
                     <span class="mono">@p.EosId</span>
@@ -51,8 +55,8 @@ else
             <RadzenDataGridColumn TItem="KnownPlayer" Property="FirstSeenAt" Title="First seen" Width="150px">
                 <Template Context="p">@Presentation.Stamp(p.FirstSeenAt)</Template>
             </RadzenDataGridColumn>
-            <RadzenDataGridColumn TItem="KnownPlayer" Property="LastSeenAt" Title="Last seen" Width="150px">
-                <Template Context="p">@Presentation.Ago(p.LastSeenAt, _now)</Template>
+            <RadzenDataGridColumn TItem="KnownPlayer" Property="LastJoinedAt" Title="Last joined" Width="150px">
+                <Template Context="p">@(p.LastJoinedAt is { } joined ? Presentation.Stamp(joined) : "—")</Template>
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="KnownPlayer" Title="Whitelist" Width="330px" Sortable="false">
                 <Template Context="p">
@@ -69,48 +73,42 @@ else
             </RadzenDataGridColumn>
         </Columns>
     </RadzenDataGrid>
+    <p class="hint muted" style="margin-top:10px">Who is on a server right now is on that instance's Players tab. Forgetting a player only clears this row; they come back on their next join.</p>
 }
 
 @code {
     private sealed record Target(string Text, string Value);
 
     private IReadOnlyList<KnownPlayer>? _players;
-    private IReadOnlyList<string> _notes = [];
     private IReadOnlyList<Target> Targets = [];
     private string? _target;
     private DateTimeOffset _now = DateTimeOffset.UtcNow;
 
     protected override async Task OnInitializedAsync()
     {
+        Tracker.Changed += OnPlayersChanged;
         await GuardedAsync(async () =>
         {
-            _players = await PlayerCommands.ListAsync();
+            await LoadAsync();
             var dashboard = await Instances.GetDashboardAsync();
             Targets = dashboard.Clusters.Select(c => new Target($"cluster {c.Name}", $"c{c.Id}"))
                 .Concat(dashboard.Instances.Select(i => new Target(i.Name, $"i{i.Id}")))
                 .ToList();
-            _now = DateTimeOffset.UtcNow;
         });
     }
 
-    private async Task RefreshAsync()
+    private async Task LoadAsync()
     {
-        await GuardedAsync(async () =>
-        {
-            var result = await PlayerCommands.RefreshAsync();
-            if (result.Succeeded)
-            {
-                _notes = result.Value!.Notes;
-                Notifications.Done("Refreshed players", Presentation.Plural(result.Value.PlayersSeen, "player") + " reported.");
-                _players = await PlayerCommands.ListAsync();
-                _now = DateTimeOffset.UtcNow;
-            }
-            else
-            {
-                Notifications.Failed("Could not refresh", result.Error);
-            }
-        });
+        _players = await PlayerCommands.ListAsync();
+        _now = DateTimeOffset.UtcNow;
     }
+
+    /// <summary>A join or leave landed in the table; the page follows it without a reload.</summary>
+    private void OnPlayersChanged() => _ = InvokeAsync(async () =>
+    {
+        await GuardedAsync(LoadAsync);
+        StateHasChanged();
+    });
 
     private async Task CopyAsync(string text)
     {
@@ -170,8 +168,10 @@ else
         await GuardedAsync(async () =>
         {
             await PlayerCommands.DeleteAsync(player.Id);
-            _players = await PlayerCommands.ListAsync();
+            await LoadAsync();
             Notifications.Done($"Forgot {player.Name}");
         });
     }
+
+    public void Dispose() => Tracker.Changed -= OnPlayersChanged;
 }

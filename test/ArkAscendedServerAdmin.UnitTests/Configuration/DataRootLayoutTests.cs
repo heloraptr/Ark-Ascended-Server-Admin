@@ -13,7 +13,8 @@ public class DataRootLayoutTests
         Assert.Equal(Path.GetFullPath(root), layout.Root);
         Assert.All(layout.Directories, d => Assert.StartsWith(layout.Root, d, StringComparison.Ordinal));
         Assert.Equal(Path.Combine(layout.Root, "Server"), layout.Server);
-        Assert.Equal(Path.Combine(layout.Root, DataRootLayout.DatabaseFileName), layout.DatabasePath);
+        Assert.Equal(Path.Combine(layout.Root, "Data", DataRootLayout.DatabaseFileName), layout.DatabasePath);
+        Assert.Contains(layout.Data, layout.Directories);
         Assert.Equal(Path.Combine(layout.Root, "Server", "steamapps", "appmanifest_2430930.acf"), layout.AppManifestPath);
         Assert.Equal(Path.Combine(layout.Root, "SteamCMD", "steamcmd.exe"), layout.SteamCmdExecutable);
         Assert.Equal(Path.Combine(layout.Root, "Instances", "island"), layout.InstanceDirectory("island"));

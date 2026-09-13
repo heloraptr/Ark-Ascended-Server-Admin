@@ -88,9 +88,11 @@ public class InstanceDeleteServiceTests
         f.Processes.Set(f.Instance.Id, InstanceState.Running);
         f.Processes.StopOutcomes[f.Instance.Id] = OperationOutcome.Rejected("exit not verified");
 
-        Assert.True((await f.Service.DeleteAsync(f.Instance.Id, keepWorldData: false, ct)).Succeeded);
+        var outcome = await f.Service.DeleteAsync(f.Instance.Id, keepWorldData: false, ct);
         await f.Service.Completion.WaitAsync(_timeout, ct);
 
+        Assert.False(outcome.Succeeded);
+        Assert.Contains("exit not verified", outcome.Error, StringComparison.Ordinal);
         await using var db = root.CreateDbContext();
         Assert.True(await db.Instances.AnyAsync(ct));
         Assert.True(Directory.Exists(root.Layout.InstanceDirectory("alpha")));

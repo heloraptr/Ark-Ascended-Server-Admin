@@ -6,6 +6,8 @@
 @inject IModCommands ModCommands
 @inject IProcessManager Processes
 @inject IBackupService BackupService
+@inject IPlayerCommands PlayerCommands
+@inject IJSRuntime JS
 
 @if (_detail is null)
 {
@@ -66,19 +68,63 @@ else
             </Actions>
         </Notice>
     }
-    @if (_preview?.Problem is { } problem && !_runtime.HasLiveProcess && _tab != 1)
+    @if (_preview?.Problem is { } problem && !_runtime.HasLiveProcess && _tab != ConfigTab)
     {
         <Notice Tone="is-warn" Title="Start would be refused.">
             <p>@problem</p>
         </Notice>
     }
 
-    <RadzenTabs @bind-SelectedIndex="_tab" RenderMode="TabRenderMode.Client">
+    <RadzenTabs @bind-SelectedIndex="_tab" Change="OnTabChanged" RenderMode="TabRenderMode.Client">
         <Tabs>
             <RadzenTabsItem Text="Console">
                 <ConsolePanel Channel="@ConsoleChannels.Instance(Id)" Title="@($"{instance.Name} · ShooterGame.log")" Height="calc(100vh - 290px)"
                               EmptyText="No output yet. Start the instance and the log appears here within a second of the game writing it."
                               OnCommand="SendRconAsync" InputEnabled="@_runtime.HasLiveProcess" />
+            </RadzenTabsItem>
+
+            <RadzenTabsItem Text="Players">
+                <SectionHead Title="On the server now">
+                    <Summary>@(_online is null ? "Asks the server with ListPlayers each time this tab opens." : $"As of {Presentation.Clock(_online.AsOf)}.")</Summary>
+                    <Actions>
+                        <RadzenButton Text="List players" Icon="sync" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="@(_listing || _runtime.State != InstanceState.Running)" Click="ListPlayersAsync" />
+                    </Actions>
+                </SectionHead>
+                @if (_runtime.State != InstanceState.Running)
+                {
+                    <p class="muted" style="padding:12px 0">The instance is not running. Start it to see who is on it.</p>
+                }
+                else if (_online is null && _listing)
+                {
+                    <p class="muted" style="padding:12px 0">Asking the server…</p>
+                }
+                else if (_onlineError is not null)
+                {
+                    <Notice Tone="is-bad" Title="ListPlayers failed."><p>@_onlineError</p></Notice>
+                }
+                else if (_online is null)
+                {
+                    <p class="muted" style="padding:12px 0">Not asked yet.</p>
+                }
+                else if (_online.Players.Count == 0)
+                {
+                    <p class="muted" style="padding:12px 0">No players connected.</p>
+                }
+                else
+                {
+                    <RadzenDataGrid Data="_online.Players" TItem="ListedPlayer" Density="Density.Compact" AllowSorting="true">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="ListedPlayer" Property="Name" Title="Name" />
+                            <RadzenDataGridColumn TItem="ListedPlayer" Property="EosId" Title="EOS id">
+                                <Template Context="p">
+                                    <span class="mono">@p.EosId</span>
+                                    <RadzenButton Icon="content_copy" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Copy" Click="@(() => CopyAsync(p.EosId))" />
+                                </Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+                }
+                <p class="hint muted" style="margin-top:10px">Joins and leaves are also recorded from the log as they happen; the <a href="players">Players page</a> lists everyone the servers have seen and puts an id on a whitelist.</p>
             </RadzenTabsItem>
 
             <RadzenTabsItem Text="Config">
@@ -207,9 +253,9 @@ else
                         <RadzenNumeric TValue="int?" id="s-keep" @bind-Value="_edit.BackupRetention" Min="1" Max="1000" Placeholder="default from Settings" ShowUpDown="false" />
                     </div>
                     <div class="field span-2">
-                        <label for="s-whitelist">Admin whitelist</label>
-                        <RadzenTextArea id="s-whitelist" @bind-Value="_edit.AdminWhitelist" Rows="4" Placeholder="One EOS id per line" />
-                        <span class="hint">Merged with the cluster's list into AllowedCheaterAccountIDs.txt at start. Find ids on the Players page.</span>
+                        <label>Admin whitelist</label>
+                        <WhitelistEditor @bind-Value="_edit.AdminWhitelist" ClusterWhitelist="@instance.Cluster?.AdminWhitelist" />
+                        <span class="hint">Locked ids come from Settings and the cluster. The whole list is written to AllowedCheaterAccountIDs.txt at start.</span>
                     </div>
                 </div>
                 <Problems Items="_settingsProblems" />
@@ -286,6 +332,11 @@ else
     private IReadOnlyList<string>? _settingsProblems;
     private bool _missing;
     private int _tab;
+    private const int PlayersTab = 1;
+    private const int ConfigTab = 2;
+    private OnlinePlayers? _online;
+    private string? _onlineError;
+    private bool _listing;
     private int _loadedId;
 
     [Parameter]
@@ -396,10 +447,21 @@ else
         _ = InvokeAsync(async () =>
         {
             var wasLive = _runtime.HasLiveProcess;
+            var wasRunning = _runtime.State == InstanceState.Running;
             _runtime = runtime;
             if (wasLive && !runtime.HasLiveProcess && _detail is not null)
             {
                 await GuardedAsync(async () => _backups = await Instances.GetBackupsAsync(Id));
+            }
+
+            if (runtime.State != InstanceState.Running)
+            {
+                _online = null;
+                _onlineError = null;
+            }
+            else if (!wasRunning && _tab == PlayersTab)
+            {
+                await ListPlayersAsync();
             }
 
             StateHasChanged();
@@ -540,6 +602,44 @@ else
             Notifications.Done("Removed override", $"[{entry.Section}] {entry.Key}");
         });
         await RefreshPreviewAsync();
+    }
+
+    /// <summary>The Players tab asks the server every time it is opened; nothing is cached across visits.</summary>
+    private async Task OnTabChanged(int index)
+    {
+        if (index == PlayersTab && _runtime.State == InstanceState.Running)
+        {
+            await ListPlayersAsync();
+        }
+    }
+
+    private async Task ListPlayersAsync()
+    {
+        if (_listing)
+        {
+            return;
+        }
+
+        _listing = true;
+        try
+        {
+            await GuardedAsync(async () =>
+            {
+                var result = await PlayerCommands.ListOnlineAsync(Id);
+                _online = result.Value;
+                _onlineError = result.Succeeded ? null : result.Error;
+            });
+        }
+        finally
+        {
+            _listing = false;
+        }
+    }
+
+    private async Task CopyAsync(string text)
+    {
+        var copied = await JS.InvokeAsync<bool>("ark.copyText", text);
+        Notifications.Info(copied ? "Copied" : "Copy failed", copied ? text : "The browser refused clipboard access.");
     }
 
     public void Dispose()

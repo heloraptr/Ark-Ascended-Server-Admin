@@ -3,6 +3,7 @@ using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Data;
+using ArkAscendedServerAdmin.Players;
 using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Provisioning;
 using ArkAscendedServerAdmin.Rcon;
@@ -10,7 +11,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ArkAscendedServerAdmin.Server.Commands;
 
-/// <summary>Guarded facade for the Known Players page (plan step 31): on-demand <c>ListPlayers</c> across running instances.</summary>
+/// <summary>
+/// Guarded facade for the Players page and the instance Players tab. The table is fed by
+/// <see cref="IPlayerTracker"/> from the game log; this reads it, asks one instance who is on, and forgets rows.
+/// </summary>
 public sealed class PlayerCommands(
     IAuthorizationGuard guard,
     IDbContextFactory<AppDbContext> contextFactory,
@@ -18,6 +22,7 @@ public sealed class PlayerCommands(
     IProcessManager processManager,
     IGeneratedConfigWriter generatedConfig,
     IRconClient rcon,
+    IPlayerTracker tracker,
     TimeProvider timeProvider,
     ILogger<PlayerCommands> logger) : IPlayerCommands
 {
@@ -25,80 +30,49 @@ public sealed class PlayerCommands(
     {
         await guard.EnsureAuthorizedAsync(cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
-        return await db.KnownPlayers.AsNoTracking().OrderBy(p => p.Name).ToListAsync(cancellationToken);
+        return await db.KnownPlayers.AsNoTracking().Include(p => p.LastInstance).OrderBy(p => p.Name).ToListAsync(cancellationToken);
     }
 
-    public async Task<CommandResult<PlayerRefreshResult>> RefreshAsync(CancellationToken cancellationToken = default)
+    public async Task<CommandResult<OnlinePlayers>> ListOnlineAsync(int instanceId, CancellationToken cancellationToken = default)
     {
         await guard.EnsureAuthorizedAsync(cancellationToken);
 
-        var running = processManager.GetAllRuntimes().Where(r => r.State == InstanceState.Running).Select(r => r.InstanceId).ToList();
-        if (running.Count == 0)
+        if (processManager.GetRuntime(instanceId).State != InstanceState.Running)
         {
-            return CommandResult<PlayerRefreshResult>.Fail("No instance is running. ListPlayers needs a live server to ask.");
+            return CommandResult<OnlinePlayers>.Fail("The instance is not running, so there is no server to ask.");
         }
 
-        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
-        var instances = await db.Instances.AsNoTracking().Where(i => running.Contains(i.Id)).ToListAsync(cancellationToken);
-        var timeout = TimeSpan.FromSeconds((await settings.GetAsync(cancellationToken)).RconCommandTimeoutSeconds);
-        var now = timeProvider.GetUtcNow();
-        var notes = new List<string>();
-        var seen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var instance in instances.OrderBy(i => i.Name))
+        string? slug;
+        await using (var db = await contextFactory.CreateDbContextAsync(cancellationToken))
         {
-            var generated = await generatedConfig.ReadGeneratedGameUserSettingsAsync(instance.Slug, cancellationToken);
-            var endpoint = generated is null ? null : RconCredentials.TryRead(generated, out _);
-            if (endpoint is null)
-            {
-                notes.Add($"{instance.Name}: RCON credentials could not be read from the generated GameUserSettings.ini.");
-                continue;
-            }
-
-            try
-            {
-                var reply = await rcon.ExecuteAsync(endpoint, RconCommands.ListPlayers, timeout, cancellationToken);
-                var players = ListPlayersParser.Parse(reply);
-                foreach (var player in players)
-                {
-                    seen[player.EosId] = player.Name;
-                }
-
-                notes.Add(players.Count == 0
-                    ? $"{instance.Name}: no players connected."
-                    : $"{instance.Name}: {players.Count} player{(players.Count == 1 ? string.Empty : "s")}.");
-            }
-            catch (RconException ex)
-            {
-                logger.LogWarning(ex, "ListPlayers on {Instance} failed.", instance.Name);
-                notes.Add($"{instance.Name}: RCON {ex.Failure.ToString().ToLowerInvariant()} failure: {ex.Message}");
-            }
+            slug = await db.Instances.AsNoTracking().Where(i => i.Id == instanceId).Select(i => i.Slug).SingleOrDefaultAsync(cancellationToken);
         }
 
-        if (seen.Count > 0)
+        if (slug is null)
         {
-            // SQLite compares text with its binary collation, so the lookup lowercases both sides; otherwise an id
-            // reported in different casing would insert a second row next to the one already known.
-            var ids = seen.Keys.Select(id => id.ToLowerInvariant()).ToList();
-            var existing = await db.KnownPlayers.Where(p => ids.Contains(p.EosId.ToLower())).ToListAsync(cancellationToken);
-            foreach (var (eosId, name) in seen)
-            {
-                var row = existing.SingleOrDefault(p => p.EosId.Equals(eosId, StringComparison.OrdinalIgnoreCase));
-                if (row is null)
-                {
-                    db.KnownPlayers.Add(new KnownPlayer { Name = name, EosId = eosId, FirstSeenAt = now, LastSeenAt = now });
-                }
-                else
-                {
-                    row.Name = name;
-                    row.LastSeenAt = now;
-                }
-            }
-
-            await db.SaveChangesAsync(cancellationToken);
+            return CommandResult<OnlinePlayers>.Fail("The instance no longer exists.");
         }
 
-        return CommandResult<PlayerRefreshResult>.Ok(new PlayerRefreshResult(seen.Count, notes));
+        var generated = await generatedConfig.ReadGeneratedGameUserSettingsAsync(slug, cancellationToken);
+        var endpoint = generated is null ? null : RconCredentials.TryRead(generated, out _);
+        if (endpoint is null)
+        {
+            return CommandResult<OnlinePlayers>.Fail("RCON credentials could not be read from the generated GameUserSettings.ini.");
+        }
+
+        try
+        {
+            var timeout = TimeSpan.FromSeconds((await settings.GetAsync(cancellationToken)).RconCommandTimeoutSeconds);
+            var reply = await rcon.ExecuteAsync(endpoint, RconCommands.ListPlayers, timeout, cancellationToken);
+            var players = ListPlayersParser.Parse(reply);
+            await tracker.RecordListedAsync(instanceId, players, cancellationToken);
+            return CommandResult<OnlinePlayers>.Ok(new OnlinePlayers(players, timeProvider.GetUtcNow()));
+        }
+        catch (RconException ex)
+        {
+            logger.LogWarning(ex, "ListPlayers on instance {InstanceId} failed.", instanceId);
+            return CommandResult<OnlinePlayers>.Fail($"RCON {ex.Failure.ToString().ToLowerInvariant()} failure: {ex.Message}");
+        }
     }
 
     public async Task<CommandResult> DeleteAsync(int knownPlayerId, CancellationToken cancellationToken = default)

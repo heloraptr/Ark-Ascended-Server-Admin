@@ -43,7 +43,10 @@ public sealed class DataRootLayout
     /// <summary>Destination for "export config backup" copies of the database.</summary>
     public string Exports => Path.Combine(Root, "Exports");
 
-    public string DatabasePath => Path.Combine(Root, DatabaseFileName);
+    /// <summary>The manager's own state: the SQLite database and its WAL side files.</summary>
+    public string Data => Path.Combine(Root, "Data");
+
+    public string DatabasePath => Path.Combine(Data, DatabaseFileName);
 
     public string SteamCmdExecutable => Path.Combine(SteamCmd, "steamcmd.exe");
 
@@ -54,7 +57,7 @@ public sealed class DataRootLayout
 
     /// <summary>Every directory that must exist before the service is ready.</summary>
     public IReadOnlyList<string> Directories =>
-        [Root, Server, Instances, Clusters, Backups, Archive, SteamCmd, Keys, Exports];
+        [Root, Server, Instances, Clusters, Backups, Archive, SteamCmd, Keys, Exports, Data];
 
     public string InstanceDirectory(string slug) => Path.Combine(Instances, slug);
 

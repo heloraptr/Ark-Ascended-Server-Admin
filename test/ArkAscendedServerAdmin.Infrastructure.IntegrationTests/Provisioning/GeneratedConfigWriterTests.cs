@@ -1,4 +1,5 @@
 using ArkAscendedServerAdmin.Domain;
+using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Infrastructure.Provisioning;
 using ArkAscendedServerAdmin.Ini;
 using ArkAscendedServerAdmin.Provisioning;
@@ -22,7 +23,7 @@ public class GeneratedConfigWriterTests
     private static (IniSourceStore Store, GeneratedConfigWriter Writer) Create(TempDataRoot root)
     {
         var store = new IniSourceStore(root.Layout, root, TimeProvider.System, NullLogger<IniSourceStore>.Instance);
-        return (store, new GeneratedConfigWriter(root.Layout, root, store, NullLogger<GeneratedConfigWriter>.Instance));
+        return (store, new GeneratedConfigWriter(root.Layout, root, store, new AppSettingsStore(root), NullLogger<GeneratedConfigWriter>.Instance));
     }
 
     private static async Task SeedSourcesAsync(IniSourceStore store, IniOwner owner, CancellationToken ct)

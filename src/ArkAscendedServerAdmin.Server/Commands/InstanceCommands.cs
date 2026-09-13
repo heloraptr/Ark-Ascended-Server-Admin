@@ -568,7 +568,8 @@ public sealed class InstanceCommands(
                 instance.MaxPlayers,
                 instance.ExtraOverrides.OrderBy(o => o.Id).Select(IniOverrideSpec.From).ToList(),
                 instance.Cluster?.AdminWhitelist ?? string.Empty,
-                instance.AdminWhitelist));
+                instance.AdminWhitelist,
+                (await settings.GetAsync(cancellationToken)).AdminWhitelist));
             warnings.AddRange(generated.Warnings);
             if (string.IsNullOrWhiteSpace(generated.ServerAdminPassword))
             {

@@ -40,7 +40,6 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                     LaunchFlags_PreventSpawnAnimations = table.Column<bool>(type: "INTEGER", nullable: true),
                     LaunchFlags_UseStore = table.Column<bool>(type: "INTEGER", nullable: true),
                     LaunchFlags_ConvertToStore = table.Column<bool>(type: "INTEGER", nullable: true),
-                    LaunchFlags_ServerGameLog = table.Column<bool>(type: "INTEGER", nullable: true),
                     LaunchFlags_ServerGameLogIncludeTribeLogs = table.Column<bool>(type: "INTEGER", nullable: true),
                     LaunchFlags_ServerRconOutputTribeLogs = table.Column<bool>(type: "INTEGER", nullable: true),
                     LaunchFlags_ActiveEvent = table.Column<string>(type: "TEXT", maxLength: 64, nullable: true),
@@ -50,22 +49,6 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Clusters", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "KnownPlayers",
-                columns: table => new
-                {
-                    Id = table.Column<int>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
-                    Name = table.Column<string>(type: "TEXT", maxLength: 200, nullable: false),
-                    EosId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
-                    FirstSeenAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-                    LastSeenAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_KnownPlayers", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -91,7 +74,10 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                         .Annotation("Sqlite:Autoincrement", true),
                     Key = table.Column<string>(type: "TEXT", maxLength: 100, nullable: false),
                     Name = table.Column<string>(type: "TEXT", maxLength: 100, nullable: false),
-                    IsOfficial = table.Column<bool>(type: "INTEGER", nullable: false)
+                    IsOfficial = table.Column<bool>(type: "INTEGER", nullable: false),
+                    IsStory = table.Column<bool>(type: "INTEGER", nullable: false),
+                    ReleaseDate = table.Column<DateOnly>(type: "TEXT", nullable: true),
+                    ModId = table.Column<int>(type: "INTEGER", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -136,7 +122,6 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                     LaunchFlags_PreventSpawnAnimations = table.Column<bool>(type: "INTEGER", nullable: true),
                     LaunchFlags_UseStore = table.Column<bool>(type: "INTEGER", nullable: true),
                     LaunchFlags_ConvertToStore = table.Column<bool>(type: "INTEGER", nullable: true),
-                    LaunchFlags_ServerGameLog = table.Column<bool>(type: "INTEGER", nullable: true),
                     LaunchFlags_ServerGameLogIncludeTribeLogs = table.Column<bool>(type: "INTEGER", nullable: true),
                     LaunchFlags_ServerRconOutputTribeLogs = table.Column<bool>(type: "INTEGER", nullable: true),
                     LaunchFlags_ActiveEvent = table.Column<string>(type: "TEXT", maxLength: 64, nullable: true),
@@ -293,6 +278,33 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                         onDelete: ReferentialAction.Restrict);
                 });
 
+            migrationBuilder.CreateTable(
+                name: "KnownPlayers",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    Name = table.Column<string>(type: "TEXT", maxLength: 200, nullable: false),
+                    EosId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
+                    Platform = table.Column<string>(type: "TEXT", maxLength: 32, nullable: true),
+                    FirstSeenAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
+                    LastSeenAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
+                    LastJoinedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
+                    LastLeftAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
+                    IsOnline = table.Column<bool>(type: "INTEGER", nullable: false),
+                    LastInstanceId = table.Column<int>(type: "INTEGER", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_KnownPlayers", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_KnownPlayers_Instances_LastInstanceId",
+                        column: x => x.LastInstanceId,
+                        principalTable: "Instances",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                });
+
             migrationBuilder.CreateIndex(
                 name: "IX_BackupRecords_InstanceId_CreatedAt",
                 table: "BackupRecords",
@@ -366,6 +378,11 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_KnownPlayers_LastInstanceId",
+                table: "KnownPlayers",
+                column: "LastInstanceId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Maps_Key",
                 table: "Maps",
                 column: "Key",
@@ -400,10 +417,10 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                 name: "MaintenanceState");
 
             migrationBuilder.DropTable(
-                name: "Instances");
+                name: "ModLibrary");
 
             migrationBuilder.DropTable(
-                name: "ModLibrary");
+                name: "Instances");
 
             migrationBuilder.DropTable(
                 name: "Clusters");

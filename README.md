@@ -29,9 +29,9 @@ Built for one owner running a handful of servers, clustered or standalone, on on
 - **Game updates.** Stop everything with verified exits, run SteamCMD, verify the manifest, relaunch
   through the queue, and persist every step so an interrupted update resumes after a service
   restart.
-- **Mods** from CurseForge (search with an API key, or add by id), **known players** (on-demand
-  `ListPlayers` to find EOS ids for the whitelist), custom **maps**, and a **config export** of the
-  database.
+- **Mods** from CurseForge (search with an API key, or add by id), **players** (recorded from the
+  game log as they join and leave, with an on-demand `ListPlayers` per instance), custom **maps**, and a
+  **config export** of the database.
 
 ## Documentation
 
@@ -124,7 +124,7 @@ DataRoot\
   Archive\           retained worlds of deleted instances (slug stays reserved while present)
   Exports\           "export config backup" copies of the database
   keys\              Data Protection key ring for the auth cookie
-  ArkAscendedServerAdmin.db
+  Data\             ArkAscendedServerAdmin.db (SQLite, WAL mode)
 ```
 
 ## Web UI
@@ -138,12 +138,12 @@ maintenance) is observed through the singleton services' events.
 | Page | What it does |
 |---|---|
 | Instances (`/`) | Rows grouped by cluster, standalone last; start/stop/restart/back up per row, selected, or per cluster; update-recovery banner with retry/skip. |
-| Instance (`/instances/{id}`) | Console with RCON input, INI editors (source files) and overrides, mods, launch options with a command-line preview, settings, backups. |
+| Instance (`/instances/{id}`) | Console with RCON input, a Players tab that asks the server who is on (`ListPlayers`), INI editors (source files) and overrides, mods, launch options with a command-line preview, settings with a whitelist editor, backups. |
 | New instance (`/instances/new`) | Wizard: name, cluster, map, INI starting point and admin password, mods, launch options, ports, summary with "start right away". |
 | Clusters | Shared INI files, cluster mods, base launch options, cluster id and whitelist. |
 | Mods | CurseForge search with an API key, manual ids without one, usage per cluster, instance, and custom map. A custom map's own mod is tagged and can only be added through the map. |
-| Players | On-demand `ListPlayers` across running instances; pick an EOS id into a whitelist. |
-| Maps, Settings, Setup | Map list with type (official story, official non-canon, custom/mod), release date, and a custom map's mod id; App Settings plus read-only host values and config export; install console. |
+| Players | Everyone who has joined a server, recorded from the log as it happens: online or last seen, where, platform, EOS id; pick an id into a whitelist. |
+| Maps, Settings, Setup | Map list with type (official story, official non-canon, custom/mod), release date, and a custom map's mod id; App Settings (including the manager-wide admin whitelist) plus read-only host values and config export; install console. |
 | Update (`/update`) | Installed build, a "verify game files" switch, the SteamCMD console, and the run's outcome: already current, or updated from one build to another. The rail's "Update game" button lands here. |
 
 The visual system (fonts, tokens, the horizon rule, the state lamp) is in

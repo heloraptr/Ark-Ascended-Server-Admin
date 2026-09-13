@@ -22,7 +22,7 @@ else
             <div class="field">
                 <label for="st-broadcast">Countdown before a stop, minutes</label>
                 <RadzenNumeric TValue="int" id="st-broadcast" @bind-Value="_edit.PreStopBroadcastMinutes" Min="0" Max="60" />
-                <span class="hint">Broadcast to players before saveworld and doexit. Zero skips it.</span>
+                <span class="hint">Broadcast to players before doexit (which saves the world itself). Zero skips it.</span>
             </div>
             <div class="field">
                 <label for="st-graceful">Graceful stop timeout, seconds</label>
@@ -102,6 +102,15 @@ else
         </div>
     </section>
 
+    <section class="ark-section">
+        <SectionHead Title="Admin whitelist">
+            <Summary>Written into every instance's AllowedCheaterAccountIDs.txt at start, ahead of the cluster and instance lists. Put yourself here once; the other editors show these ids locked.</Summary>
+        </SectionHead>
+        <div style="margin-top:14px;max-width:72ch">
+            <WhitelistEditor @bind-Value="_edit.AdminWhitelist" IncludeManagerList="false" />
+        </div>
+    </section>
+
     <Problems Items="_problems" />
     <div class="form-actions" style="margin-bottom:40px">
         <RadzenButton Text="Save settings" Icon="save" ButtonStyle="ButtonStyle.Primary" Disabled="@(Busy || _saving)" IsBusy="_saving" BusyText="Saving…" Click="SaveAsync" />
@@ -164,6 +173,7 @@ else
         public int RconCommandTimeoutSeconds { get; set; }
         public int ConsoleBackfillLines { get; set; }
         public string CurseForgeApiKey { get; set; } = string.Empty;
+        public string AdminWhitelist { get; set; } = string.Empty;
     }
 
     private EditModel? _edit;
@@ -192,6 +202,7 @@ else
             RconCommandTimeoutSeconds = s.RconCommandTimeoutSeconds,
             ConsoleBackfillLines = s.ConsoleBackfillLines,
             CurseForgeApiKey = s.CurseForgeApiKey,
+            AdminWhitelist = s.AdminWhitelist,
         };
         _host = await SettingsCommands.GetHostConfigurationAsync();
         _problems = null;
@@ -216,6 +227,7 @@ else
             RconCommandTimeoutSeconds = e.RconCommandTimeoutSeconds,
             ConsoleBackfillLines = e.ConsoleBackfillLines,
             CurseForgeApiKey = e.CurseForgeApiKey?.Trim() ?? string.Empty,
+            AdminWhitelist = e.AdminWhitelist,
         };
 
         _problems = settings.Validate();

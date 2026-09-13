@@ -594,14 +594,14 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
                     await CountdownAsync(session, rcon, settings.PreStopBroadcastMinutes, timeout, token);
                 }
 
-                await TryRconAsync(session, rcon, RconCommands.SaveWorld, timeout, token);
+                // No explicit saveworld: doexit saves the world itself ("Saving world..." twice in the log before "Closing by request", captured 2026-09-13).
                 session.StopRequested = true;
                 await TryRconAsync(session, rcon, RconCommands.DoExit, timeout, token);
             }
             else
             {
                 session.StopRequested = true;
-                Append(channel, "No RCON credentials for this process; skipping saveworld/doexit and waiting for the graceful timeout before killing.", ConsoleLineKind.Warning);
+                Append(channel, "No RCON credentials for this process; skipping doexit and waiting for the graceful timeout before killing.", ConsoleLineKind.Warning);
             }
 
             var graceful = TimeSpan.FromSeconds(settings.GracefulStopTimeoutSeconds);
@@ -781,6 +781,11 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
 
     private ValueTask OnOutputLine(Session session, string channel, OutputLine line)
     {
+        if (!session.Noise.ShouldShow(line.Text))
+        {
+            return ValueTask.CompletedTask;
+        }
+
         _console.Append(channel, new ConsoleLine(line.ObservedAt, line.Text, line.IsBackfill ? ConsoleLineKind.Backfill : ConsoleLineKind.Output));
         if (!line.IsBackfill && StartupMarkers.Classify(line.Text) is { } marker)
         {
@@ -899,20 +904,21 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
     {
         var channel = ConsoleChannels.Instance(session.InstanceId);
         var exitCode = ReadExitCode(session.Process);
-        var codeText = exitCode?.ToString(CultureInfo.InvariantCulture) ?? "unknown";
+        var codeText = exitCode is { } code ? $" (code {code.ToString(CultureInfo.InvariantCulture)})" : string.Empty;
+        var codeForLog = exitCode?.ToString(CultureInfo.InvariantCulture) ?? "unknown";
         _sessions.TryRemove(new KeyValuePair<int, Session>(session.InstanceId, session));
 
         string? detail = null;
         if (session.StopRequested)
         {
-            Append(channel, $"Server exited (code {codeText}).", ConsoleLineKind.Info);
-            _logger.LogInformation("Instance {InstanceId} pid {Pid} exited after a manager-initiated stop (code {Code}).", session.InstanceId, session.Pid, codeText);
+            Append(channel, $"Server exited{codeText}.", ConsoleLineKind.Info);
+            _logger.LogInformation("Instance {InstanceId} pid {Pid} exited after a manager-initiated stop (code {Code}).", session.InstanceId, session.Pid, codeForLog);
         }
         else
         {
-            detail = $"Exited unexpectedly (code {codeText}) at {_time.GetUtcNow().ToLocalTime():yyyy-MM-dd HH:mm:ss}.";
-            Append(channel, $"Server exited unexpectedly (code {codeText}).", ConsoleLineKind.Warning);
-            _logger.LogWarning("Instance {InstanceId} pid {Pid} exited without a manager-initiated stop (code {Code}).", session.InstanceId, session.Pid, codeText);
+            detail = $"Exited unexpectedly{codeText} at {_time.GetUtcNow().ToLocalTime():yyyy-MM-dd HH:mm:ss}.";
+            Append(channel, $"Server exited unexpectedly{codeText}.", ConsoleLineKind.Warning);
+            _logger.LogWarning("Instance {InstanceId} pid {Pid} exited without a manager-initiated stop (code {Code}).", session.InstanceId, session.Pid, codeForLog);
         }
 
         Update(session.InstanceId, runtime => runtime with { State = InstanceState.Stopped, Pid = null, ProcessStartTime = null, Detail = detail });
@@ -1054,6 +1060,9 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         public volatile bool StopRequested;
 
         public volatile bool ProbeSucceeded;
+
+        /// <summary>Drops Sentry SDK chatter before it reaches the console; one per log tail.</summary>
+        public ConsoleNoiseFilter Noise { get; } = new();
 
         public CancellationTokenSource? SkipCountdown { get; set; }
 

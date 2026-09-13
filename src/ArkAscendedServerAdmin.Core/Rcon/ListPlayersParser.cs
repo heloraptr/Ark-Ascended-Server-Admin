@@ -5,10 +5,11 @@ namespace ArkAscendedServerAdmin.Rcon;
 public sealed record ListedPlayer(string Name, string EosId);
 
 /// <summary>
-/// Parses the reply to <see cref="RconCommands.ListPlayers"/>. The populated format has not been observed
-/// against a real client yet (plan step 12d is deferred), so the parser is tolerant: it accepts
-/// <c>0. Name, &lt;id&gt;</c> and <c>Name, &lt;id&gt;</c> lines where the id is a 32-hex-digit EOS id or a
-/// 17-digit Steam id, and ignores everything else. Adjust once the real output is captured.
+/// Parses the reply to <see cref="RconCommands.ListPlayers"/>. Verified against a live ASA server on
+/// 2026-09-13 with one player connected: <c>0. HeloRaptr, 0002f16bad3d4330b6097fcec38c5610</c>, the same
+/// id the <c>ShooterGame.log</c> join line carries as <c>UniqueNetId</c>. The parser stays tolerant: it
+/// accepts <c>0. Name, &lt;id&gt;</c> and <c>Name, &lt;id&gt;</c> lines where the id is a 32-hex-digit EOS id
+/// or a 17-digit Steam id, and ignores everything else.
 /// </summary>
 public static partial class ListPlayersParser
 {

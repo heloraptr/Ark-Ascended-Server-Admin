@@ -1760,3 +1760,57 @@ h1:focus-visible {
     opacity: 0.8;
   }
 }
+
+/* Whitelist editor: locked rows (Settings, cluster) first, then the owner's own ids. */
+.wl-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.wl-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 6px;
+  border-bottom: 1px solid var(--ark-hairline);
+}
+
+.wl-row.is-locked {
+  opacity: 0.6;
+}
+
+.wl-row .who {
+  min-width: 0;
+}
+
+.wl-row .who strong {
+  display: block;
+  font-weight: 500;
+  color: var(--ark-white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wl-row .who strong.is-tbd {
+  color: var(--ark-steel-3);
+  font-style: italic;
+}
+
+.wl-row .who > span {
+  display: block;
+  color: var(--ark-steel-3);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wl-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
