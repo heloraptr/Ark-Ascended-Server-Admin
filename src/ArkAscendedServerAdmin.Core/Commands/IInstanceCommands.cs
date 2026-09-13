@@ -27,7 +27,8 @@ public sealed record DashboardData(IReadOnlyList<ClusterSummary> Clusters, IRead
 /// The instance with its cluster, map, mods (with library entries), and extra overrides loaded, plus the
 /// cluster's mods in cluster order (empty for a standalone instance).
 /// </summary>
-public sealed record InstanceDetail(Instance Instance, IReadOnlyList<ModLibraryEntry> ClusterMods, IReadOnlyList<ModLibraryEntry> InstanceMods);
+/// <summary><paramref name="MapMod"/> is a custom map's own mod, loaded ahead of every other and never part of the two lists.</summary>
+public sealed record InstanceDetail(Instance Instance, IReadOnlyList<ModLibraryEntry> ClusterMods, IReadOnlyList<ModLibraryEntry> InstanceMods, ModLibraryEntry? MapMod = null);
 
 /// <summary>Where a new standalone instance's or cluster's INI source text starts from.</summary>
 public enum ConfigSourceKind

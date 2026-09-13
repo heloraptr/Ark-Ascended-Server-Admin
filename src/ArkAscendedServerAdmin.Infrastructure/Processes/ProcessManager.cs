@@ -305,7 +305,8 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             cluster is null ? null : _paths.ClusterDirectory(cluster.Slug),
             cluster is null ? [] : cluster.Mods.OrderBy(mod => mod.Order).Select(mod => mod.ModId).ToList(),
             instance.Mods.OrderBy(mod => mod.Order).Select(mod => mod.ModId).ToList(),
-            LaunchFlagResolver.Resolve(cluster?.LaunchFlags, instance.LaunchFlags));
+            LaunchFlagResolver.Resolve(cluster?.LaunchFlags, instance.LaunchFlags),
+            map.ModId);
     }
 
     private IReadOnlyList<PortConflict> FindPortConflicts(Instance instance, IEnumerable<PortOwner> others, AppSettings settings)

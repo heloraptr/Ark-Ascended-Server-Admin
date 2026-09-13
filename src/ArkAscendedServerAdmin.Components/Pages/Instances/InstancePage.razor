@@ -135,7 +135,7 @@ else
             </RadzenTabsItem>
 
             <RadzenTabsItem Text="Mods">
-                <ModListEditor LockedMods="_detail.ClusterMods" Mods="_detail.InstanceMods" Library="_library" Busy="Busy" OnSave="SaveModsAsync" />
+                <ModListEditor MapMod="_detail.MapMod" LockedMods="_detail.ClusterMods" Mods="_detail.InstanceMods" Library="_library" Busy="Busy" OnSave="SaveModsAsync" />
             </RadzenTabsItem>
 
             <RadzenTabsItem Text="Launch">
@@ -327,7 +327,8 @@ else
             }
 
             ResetEdit();
-            _library = await ModCommands.ListLibraryAsync();
+            var mapMods = await ModCommands.GetMapModsAsync();
+            _library = (await ModCommands.ListLibraryAsync()).Where(m => !mapMods.ContainsKey(m.Id)).ToList();
             _overrides = await Config.GetOverridesAsync(Id);
             _backups = await Instances.GetBackupsAsync(Id);
         });

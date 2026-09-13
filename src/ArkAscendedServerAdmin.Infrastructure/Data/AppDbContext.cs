@@ -78,6 +78,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             b.Property(x => x.Key).HasMaxLength(100).IsRequired();
             b.Property(x => x.Name).HasMaxLength(100).IsRequired();
             b.HasIndex(x => x.Key).IsUnique();
+            b.Ignore(x => x.TypeLabel);
         });
 
         modelBuilder.Entity<ModLibraryEntry>(b =>

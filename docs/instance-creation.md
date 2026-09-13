@@ -12,7 +12,7 @@ the `DataRoot` configured in `appsettings.json` (for example `C:\Ark`).
 | Cluster | Standalone or a cluster | Members share the cluster's INI files, mods, base launch options, whitelist, and a cluster directory for transfers. |
 | Map | One of the map rows | Official maps are seeded; custom maps are rows on the Maps page. |
 | Config source | Where the two INI files start from, and the server admin password | Standalone only. Game defaults, blank, or a copy of another instance's or cluster's current source text. The password is required before the first start because RCON is how the manager saves and stops the server. |
-| Mods | Ordered CurseForge ids | Cluster mods always load first. |
+| Mods | Ordered CurseForge ids | A custom map's own mod loads first, then cluster mods, then these. The map mod is set on the map and cannot be listed here. |
 | Launch options | Typed `-Flag` values and free-text extra arguments | Members can inherit from the cluster per flag. Reserved options (`-port`, `-mods`, `-clusterid`, ...) are rejected in free text. |
 | Ports | Game port, RCON port, max players, admin whitelist | Suggested from the port ranges in Settings, skipping every other instance and the web UI's own port. |
 | Summary | Review, then **Create instance**, optionally with **Start the server right away** | |
@@ -109,7 +109,7 @@ outcome as a toast; the console panel shows the details.
    -port=<game port>
    -WinLiveMaxPlayers=<max players>          (ASA ignores the INI MaxPlayers; this flag is authoritative)
    -clusterid=<cluster key> -ClusterDirOverride=<DataRoot>\Clusters\<cluster slug>    (members only)
-   -mods=<cluster mods>,<instance mods>      (when any)
+   -mods=<map mod>,<cluster mods>,<instance mods>   (when any)
    -log -servergamelog
    <typed flags, e.g. -NoBattlEye unless BattlEye was enabled>
    <extra arguments verbatim>

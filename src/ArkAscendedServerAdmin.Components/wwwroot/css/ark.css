@@ -1363,11 +1363,37 @@ h1:focus-visible {
 
 /* ---- wizard ------------------------------------------------------------------------------------- */
 
+/* The wizard fills the viewport below the page head: the step rail and the Back/Next row stay put, the
+   step's heading stays put, and only the step's content scrolls (long map and mod lists). */
 .wizard {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
   gap: 40px;
   align-items: start;
+  height: calc(100vh - 172px);
+  min-height: 420px;
+}
+
+.wizard-body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.wizard-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 12px;
+  scrollbar-gutter: stable;
+}
+
+.wizard-nav {
+  flex: 0 0 auto;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ark-hairline);
 }
 
 .wizard-steps {
@@ -1428,6 +1454,10 @@ h1:focus-visible {
   cursor: default;
 }
 
+.wizard-head {
+  flex: 0 0 auto;
+}
+
 .wizard-body h2 {
   margin-bottom: 4px;
   font-size: 20px;
@@ -1442,6 +1472,19 @@ h1:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.choice-group {
+  margin-top: 10px;
+  color: var(--ark-steel-3);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.choice-group:first-child {
+  margin-top: 0;
 }
 
 .choice {

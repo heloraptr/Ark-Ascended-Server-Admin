@@ -57,7 +57,8 @@ public static class LaunchArgumentBuilder
             arguments.Add($"-ClusterDirOverride={request.ClusterDirectory}");
         }
 
-        var modIds = request.ClusterModIds.Concat(request.InstanceModIds).Distinct().ToList();
+        IEnumerable<int> mapMod = request.MapModId is { } mapModId ? [mapModId] : [];
+        var modIds = mapMod.Concat(request.ClusterModIds).Concat(request.InstanceModIds).Distinct().ToList();
         if (modIds.Count > 0)
         {
             arguments.Add("-mods=" + string.Join(',', modIds.Select(id => id.ToString(CultureInfo.InvariantCulture))));
@@ -120,7 +121,8 @@ public static class LaunchArgumentBuilder
             }
         }
 
-        foreach (var modId in request.ClusterModIds.Concat(request.InstanceModIds).Where(id => id <= 0).Distinct())
+        IEnumerable<int> mapMod = request.MapModId is { } mapModId ? [mapModId] : [];
+        foreach (var modId in mapMod.Concat(request.ClusterModIds).Concat(request.InstanceModIds).Where(id => id <= 0).Distinct())
         {
             problems.Add($"Mod id {modId} is not a valid CurseForge project id.");
         }

@@ -141,9 +141,9 @@ maintenance) is observed through the singleton services' events.
 | Instance (`/instances/{id}`) | Console with RCON input, INI editors (source files) and overrides, mods, launch options with a command-line preview, settings, backups. |
 | New instance (`/instances/new`) | Wizard: name, cluster, map, INI starting point and admin password, mods, launch options, ports, summary with "start right away". |
 | Clusters | Shared INI files, cluster mods, base launch options, cluster id and whitelist. |
-| Mods | CurseForge search with an API key, manual ids without one, usage per cluster and instance. |
+| Mods | CurseForge search with an API key, manual ids without one, usage per cluster, instance, and custom map. A custom map's own mod is tagged and can only be added through the map. |
 | Players | On-demand `ListPlayers` across running instances; pick an EOS id into a whitelist. |
-| Maps, Settings, Setup | Map list, App Settings plus read-only host values and config export, install console. |
+| Maps, Settings, Setup | Map list with type (official story, official non-canon, custom/mod), release date, and a custom map's mod id; App Settings plus read-only host values and config export; install console. |
 | Update (`/update`) | Installed build, a "verify game files" switch, the SteamCMD console, and the run's outcome: already current, or updated from one build to another. The rail's "Update game" button lands here. |
 
 The visual system (fonts, tokens, the horizon rule, the state lamp) is in

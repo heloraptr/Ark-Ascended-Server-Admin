@@ -1,7 +1,20 @@
-@* Ordered mod list: locked cluster mods on top (greyed), then the editable list with move up/down and add-from-library. *@
+@* Ordered mod list: the map's own mod first (locked), locked cluster mods next (greyed), then the editable list with move up/down and add-from-library. *@
 
 <div class="mod-list">
     @{ var position = 0; }
+    @if (MapMod is { } mapMod)
+    {
+        position++;
+        <div class="mod-item is-locked" title="Map mod: it comes with the selected map and cannot be moved or removed.">
+            <span class="order num">@position</span>
+            <ModThumb Url="@mapMod.ThumbnailUrl" />
+            <div class="title">
+                <strong>@mapMod.Name</strong>
+                <span>@mapMod.Id · from the map</span>
+            </div>
+            <div class="actions"><RadzenIcon Icon="lock" Style="color:var(--ark-steel-3)" /></div>
+        </div>
+    }
     @foreach (var mod in LockedMods)
     {
         position++;
@@ -34,7 +47,7 @@
             </div>
         </div>
     }
-    @if (LockedMods.Count == 0 && _mods.Count == 0)
+    @if (MapMod is null && LockedMods.Count == 0 && _mods.Count == 0)
     {
         <p class="muted" style="padding:12px 0">No mods. The server starts vanilla.</p>
     }
@@ -47,12 +60,16 @@
     <RadzenButton Text="Save mods" Icon="save" ButtonStyle="ButtonStyle.Primary" Disabled="@(Busy || !IsDirty)" Click="SaveAsync" />
     <RadzenButton Text="Reset" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="@(Busy || !IsDirty)" Click="Reset" />
 </div>
-<p class="hint muted" style="margin-top:8px">Order matters: mods load in this order, cluster mods first. New mods on the list need a restart.</p>
+<p class="hint muted" style="margin-top:8px">Order matters: mods load in this order, the map's own mod first, then cluster mods. New mods on the list need a restart.</p>
 
 @code {
     private List<ModLibraryEntry> _mods = [];
     private int? _pick;
     private IReadOnlyList<ModLibraryEntry>? _source;
+
+    /// <summary>A custom map's own mod; shown locked at position 1 and never part of the saved list.</summary>
+    [Parameter]
+    public ModLibraryEntry? MapMod { get; set; }
 
     [Parameter]
     public IReadOnlyList<ModLibraryEntry> LockedMods { get; set; } = [];
@@ -70,7 +87,7 @@
     public EventCallback<IReadOnlyList<int>> OnSave { get; set; }
 
     private IReadOnlyList<ModLibraryEntry> Available =>
-        Library.Where(m => _mods.All(x => x.Id != m.Id) && LockedMods.All(x => x.Id != m.Id)).OrderBy(m => m.Name).ToList();
+        Library.Where(m => m.Id != MapMod?.Id && _mods.All(x => x.Id != m.Id) && LockedMods.All(x => x.Id != m.Id)).OrderBy(m => m.Name).ToList();
 
     private bool IsDirty => !_mods.Select(m => m.Id).SequenceEqual(Mods.Select(m => m.Id));
 

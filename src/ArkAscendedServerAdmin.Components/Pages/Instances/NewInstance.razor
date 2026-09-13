@@ -22,11 +22,14 @@
     </nav>
 
     <div class="wizard-body">
+        <div class="wizard-head">
+            <h2>@StepTitle</h2>
+            <p class="lead">@StepLead</p>
+        </div>
+        <div class="wizard-scroll">
         @switch (_step)
         {
             case 0:
-                <h2>Name it</h2>
-                <p class="lead">The name is for you; the session name is what players see.</p>
                 <div class="form-grid">
                     <div class="field">
                         <label for="w-name">Instance name</label>
@@ -42,8 +45,6 @@
                 break;
 
             case 1:
-                <h2>Cluster or standalone</h2>
-                <p class="lead">Cluster members share INI files, mods, launch options, and a cluster directory for transfers. A standalone instance owns all of that itself.</p>
                 <div class="choice-list" role="radiogroup">
                     <button type="button" class="choice @(_clusterId is null ? "is-on" : null)" @onclick="() => _clusterId = null">
                         <span class="dot"></span>
@@ -64,28 +65,27 @@
                 break;
 
             case 2:
-                <h2>Map</h2>
-                <p class="lead">Official maps are listed first. Add others on the Maps page.</p>
                 <div class="choice-list">
-                    @foreach (var map in _maps)
+                    @foreach (var group in _maps.GroupBy(m => m.TypeLabel))
                     {
-                        <button type="button" class="choice @(_mapId == map.Id ? "is-on" : null)" @onclick="() => _mapId = map.Id">
-                            <span class="dot"></span>
-                            <span><strong>@map.Name</strong><span class="mono">@map.Key</span></span>
-                        </button>
+                        <div class="choice-group">@group.Key</div>
+                        @foreach (var map in group)
+                        {
+                            <button type="button" class="choice @(_mapId == map.Id ? "is-on" : null)" @onclick="() => _mapId = map.Id">
+                                <span class="dot"></span>
+                                <span>
+                                    <strong>@map.Name</strong>
+                                    <span class="mono">@map.Key@(map.ReleaseDate is { } date ? $" · released {date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}" : null)@(map.ModId is { } mapModId ? $" · mod id {mapModId}" : null)</span>
+                                </span>
+                            </button>
+                        }
                     }
                 </div>
                 break;
 
             case 3:
-                <h2>Configuration source</h2>
-                @if (_clusterId is not null)
+                @if (_clusterId is null)
                 {
-                    <p class="lead">The cluster owns the INI files, so there is nothing to choose here. Per-instance differences can be added as overrides after creation.</p>
-                }
-                else
-                {
-                    <p class="lead">Where the two INI files start from. You edit them on the instance page afterwards.</p>
                     <div class="choice-list" role="radiogroup">
                         <button type="button" class="choice @(_configSource == ConfigSourceKind.GameDefaults ? "is-on" : null)" @onclick="() => _configSource = ConfigSourceKind.GameDefaults">
                             <span class="dot"></span>
@@ -121,22 +121,16 @@
                 break;
 
             case 4:
-                <h2>Mods</h2>
-                <p class="lead">@(_clusterId is null ? "Loaded in this order." : "Cluster mods load first; these come after them.")</p>
-                <ModListEditor LockedMods="_clusterMods" Mods="_pickedMods" Library="_library" OnSave="@((IReadOnlyList<int> ids) => { _modIds = ids; _pickedMods = ids.Select(id => _library.First(m => m.Id == id)).ToList(); return Task.CompletedTask; })" />
+                <ModListEditor MapMod="SelectedMapMod" LockedMods="_clusterMods" Mods="_pickedMods" Library="_pickableLibrary" OnSave="@((IReadOnlyList<int> ids) => { _modIds = ids; _pickedMods = ids.Select(id => _library.First(m => m.Id == id)).ToList(); return Task.CompletedTask; })" />
                 <p class="hint muted">Use Save mods to keep the list for the summary, or leave it empty. The library is on the <a href="mods">Mods</a> page.</p>
                 break;
 
             case 5:
-                <h2>Launch options</h2>
-                <p class="lead">@(_clusterId is null ? "Typed flags and any extra arguments." : "Inherit from the cluster unless this instance needs something different.")</p>
                 <LaunchFlagsEditor Flags="_flags" ClusterBase="_clusterFlags" CanInherit="@(_clusterId is not null)" OnSave="@((LaunchFlags f) => { _flags = f; return Task.CompletedTask; })" />
                 <p class="hint muted">Use Save launch options to keep them for the summary; the defaults are fine for a first server.</p>
                 break;
 
             case 6:
-                <h2>Ports and players</h2>
-                <p class="lead">Suggested from the port ranges in Settings, skipping every other instance and the web UI. Collisions are refused because the game does not report a failed bind.</p>
                 <div class="form-grid">
                     <div class="field">
                         <label for="w-game">Game port</label>
@@ -161,8 +155,6 @@
                 break;
 
             case 7:
-                <h2>Summary</h2>
-                <p class="lead">Creating the instance writes the folder tree and the INI files. Tick the box below to start the server right after.</p>
                 <dl class="kv">
                     <dt>Name</dt><dd>@_name <span class="faint mono">@Slug</span></dd>
                     <dt>Session name</dt><dd>@_sessionName</dd>
@@ -173,7 +165,7 @@
                         <dt>INI source</dt><dd>@ConfigSourceText</dd>
                         <dt>Admin password</dt><dd>@(HasAdminPassword ? "set" : _configSource is ConfigSourceKind.CopyFromInstance or ConfigSourceKind.CopyFromCluster ? "kept from the copied file" : "not set")</dd>
                     }
-                    <dt>Mods</dt><dd>@(_modIds.Count == 0 ? "none" : string.Join(", ", _pickedMods.Select(m => m.Name)))</dd>
+                    <dt>Mods</dt><dd>@ModsSummary</dd>
                     <dt>Ports</dt><dd><span class="num">@_gamePort</span> game, <span class="num">@_rconPort</span> RCON</dd>
                     <dt>Max players</dt><dd>@_maxPlayers</dd>
                 </dl>
@@ -196,8 +188,9 @@
                 <Problems Items="_createProblems" />
                 break;
         }
+        </div>
 
-        <div class="form-actions" style="margin-top:28px">
+        <div class="form-actions wizard-nav">
             <RadzenButton Text="Back" Icon="arrow_back" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="@(_step == 0 || Busy)" Click="@(() => Go(_step - 1))" />
             @if (_step < _steps.Length - 1)
             {
@@ -217,6 +210,32 @@
 
 @code {
     private static readonly string[] _steps = ["Name", "Cluster", "Map", "Config source", "Mods", "Launch options", "Ports", "Summary"];
+
+    private string StepTitle => _step switch
+    {
+        0 => "Name it",
+        1 => "Cluster or standalone",
+        2 => "Map",
+        3 => "Configuration source",
+        4 => "Mods",
+        5 => "Launch options",
+        6 => "Ports and players",
+        _ => "Summary",
+    };
+
+    private string StepLead => _step switch
+    {
+        0 => "The name is for you; the session name is what players see.",
+        1 => "Cluster members share INI files, mods, launch options, and a cluster directory for transfers. A standalone instance owns all of that itself.",
+        2 => "Official story maps first, then official non-canon maps, then custom or mod maps, each in release order. Add others on the Maps page.",
+        3 => _clusterId is null
+            ? "Where the two INI files start from. You edit them on the instance page afterwards."
+            : "The cluster owns the INI files, so there is nothing to choose here. Per-instance differences can be added as overrides after creation.",
+        4 => (_clusterId is null ? "Loaded in this order." : "Cluster mods load first; these come after them.") + (SelectedMapMod is null ? string.Empty : " The map's own mod is locked at the top."),
+        5 => _clusterId is null ? "Typed flags and any extra arguments." : "Inherit from the cluster unless this instance needs something different.",
+        6 => "Suggested from the port ranges in Settings, skipping every other instance and the web UI. Collisions are refused because the game does not report a failed bind.",
+        _ => "Creating the instance writes the folder tree and the INI files. Tick the box below to start the server right after.",
+    };
 
     private int _step;
     private int _furthest;
@@ -244,7 +263,29 @@
     private IReadOnlyList<ClusterListItem> _clusters = [];
     private IReadOnlyList<Map> _maps = [];
     private IReadOnlyList<ModLibraryEntry> _library = [];
+    private IReadOnlyList<ModLibraryEntry> _pickableLibrary = [];
     private IReadOnlyList<InstanceSummary> _existingInstances = [];
+
+    /// <summary>The chosen map's own mod, when it is a custom map; a placeholder if the library entry is gone.</summary>
+    private ModLibraryEntry? SelectedMapMod =>
+        _maps.FirstOrDefault(m => m.Id == _mapId)?.ModId is { } id
+            ? _library.FirstOrDefault(m => m.Id == id) ?? new ModLibraryEntry { Id = id, Name = $"Map mod {id}" }
+            : null;
+
+    private string ModsSummary
+    {
+        get
+        {
+            var names = new List<string>();
+            if (SelectedMapMod is { } mapMod)
+            {
+                names.Add($"{mapMod.Name} (map mod)");
+            }
+
+            names.AddRange(_pickedMods.Select(m => m.Name));
+            return names.Count == 0 ? "none" : string.Join(", ", names);
+        }
+    }
     private int? _loadedClusterId = -1;
 
     private string Slug => ArkAscendedServerAdmin.Naming.Slug.Generate(_name.Length == 0 ? "instance" : _name, []);
@@ -274,6 +315,8 @@
             _clusters = await Clusters.ListAsync();
             _maps = await Maps.ListAsync();
             _library = await Mods.ListLibraryAsync();
+            var mapMods = await Mods.GetMapModsAsync();
+            _pickableLibrary = _library.Where(m => !mapMods.ContainsKey(m.Id)).ToList();
             _existingInstances = (await Instances.GetDashboardAsync()).Instances;
             var suggestion = await Instances.SuggestPortsAsync();
             _gamePort = suggestion.GamePort;

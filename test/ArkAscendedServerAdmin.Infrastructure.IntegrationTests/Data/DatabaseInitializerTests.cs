@@ -35,6 +35,11 @@ public class DatabaseInitializerTests
         var maps = await db.Maps.ToListAsync(ct);
         Assert.Equal(OfficialMaps.All.Select(m => m.Key).Order(), maps.Select(m => m.Key).Order());
         Assert.All(maps, m => Assert.True(m.IsOfficial));
+        Assert.All(maps, m => Assert.NotNull(m.ReleaseDate));
+        var island = maps.Single(m => m.Key == "TheIsland_WP");
+        var center = maps.Single(m => m.Key == "TheCenter_WP");
+        Assert.Equal((true, new DateOnly(2023, 10, 25)), (island.IsStory, island.ReleaseDate));
+        Assert.Equal((false, new DateOnly(2024, 6, 4)), (center.IsStory, center.ReleaseDate));
 
         var settings = await db.AppSettings.ToDictionaryAsync(r => r.Key, r => r.Value, ct);
         Assert.Equal(AppSettingsCodec.Keys.All.Order(), settings.Keys.Order());
@@ -55,7 +60,10 @@ public class DatabaseInitializerTests
 
         await using (var db = root.CreateDbContext())
         {
-            (await db.Maps.SingleAsync(m => m.Key == "TheIsland_WP", ct)).Name = "Home";
+            var island = await db.Maps.SingleAsync(m => m.Key == "TheIsland_WP", ct);
+            island.Name = "Home";
+            island.IsStory = false;
+            island.ReleaseDate = null;
             (await db.AppSettings.SingleAsync(s => s.Key == AppSettingsCodec.Keys.GamePortStart, ct)).Value = "8000";
             db.Maps.Remove(await db.Maps.SingleAsync(m => m.Key == "BobsMissions_WP", ct));
             var state = await db.MaintenanceStates.SingleAsync(ct);
@@ -68,7 +76,9 @@ public class DatabaseInitializerTests
 
         await using (var db = root.CreateDbContext())
         {
-            Assert.Equal("Home", (await db.Maps.SingleAsync(m => m.Key == "TheIsland_WP", ct)).Name);
+            // The owner's name survives; the story flag and release date are facts and come back.
+            var island = await db.Maps.SingleAsync(m => m.Key == "TheIsland_WP", ct);
+            Assert.Equal(("Home", true, new DateOnly(2023, 10, 25)), (island.Name, island.IsStory, island.ReleaseDate));
             Assert.Equal("8000", (await db.AppSettings.SingleAsync(s => s.Key == AppSettingsCodec.Keys.GamePortStart, ct)).Value);
             // A deleted official map is re-seeded (the seed is keyed on Key); the row count stays stable.
             Assert.Equal(OfficialMaps.All.Count, await db.Maps.CountAsync(ct));

@@ -105,13 +105,19 @@
                 <div class="mod-item" style="grid-template-columns: 40px minmax(0,1fr) minmax(0,1fr) auto">
                     <ModThumb Url="@mod.ThumbnailUrl" />
                     <div class="title">
-                        <strong>@mod.Name</strong>
+                        <strong>
+                            @mod.Name
+                            @if (_mapMods.TryGetValue(mod.Id, out var mapName))
+                            {
+                                <span class="tag is-trace" title="Loads automatically, first, on every instance using this map. It cannot be picked in the instance or cluster mod lists.">map mod · @mapName</span>
+                            }
+                        </strong>
                         <span><span class="num">@mod.Id</span>@(mod.DateModified is { } modified ? $" · updated {Presentation.Ago(modified, _now)}" : null)@(string.IsNullOrWhiteSpace(mod.Summary) ? null : " · " + mod.Summary)</span>
                     </div>
                     <div class="title">
                         @if (usage is { IsReferenced: true })
                         {
-                            <span>@string.Join(", ", usage.Clusters.Select(c => $"cluster {c}").Concat(usage.Instances))</span>
+                            <span>@string.Join(", ", usage.Maps.Select(m => $"map {m}").Concat(usage.Clusters.Select(c => $"cluster {c}")).Concat(usage.Instances))</span>
                         }
                         else
                         {
@@ -131,6 +137,7 @@
 @code {
     private IReadOnlyList<ModLibraryEntry> _library = [];
     private IReadOnlyDictionary<int, ModUsage> _usage = new Dictionary<int, ModUsage>();
+    private IReadOnlyDictionary<int, string> _mapMods = new Dictionary<int, string>();
     private IReadOnlyList<ModSearchHit>? _hits;
     private string? _searchError;
     private string? _term;
@@ -147,6 +154,7 @@
         _hasKey = await ModCommands.IsApiKeyConfiguredAsync();
         _library = await ModCommands.ListLibraryAsync();
         _usage = await ModCommands.GetUsageAsync();
+        _mapMods = await ModCommands.GetMapModsAsync();
         _now = DateTimeOffset.UtcNow;
     });
 

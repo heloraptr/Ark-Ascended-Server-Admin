@@ -2,9 +2,9 @@
 @inherits ArkPage
 @inject IMapCommands MapCommands
 
-<PageHead Title="Maps" Lead="What the wizard offers. The key is what the server takes on the command line.">
+<PageHead Title="Maps" Lead="What the wizard offers, in the order it offers them: official story maps, official non-canon maps, then custom or mod maps, each by release date. The key is what the server takes on the command line.">
     <Actions>
-        <RadzenButton Text="Add map" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@(() => EditAsync(new Map { Key = string.Empty, Name = string.Empty }))" />
+        <RadzenButton Text="Add map" Icon="add" ButtonStyle="ButtonStyle.Primary" title="A custom map needs the CurseForge id of the mod that ships it." Click="@(() => EditAsync(new Map { Key = string.Empty, Name = string.Empty }))" />
     </Actions>
 </PageHead>
 
@@ -20,8 +20,27 @@ else
             <RadzenDataGridColumn TItem="Map" Property="Key" Title="Key">
                 <Template Context="m"><span class="mono">@m.Key</span></Template>
             </RadzenDataGridColumn>
-            <RadzenDataGridColumn TItem="Map" Property="IsOfficial" Title="Source" Width="120px">
-                <Template Context="m">@(m.IsOfficial ? "official" : "custom")</Template>
+            <RadzenDataGridColumn TItem="Map" Title="Type" Width="190px" Sortable="false">
+                <Template Context="m">
+                    <span>@m.TypeLabel</span>
+                    @if (m.ModId is { } modId)
+                    {
+                        <br />
+                        <span class="faint">mod id <span class="num">@modId</span></span>
+                    }
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="Map" Property="ReleaseDate" Title="Released" Width="120px">
+                <Template Context="m">
+                    @if (m.ReleaseDate is { } date)
+                    {
+                        <span class="num">@date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)</span>
+                    }
+                    else
+                    {
+                        <span class="muted">—</span>
+                    }
+                </Template>
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="Map" Title="Used by" Width="120px" Sortable="false">
                 <Template Context="m"><span class="num">@Presentation.Plural(_usage.GetValueOrDefault(m.Id), "instance")</span></Template>

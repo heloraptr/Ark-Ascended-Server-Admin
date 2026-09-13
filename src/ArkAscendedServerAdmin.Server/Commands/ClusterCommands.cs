@@ -188,6 +188,11 @@ public sealed class ClusterCommands(
             return CommandResult.Fail("One of the chosen mods is no longer in the library.");
         }
 
+        if (await MapModGuard.FindProblemAsync(db, ids, cancellationToken) is { } mapModProblem)
+        {
+            return CommandResult.Fail(mapModProblem);
+        }
+
         db.ClusterMods.RemoveRange(cluster.Mods);
         cluster.Mods.Clear();
         for (var order = 0; order < ids.Count; order++)

@@ -25,6 +25,17 @@ public class LaunchArgumentBuilderTests
     }
 
     [Fact]
+    public void MapMod_ComesFirst_AndIsNotRepeated()
+    {
+        var request = Clustered() with { MapModId = 9, ClusterModIds = [3, 9], InstanceModIds = [4, 3] };
+
+        var arguments = LaunchArgumentBuilder.Build(request).Arguments;
+
+        Assert.Contains("-mods=9,3,4", arguments);
+        Assert.Contains("Mod id 0 is not a valid CurseForge project id.", Assert.Throws<LaunchValidationException>(() => LaunchArgumentBuilder.Build(request with { MapModId = 0 })).Problems);
+    }
+
+    [Fact]
     public void Standalone_DoesNotEmitStdout()
     {
         var arguments = LaunchArgumentBuilder.Build(Standalone()).Arguments;

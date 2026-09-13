@@ -12,10 +12,10 @@ public sealed record ModSearchHit(
     long DownloadCount,
     bool InLibrary);
 
-/// <summary>Which clusters and instances reference a library entry (a referenced entry cannot be removed).</summary>
-public sealed record ModUsage(IReadOnlyList<string> Clusters, IReadOnlyList<string> Instances)
+/// <summary>Which clusters, instances, and custom maps reference a library entry (a referenced entry cannot be removed).</summary>
+public sealed record ModUsage(IReadOnlyList<string> Clusters, IReadOnlyList<string> Instances, IReadOnlyList<string> Maps)
 {
-    public bool IsReferenced => Clusters.Count > 0 || Instances.Count > 0;
+    public bool IsReferenced => Clusters.Count > 0 || Instances.Count > 0 || Maps.Count > 0;
 }
 
 /// <summary>Scoped, guarded facade for the mod library page (DESIGN.md §8): CurseForge search with a key, manual ids without one.</summary>
@@ -24,6 +24,9 @@ public interface IModCommands
     Task<IReadOnlyList<ModLibraryEntry>> ListLibraryAsync(CancellationToken cancellationToken = default);
 
     Task<IReadOnlyDictionary<int, ModUsage>> GetUsageAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Mod id → map name for every custom map's own mod. These are added by choosing the map, never from the mod lists.</summary>
+    Task<IReadOnlyDictionary<int, string>> GetMapModsAsync(CancellationToken cancellationToken = default);
 
     Task<bool> IsApiKeyConfiguredAsync(CancellationToken cancellationToken = default);
 

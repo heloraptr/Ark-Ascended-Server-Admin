@@ -21,20 +21,67 @@ public class MapCommandsTests
     }
 
     [Fact]
-    public async Task List_PutsOfficialMapsFirst_ThenByName()
+    public async Task List_OrdersStoryThenNonCanonThenCustom_ByReleaseDateThenName()
     {
         var ct = TestContext.Current.CancellationToken;
         using var host = new CommandTestHost();
         await host.InitializeAsync(ct);
-        Assert.True((await host.Maps.SaveAsync(new Map { Key = "Zeta_WP", Name = "Zeta" }, ct)).Succeeded);
-        Assert.True((await host.Maps.SaveAsync(new Map { Key = "Aardvark_WP", Name = "Aardvark" }, ct)).Succeeded);
+        Assert.True((await host.Maps.SaveAsync(new Map { Key = "Zeta_WP", Name = "Zeta", ModId = 9001 }, ct)).Succeeded);
+        Assert.True((await host.Maps.SaveAsync(new Map { Key = "Aardvark_WP", Name = "Aardvark", ModId = 9002 }, ct)).Succeeded);
+        Assert.True((await host.Maps.SaveAsync(new Map { Key = "Dated_WP", Name = "Dated", ReleaseDate = new DateOnly(2025, 1, 1), ModId = 9003 }, ct)).Succeeded);
 
         var maps = await host.Maps.ListAsync(ct);
 
-        var custom = maps.Where(m => !m.IsOfficial).ToList();
-        Assert.Equal(["Aardvark", "Zeta"], custom.Select(m => m.Name));
-        Assert.True(maps.TakeWhile(m => m.IsOfficial).Count() == maps.Count - 2, "official maps come before custom ones");
-        Assert.Contains(maps, m => m.Key == "TheIsland_WP" && m.IsOfficial);
+        var story = maps.TakeWhile(m => m is { IsOfficial: true, IsStory: true }).Select(m => m.Key).ToList();
+        var nonCanon = maps.Skip(story.Count).TakeWhile(m => m is { IsOfficial: true, IsStory: false }).Select(m => m.Key).ToList();
+        var custom = maps.Skip(story.Count + nonCanon.Count).ToList();
+        Assert.Equal(["TheIsland_WP", "ScorchedEarth_WP", "Aberration_WP", "Extinction_WP", "LostColony_WP", "Genesis_WP"], story);
+        Assert.Equal(["TheCenter_WP", "BobsMissions_WP", "Astraeos_WP", "Ragnarok_WP", "Valguero_WP"], nonCanon);
+        Assert.All(custom, m => Assert.False(m.IsOfficial));
+        Assert.Equal(["Dated", "Aardvark", "Zeta"], custom.Select(m => m.Name));
+    }
+
+    [Fact]
+    public async Task Save_RefusesStoryOnACustomMap_AndDropsStoryWhenOfficialIsCleared()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var host = new CommandTestHost();
+        await host.InitializeAsync(ct);
+
+        var refused = await host.Maps.SaveAsync(new Map { Key = "Story_WP", Name = "Story", IsStory = true, ModId = 9004 }, ct);
+        Assert.Contains("Only an official map can be a story map.", refused.Errors);
+
+        var official = await host.Maps.SaveAsync(new Map { Key = "Mine_WP", Name = "Mine", IsOfficial = true, IsStory = true, ReleaseDate = new DateOnly(2026, 1, 2) }, ct);
+        Assert.True(official.Succeeded, official.Error);
+        Assert.Equal((true, true, new DateOnly(2026, 1, 2)), (official.Value!.IsOfficial, official.Value.IsStory, official.Value.ReleaseDate));
+
+        var cleared = await host.Maps.SaveAsync(new Map { Id = official.Value.Id, Key = "Mine_WP", Name = "Mine", IsOfficial = false, IsStory = false, ModId = 9005 }, ct);
+        Assert.True(cleared.Succeeded, cleared.Error);
+        var row = (await host.Maps.ListAsync(ct)).Single(m => m.Id == official.Value.Id);
+        Assert.Equal((false, false, (DateOnly?)null, 9005), (row.IsOfficial, row.IsStory, row.ReleaseDate, row.ModId));
+    }
+
+    [Fact]
+    public async Task Save_CustomMapNeedsItsModId_AndPutsTheModInTheLibrary()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var host = new CommandTestHost();
+        await host.InitializeAsync(ct);
+
+        var missing = await host.Maps.SaveAsync(new Map { Key = "Custom_WP", Name = "Custom" }, ct);
+        var officialWithMod = await host.Maps.SaveAsync(new Map { Key = "Off_WP", Name = "Off", IsOfficial = true, ModId = 5 }, ct);
+        var saved = await host.Maps.SaveAsync(new Map { Key = "Custom_WP", Name = "Custom", ModId = 4242 }, ct);
+
+        Assert.Equal("A custom map needs the CurseForge project id of the mod that ships it.", missing.Error);
+        Assert.Equal("An official map has no map mod; clear the mod id or untick Official.", officialWithMod.Error);
+        Assert.True(saved.Succeeded, saved.Error);
+        Assert.Equal(4242, saved.Value!.ModId);
+        // No API key in the test host, so the entry is a manual one named after the map.
+        var entry = Assert.Single(await host.Mods.ListLibraryAsync(ct), m => m.Id == 4242);
+        Assert.Equal("Custom", entry.Name);
+        Assert.Equal(["Custom"], (await host.Mods.GetUsageAsync(ct))[4242].Maps);
+        Assert.Equal(new Dictionary<int, string> { [4242] = "Custom" }, await host.Mods.GetMapModsAsync(ct));
+        Assert.Equal("Remove it from map Custom first.", (await host.Mods.RemoveAsync(4242, ct)).Error);
     }
 
     [Theory]
@@ -61,9 +108,9 @@ public class MapCommandsTests
         using var host = new CommandTestHost();
         await host.InitializeAsync(ct);
 
-        var longKey = await host.Maps.SaveAsync(new Map { Key = new string('k', 101), Name = "N" }, ct);
-        var longName = await host.Maps.SaveAsync(new Map { Key = "Fine_WP", Name = new string('n', 101) }, ct);
-        var duplicate = await host.Maps.SaveAsync(new Map { Key = "theisland_wp", Name = "Dupe" }, ct);
+        var longKey = await host.Maps.SaveAsync(new Map { Key = new string('k', 101), Name = "N", ModId = 9006 }, ct);
+        var longName = await host.Maps.SaveAsync(new Map { Key = "Fine_WP", Name = new string('n', 101), ModId = 9006 }, ct);
+        var duplicate = await host.Maps.SaveAsync(new Map { Key = "theisland_wp", Name = "Dupe", ModId = 9006 }, ct);
 
         Assert.Equal("Map key must be 100 characters or fewer.", longKey.Error);
         Assert.Equal("Map name must be 100 characters or fewer.", longName.Error);
@@ -77,12 +124,12 @@ public class MapCommandsTests
         using var host = new CommandTestHost();
         await host.InitializeAsync(ct);
 
-        var inserted = await host.Maps.SaveAsync(new Map { Key = " Custom_WP ", Name = " Custom " }, ct);
+        var inserted = await host.Maps.SaveAsync(new Map { Key = " Custom_WP ", Name = " Custom ", ModId = 9007 }, ct);
         Assert.True(inserted.Succeeded, inserted.Error);
         Assert.Equal(("Custom_WP", "Custom", false), (inserted.Value!.Key, inserted.Value.Name, inserted.Value.IsOfficial));
 
-        var updated = await host.Maps.SaveAsync(new Map { Id = inserted.Value.Id, Key = "Custom2_WP", Name = "Custom Two" }, ct);
-        var missing = await Assert.ThrowsAsync<InvalidOperationException>(() => host.Maps.SaveAsync(new Map { Id = 9999, Key = "Ghost_WP", Name = "Ghost" }, ct));
+        var updated = await host.Maps.SaveAsync(new Map { Id = inserted.Value.Id, Key = "Custom2_WP", Name = "Custom Two", ModId = 9007 }, ct);
+        var missing = await Assert.ThrowsAsync<InvalidOperationException>(() => host.Maps.SaveAsync(new Map { Id = 9999, Key = "Ghost_WP", Name = "Ghost", ModId = 9007 }, ct));
 
         Assert.True(updated.Succeeded, updated.Error);
         Assert.Equal(inserted.Value.Id, updated.Value!.Id);
@@ -98,7 +145,7 @@ public class MapCommandsTests
         using var host = new CommandTestHost();
         await host.InitializeAsync(ct);
         var island = await host.MapIdAsync(ct);
-        var custom = (await host.Maps.SaveAsync(new Map { Key = "Custom_WP", Name = "Custom" }, ct)).Value!;
+        var custom = (await host.Maps.SaveAsync(new Map { Key = "Custom_WP", Name = "Custom", ModId = 9008 }, ct)).Value!;
         Assert.True((await host.Instances.CreateAsync(new InstanceDraft { Name = "One", MapId = island, SessionName = "1", GamePort = 7777, RconPort = 27020 }, ct)).Succeeded);
         Assert.True((await host.Instances.CreateAsync(new InstanceDraft { Name = "Two", MapId = island, SessionName = "2", GamePort = 7779, RconPort = 27021 }, ct)).Succeeded);
 

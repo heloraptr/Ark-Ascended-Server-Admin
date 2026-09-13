@@ -34,16 +34,32 @@ public sealed class ModCommands(
 
         var clusterUse = await db.ClusterMods.AsNoTracking().Select(m => new { m.ModId, m.Cluster!.Name }).ToListAsync(cancellationToken);
         var instanceUse = await db.InstanceMods.AsNoTracking().Select(m => new { m.ModId, m.Instance!.Name }).ToListAsync(cancellationToken);
+        var mapUse = await db.Maps.AsNoTracking().Where(m => m.ModId != null).Select(m => new { ModId = m.ModId!.Value, m.Name }).ToListAsync(cancellationToken);
 
         var usage = new Dictionary<int, ModUsage>();
-        foreach (var id in clusterUse.Select(u => u.ModId).Concat(instanceUse.Select(u => u.ModId)).Distinct())
+        foreach (var id in clusterUse.Select(u => u.ModId).Concat(instanceUse.Select(u => u.ModId)).Concat(mapUse.Select(u => u.ModId)).Distinct())
         {
             usage[id] = new ModUsage(
                 clusterUse.Where(u => u.ModId == id).Select(u => u.Name).OrderBy(n => n).ToList(),
-                instanceUse.Where(u => u.ModId == id).Select(u => u.Name).OrderBy(n => n).ToList());
+                instanceUse.Where(u => u.ModId == id).Select(u => u.Name).OrderBy(n => n).ToList(),
+                mapUse.Where(u => u.ModId == id).Select(u => u.Name).OrderBy(n => n).ToList());
         }
 
         return usage;
+    }
+
+    public async Task<IReadOnlyDictionary<int, string>> GetMapModsAsync(CancellationToken cancellationToken = default)
+    {
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var maps = await db.Maps.AsNoTracking().Where(m => m.ModId != null).OrderBy(m => m.Name).Select(m => new { ModId = m.ModId!.Value, m.Name }).ToListAsync(cancellationToken);
+        var result = new Dictionary<int, string>();
+        foreach (var map in maps)
+        {
+            result.TryAdd(map.ModId, map.Name);
+        }
+
+        return result;
     }
 
     public async Task<bool> IsApiKeyConfiguredAsync(CancellationToken cancellationToken = default)
@@ -182,7 +198,7 @@ public sealed class ModCommands(
         var usage = (await GetUsageAsync(cancellationToken)).GetValueOrDefault(modId);
         if (usage is { IsReferenced: true })
         {
-            var users = usage.Clusters.Select(c => $"cluster {c}").Concat(usage.Instances.Select(i => $"instance {i}"));
+            var users = usage.Clusters.Select(c => $"cluster {c}").Concat(usage.Instances.Select(i => $"instance {i}")).Concat(usage.Maps.Select(m => $"map {m}"));
             return CommandResult.Fail($"Remove it from {string.Join(", ", users)} first.");
         }
 

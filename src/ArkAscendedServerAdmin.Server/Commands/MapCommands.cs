@@ -7,14 +7,15 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ArkAscendedServerAdmin.Server.Commands;
 
-/// <summary>Guarded facade for the Maps page.</summary>
-public sealed class MapCommands(IAuthorizationGuard guard, IDbContextFactory<AppDbContext> contextFactory) : IMapCommands
+/// <summary>Guarded facade for the Maps page. A custom map's mod is put in the library when the map is saved.</summary>
+public sealed class MapCommands(IAuthorizationGuard guard, IDbContextFactory<AppDbContext> contextFactory, IModCommands mods) : IMapCommands
 {
     public async Task<IReadOnlyList<Map>> ListAsync(CancellationToken cancellationToken = default)
     {
         await guard.EnsureAuthorizedAsync(cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
-        return await db.Maps.AsNoTracking().OrderByDescending(m => m.IsOfficial).ThenBy(m => m.Name).ToListAsync(cancellationToken);
+        var maps = await db.Maps.AsNoTracking().ToListAsync(cancellationToken);
+        return maps.InDisplayOrder().ToList();
     }
 
     public async Task<IReadOnlyDictionary<int, int>> GetUsageAsync(CancellationToken cancellationToken = default)
@@ -61,6 +62,20 @@ public sealed class MapCommands(IAuthorizationGuard guard, IDbContextFactory<App
             problems.Add("Map name must be 100 characters or fewer.");
         }
 
+        if (map.IsStory && !map.IsOfficial)
+        {
+            problems.Add("Only an official map can be a story map.");
+        }
+
+        if (map.IsOfficial && map.ModId is not null)
+        {
+            problems.Add("An official map has no map mod; clear the mod id or untick Official.");
+        }
+        else if (!map.IsOfficial && map.ModId is not > 0)
+        {
+            problems.Add("A custom map needs the CurseForge project id of the mod that ships it.");
+        }
+
         if (problems.Count > 0)
         {
             return CommandResult<Map>.Fail(problems);
@@ -72,10 +87,27 @@ public sealed class MapCommands(IAuthorizationGuard guard, IDbContextFactory<App
             return CommandResult<Map>.Fail($"A map with key '{key}' already exists.");
         }
 
+        if (map.ModId is { } modId && !await db.ModLibrary.AnyAsync(m => m.Id == modId, cancellationToken))
+        {
+            // The map mod lives in the library like any other; metadata comes from CurseForge when a key is set.
+            var added = await mods.IsApiKeyConfiguredAsync(cancellationToken)
+                ? await mods.AddAsync(modId, cancellationToken)
+                : CommandResult<ModLibraryEntry>.Fail("No API key.");
+            if (!added.Succeeded)
+            {
+                added = await mods.AddManualAsync(modId, name, cancellationToken);
+            }
+
+            if (!added.Succeeded)
+            {
+                return CommandResult<Map>.Fail(added.Errors);
+            }
+        }
+
         Map row;
         if (map.Id == 0)
         {
-            row = new Map { Key = key, Name = name, IsOfficial = false };
+            row = new Map { Key = key, Name = name };
             db.Maps.Add(row);
         }
         else
@@ -85,6 +117,11 @@ public sealed class MapCommands(IAuthorizationGuard guard, IDbContextFactory<App
             row.Key = key;
             row.Name = name;
         }
+
+        row.IsOfficial = map.IsOfficial;
+        row.IsStory = map.IsOfficial && map.IsStory;
+        row.ReleaseDate = map.ReleaseDate;
+        row.ModId = map.IsOfficial ? null : map.ModId;
 
         await db.SaveChangesAsync(cancellationToken);
         return CommandResult<Map>.Ok(row);

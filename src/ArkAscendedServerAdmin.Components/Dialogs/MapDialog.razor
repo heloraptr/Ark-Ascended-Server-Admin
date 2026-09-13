@@ -11,16 +11,46 @@
             <label for="map-name">Display name</label>
             <RadzenTextBox id="map-name" @bind-Value="_name" Placeholder="The Island" />
         </div>
+        <div class="field">
+            <label for="map-date">Release date</label>
+            <RadzenDatePicker id="map-date" TValue="DateOnly?" @bind-Value="_releaseDate" DateFormat="yyyy-MM-dd" AllowClear="true" ShowTime="false" />
+            <span class="hint">Lists sort by type, then this date, then name. Leave it empty if unknown.</span>
+        </div>
+        <div class="field">
+            <label>Type</label>
+            <div class="check-row">
+                <RadzenCheckBox TValue="bool" @bind-Value="_official" @bind-Value:after="OnOfficialChanged" Name="map-official" />
+                <label for="map-official">Official</label>
+            </div>
+            <div class="check-row">
+                <RadzenCheckBox TValue="bool" @bind-Value="_story" Name="map-story" Disabled="@(!_official)" />
+                <label for="map-story">Story map</label>
+            </div>
+            <span class="hint">Story is only available for official maps; everything else is custom or mod.</span>
+        </div>
+        @if (!_official)
+        {
+            <div class="field">
+                <label for="map-mod">Map mod (CurseForge project id)</label>
+                <RadzenNumeric TValue="int?" id="map-mod" @bind-Value="_modId" ShowUpDown="false" Placeholder="e.g. 929420" />
+                <span class="hint">Required. Added to the mod library and loaded first on every instance using this map; it never appears in the instance or cluster mod lists. Change it here if the map is re-released under a new id.</span>
+            </div>
+        }
     </div>
     <div class="form-actions" style="justify-content:flex-end;margin-top:4px">
         <RadzenButton Text="Cancel" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => Dialogs.Close(null))" />
-        <RadzenButton Text="@(Map.Id == 0 ? "Add map" : "Save map")" Icon="save" ButtonStyle="ButtonStyle.Primary" Click="@(() => Dialogs.Close(new Map { Id = Map.Id, Key = _key ?? string.Empty, Name = _name ?? string.Empty, IsOfficial = Map.IsOfficial }))" />
+        <RadzenButton Text="@(Map.Id == 0 ? "Add map" : "Save map")" Icon="save" ButtonStyle="ButtonStyle.Primary"
+                      Click="@(() => Dialogs.Close(new Map { Id = Map.Id, Key = _key ?? string.Empty, Name = _name ?? string.Empty, IsOfficial = _official, IsStory = _official && _story, ReleaseDate = _releaseDate, ModId = _official ? null : _modId }))" />
     </div>
 </div>
 
 @code {
     private string? _key;
     private string? _name;
+    private bool _official;
+    private bool _story;
+    private DateOnly? _releaseDate;
+    private int? _modId;
 
     [Parameter]
     public Map Map { get; set; } = default!;
@@ -29,5 +59,17 @@
     {
         _key = Map.Key;
         _name = Map.Name;
+        _official = Map.IsOfficial;
+        _story = Map.IsStory;
+        _releaseDate = Map.ReleaseDate;
+        _modId = Map.ModId;
+    }
+
+    private void OnOfficialChanged()
+    {
+        if (!_official)
+        {
+            _story = false;
+        }
     }
 }

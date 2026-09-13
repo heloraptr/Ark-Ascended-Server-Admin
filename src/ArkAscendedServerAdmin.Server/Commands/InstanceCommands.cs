@@ -85,7 +85,14 @@ public sealed class InstanceCommands(
             : [];
 
         var instanceMods = instance.Mods.OrderBy(m => m.Order).Select(m => m.Mod!).ToList();
-        return new InstanceDetail(instance, clusterMods, instanceMods);
+        ModLibraryEntry? mapMod = null;
+        if (instance.Map?.ModId is { } mapModId)
+        {
+            mapMod = await db.ModLibrary.AsNoTracking().SingleOrDefaultAsync(m => m.Id == mapModId, cancellationToken)
+                ?? new ModLibraryEntry { Id = mapModId, Name = $"Map mod {mapModId}" };
+        }
+
+        return new InstanceDetail(instance, clusterMods, instanceMods, mapMod);
     }
 
     public async Task<IReadOnlyList<BackupRecord>> GetBackupsAsync(int instanceId, CancellationToken cancellationToken = default)
@@ -319,6 +326,11 @@ public sealed class InstanceCommands(
             problems.Add("One of the chosen mods is no longer in the library.");
         }
 
+        if (await MapModGuard.FindProblemAsync(db, modIds, cancellationToken) is { } mapModProblem)
+        {
+            problems.Add(mapModProblem);
+        }
+
         problems.AddRange((await FindPortConflictsAsync(db, name, draft.GamePort, draft.RconPort, null, cancellationToken)).Select(c => c.Reason));
         if (problems.Count > 0)
         {
@@ -486,6 +498,11 @@ public sealed class InstanceCommands(
             return CommandResult.Fail("One of the chosen mods is no longer in the library.");
         }
 
+        if (await MapModGuard.FindProblemAsync(db, ids, cancellationToken) is { } mapModProblem)
+        {
+            return CommandResult.Fail(mapModProblem);
+        }
+
         db.InstanceMods.RemoveRange(instance.Mods);
         instance.Mods.Clear();
         for (var order = 0; order < ids.Count; order++)
@@ -526,7 +543,8 @@ public sealed class InstanceCommands(
             instance.Cluster is { } c ? layout.ClusterDirectory(c.Slug) : null,
             instance.Cluster?.Mods.OrderBy(m => m.Order).Select(m => m.ModId).ToList() ?? [],
             instance.Mods.OrderBy(m => m.Order).Select(m => m.ModId).ToList(),
-            LaunchFlagResolver.Resolve(instance.Cluster?.LaunchFlags, instance.LaunchFlags));
+            LaunchFlagResolver.Resolve(instance.Cluster?.LaunchFlags, instance.LaunchFlags),
+            instance.Map.ModId);
         try
         {
             commandLine = LaunchArgumentBuilder.Build(request).ToDisplayString();

@@ -38,11 +38,22 @@ public sealed class DatabaseInitializer(
         var now = timeProvider.GetUtcNow();
         var changed = false;
 
-        var existingKeys = (await db.Maps.Select(m => m.Key).ToListAsync(cancellationToken)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var (key, name) in OfficialMaps.All.Where(m => !existingKeys.Contains(m.Key)))
+        var existing = (await db.Maps.ToListAsync(cancellationToken)).ToDictionary(m => m.Key, StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, name, isStory, releaseDate) in OfficialMaps.All)
         {
-            db.Maps.Add(new Map { Key = key, Name = name, IsOfficial = true });
-            changed = true;
+            if (!existing.TryGetValue(key, out var row))
+            {
+                db.Maps.Add(new Map { Key = key, Name = name, IsOfficial = true, IsStory = isStory, ReleaseDate = releaseDate });
+                changed = true;
+            }
+            else if (!row.IsOfficial || row.IsStory != isStory || row.ReleaseDate != releaseDate)
+            {
+                // Facts about the map, not owner preferences: keep them current (the display name is the owner's).
+                row.IsOfficial = true;
+                row.IsStory = isStory;
+                row.ReleaseDate = releaseDate;
+                changed = true;
+            }
         }
 
         var existingSettings = (await db.AppSettings.Select(s => s.Key).ToListAsync(cancellationToken)).ToHashSet(StringComparer.Ordinal);

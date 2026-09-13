@@ -749,6 +749,33 @@ public class InstanceCommandsTests
     }
 
     [Fact]
+    public async Task MapMod_LoadsFirst_ShowsInTheDetail_AndIsRefusedInTheLists()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var host = new CommandTestHost();
+        await host.InitializeAsync(ct);
+        await host.AddLibraryModAsync(2, "Two", ct);
+        var map = await host.Maps.SaveAsync(new Map { Key = "Custom_WP", Name = "Custom", ModId = 777 }, ct);
+        Assert.True(map.Succeeded, map.Error);
+
+        var withMapMod = await host.Instances.CreateAsync(new InstanceDraft { Name = "Bad", MapId = map.Value!.Id, SessionName = "b", GamePort = 7777, RconPort = 27020, ModIds = [777] }, ct);
+        var created = await host.Instances.CreateAsync(new InstanceDraft { Name = "One", MapId = map.Value.Id, SessionName = "1", GamePort = 7777, RconPort = 27020, ModIds = [2] }, ct);
+        Assert.True(created.Succeeded, created.Error);
+        var refused = await host.Instances.SetModsAsync(created.Value, [777, 2], ct);
+        var cluster = await host.Clusters.CreateAsync("Main", ConfigSourceKind.GameDefaults, null, ct);
+        var clusterRefused = await host.Clusters.SetModsAsync(cluster.Value, [777], ct);
+        var detail = await host.Instances.GetAsync(created.Value, ct);
+        var preview = await host.Instances.PreviewLaunchAsync(created.Value, ct);
+
+        Assert.Contains("Map mods load automatically with their map and cannot be listed here: 777 (Custom).", withMapMod.Errors);
+        Assert.Equal("Map mods load automatically with their map and cannot be listed here: 777 (Custom).", refused.Error);
+        Assert.Equal("Map mods load automatically with their map and cannot be listed here: 777 (Custom).", clusterRefused.Error);
+        Assert.Equal(777, detail!.MapMod?.Id);
+        Assert.Equal([2], detail.InstanceMods.Select(m => m.Id));
+        Assert.Contains("-mods=777,2", preview.Value!.CommandLine);
+    }
+
+    [Fact]
     public async Task SetMods_KeepsTheOrderItWasGiven()
     {
         var ct = TestContext.Current.CancellationToken;
