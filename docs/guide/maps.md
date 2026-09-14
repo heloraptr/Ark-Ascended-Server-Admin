@@ -2,29 +2,20 @@
 
 The **Maps** page is the list the instance wizard offers. Each row is a map key (what the server
 takes as the first argument on its command line, such as `TheIsland_WP`), a display name, a type,
-a release date, and, for a custom map, the CurseForge id of the mod that ships it. The official
-ASA maps are seeded on first run and kept current on every service start; adding a new map,
+a release date, and, for a custom map, the CurseForge id of the mod that ships it. Adding a new map,
 official or custom, is a row on this page, not a new release of the manager.
 
-## What it does
+## The list
 
-- Lists every launchable map in the one order the wizard uses: official story maps, official
-  non-canon maps, then custom or mod maps, each group by release date, unknown dates last, then by
-  name.
-- Seeds the official maps with their key, name, story flag, and ASA release date. The seed is
-  idempotent on the key: a map added to the seed reaches an existing database at the next service
-  start, and the story flag and release date are re-applied every start; the display name stays
-  yours.
-- Lets you add a custom map with the mod that ships it. That mod goes into the mod library and is
-  loaded first on every instance that runs the map.
-- Shows how many instances use each map and refuses to delete a map that is in use.
+The columns are **Name**, **Key**, **Type** (`Official - Story`, `Official - Non-Canon`, or
+`Custom/Mod`, with "mod id *N*" under a custom map), **Released**, **Used by** (*N* instances), and
+edit and delete buttons. Delete is disabled with the tooltip "In use" while any instance runs the
+map; otherwise it asks "The map is removed from the list. Nothing on disk changes."
 
-## How to use it
+Rows come in the one order the wizard uses too: official story maps, official non-canon maps, then
+custom or mod maps, each group by release date with unknown dates last, then by name.
 
-**The list** has the columns **Name**, **Key**, **Type** (`Official - Story`, `Official - Non-Canon`,
-or `Custom/Mod`, with "mod id *N*" under a custom map), **Released**, **Used by** (*N* instances),
-and edit and delete buttons. Delete is disabled with the tooltip "In use" while any instance runs
-the map; otherwise it asks "The map is removed from the list. Nothing on disk changes."
+## Adding or editing a map
 
 **Add map** (or the edit button) opens a dialog:
 
@@ -40,11 +31,25 @@ the map; otherwise it asks "The map is removed from the list. Nothing on disk ch
 **Add map** / **Save map** commits; a toast says "Saved *name*" or "Could not save the map" with
 the reason.
 
-**Choosing a map in the wizard.** The *Map* step shows the same list grouped by type, each entry
-with its key, "released *date*", and "mod id *N*" for a custom map; The Island is preselected. The
-wizard's lead text: "Official story maps first, then official non-canon maps, then custom or mod
-maps, each in release order. Add others on the Maps page." A custom map's mod then appears locked
-at the top of the *Mods* step. See [instance-creation.md](../instance-creation.md).
+Saving checks the key (required, at most 100 characters, no whitespace, usable on the command line)
+and the name (required, at most 100 characters), forbids a story flag without the official flag,
+forbids a mod id on an official map, requires one on a custom map, and refuses a second map with the
+same key (case-insensitive).
+
+A custom map whose mod id is not yet in the library adds it on save: through CurseForge (name,
+summary, thumbnail) when an API key is set, otherwise as a manual entry named after the map. That
+mod is then excluded from every cluster and instance mod list, and every list save is checked
+against the `Maps.ModId` column ([mods.md](mods.md)). The mod that ships a map is a property of the
+map: the game must load it first and every instance on the map needs it, so the manager takes it
+from the chosen map instead of asking you to remember it on every cluster and instance.
+
+## The maps that ship with the game
+
+The official maps are seeded on first run with their key, name, story flag, and ASA release date,
+and checked again on every service start. The seed matches on the key, so a map added to a newer
+build reaches an existing database at the next start. The story flag and the release date are
+re-applied every start, because those are facts about the map; the display name is yours to change
+and stays as you left it.
 
 The official seed as of this version:
 
@@ -62,21 +67,17 @@ The official seed as of this version:
 | `LostColony_WP` | Lost Colony | Story | 2025-12-19 |
 | `Genesis_WP` | Genesis Part 1 | Story | 2026-07-03 |
 
-## What happens underneath
+## Choosing a map in the wizard
 
-Maps are rows in the `Maps` table (`Key`, `Name`, `IsOfficial`, `IsStory`, `ReleaseDate`, `ModId`).
-An instance references a map by id, so renaming a map changes what the rows show and nothing else.
-Saving validates the key (required, at most 100 characters, no whitespace, usable on the command
-line) and the name (required, at most 100 characters), forbids a story flag without the official
-flag, forbids a mod id on an official map, requires one on a custom map, and refuses a second map
-with the same key (case-insensitive).
+The *Map* step shows the same list grouped by type, each entry with its key, "released *date*", and
+"mod id *N*" for a custom map; The Island is preselected. The wizard's lead text: "Official story
+maps first, then official non-canon maps, then custom or mod maps, each in release order. Add others
+on the Maps page." A custom map's mod then appears locked at the top of the *Mods* step. See
+[instance-creation.md](../instance-creation.md).
 
-Saving a custom map whose mod id is not yet in the library adds it: through CurseForge (name,
-summary, thumbnail) when an API key is set, otherwise as a manual entry named after the map. The
-map mod is then excluded from every cluster and instance mod list, and every list save is checked
-against the `Maps.ModId` column ([mods.md](mods.md)).
+## What a map key does at launch
 
-At launch the map key becomes the first token of the command line, with `?listen` and
+The map key becomes the first token of the command line, with `?listen` and
 `?AltSaveDirectoryName=<slug>` appended, and the map's mod id becomes the first entry of `-mods=`:
 
 ```
@@ -86,27 +87,19 @@ TheIsland_WP?listen?AltSaveDirectoryName=my-island -port=7777 ... -mods=<map mod
 The world the server writes lives under `Instances\<slug>\ShooterGame\Saved\<slug>\<MapKey>\`, and
 the backup job looks for `<MapKey>.ark` in exactly that folder.
 
-**Changing an instance's map.** The instance page has no map field; the map is chosen in the
-wizard and stays with the instance. Editing a map row (its key, name, or mod id) applies to every
-instance on it at their next start. If you change a row's **Map key**, the instances on it launch
-a different map next time, and their existing world (saved under the old key's folder) is not
-loaded by the new one; the backup job will report `world file missing` until the new map saves.
-To move a world to another map you create a new instance on that map.
+## Changing a map an instance already runs
 
-## Why it works this way
+The instance page has no map field; the map is chosen in the wizard and stays with the instance.
+Editing a map row (its key, name, or mod id) applies to every instance on it at their next start.
 
-DESIGN.md kept maps as data: a table with key, friendly name, and an official flag, seeded on
-first run and editable, so that "adding a new official map is a row, not a redeploy." The type and
-release date were added later for the wizard's ordering, and the story flag and date are re-seeded
-because they are facts about the map rather than owner preferences, while the display name is the
-owner's to change.
+Maps are rows in the `Maps` table (`Key`, `Name`, `IsOfficial`, `IsStory`, `ReleaseDate`, `ModId`)
+and an instance references a map by id, so renaming a map changes what the rows show and nothing
+else. Changing a row's **Map key** is a different matter: the instances on it launch a different map
+next time, their existing world (saved under the old key's folder) is not loaded by the new one, and
+the backup job will report `world file missing` until the new map saves. To move a world to another
+map you create a new instance on that map.
 
-Binding a custom map's mod to the map row rather than a mod list is the same idea: the mod that
-ships a map is a property of the map. The game must load it first and every instance on the map
-needs it, so the manager derives it from the chosen map instead of asking you to remember it on
-every cluster and instance.
-
-## When it refuses or fails
+## What the dialog will not accept
 
 | Message | Meaning and what to do |
 |---|---|
