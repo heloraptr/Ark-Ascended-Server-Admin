@@ -505,6 +505,23 @@ h1:focus-visible {
   color: var(--ark-steel);
 }
 
+.ark-version {
+  margin-top: 12px;
+  padding: 0 10px;
+  color: var(--ark-steel-3);
+  font-family: var(--ark-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.ark-disclaimer {
+  margin: 32px 0 40px;
+  max-width: 72ch;
+  color: var(--ark-steel-3);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
 .ark-main {
   position: relative;
   min-width: 0;

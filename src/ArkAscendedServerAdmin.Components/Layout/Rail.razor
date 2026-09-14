@@ -4,6 +4,7 @@
 @inject IProcessManager Processes
 @inject NotificationService Notifications
 @inject NavigationManager Navigation
+@inject HostConfiguration Host
 
 <aside class="ark-rail">
     <a class="ark-brand" href="">
@@ -64,6 +65,7 @@
                 </div>
             </Authorized>
         </AuthorizeView>
+        <div class="ark-version" title="Ark Ascended Server Admin @Host.Version">@Host.Version</div>
     </div>
 </aside>
 

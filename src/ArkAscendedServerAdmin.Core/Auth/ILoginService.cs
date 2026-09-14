@@ -16,7 +16,7 @@ public sealed record LoginResult(LoginOutcome Outcome, DateTimeOffset? LockedOut
         LoginOutcome.Success => "Signed in.",
         LoginOutcome.InvalidPassword => "Incorrect password.",
         LoginOutcome.LockedOut => "Too many failed attempts. Try again in a few minutes.",
-        LoginOutcome.NotConfigured => "No login password is configured. Set ArkAdmin:Password in appsettings.json and restart the service.",
+        LoginOutcome.NotConfigured => "No usable login password is configured. Set ArkAdmin:PasswordHash (or ArkAdmin:Password) in appsettings.json and restart the service.",
         _ => "Login failed.",
     };
 }

@@ -28,7 +28,10 @@ public sealed class LoginService(
 
         if (!passwordSource.IsConfigured)
         {
-            logger.LogError("Login refused from {Client}: no password is configured (ArkAdmin:Password).", clientKey);
+            logger.LogError(
+                "Login refused from {Client}: no usable password is configured (ArkAdmin:PasswordHash or ArkAdmin:Password; state {State}).",
+                clientKey,
+                passwordSource.Kind);
             return LoginResult.NotConfigured;
         }
 
@@ -38,7 +41,8 @@ public sealed class LoginService(
             return LoginResult.LockedOut(lockedUntil);
         }
 
-        if (!passwordSource.Verify(password))
+        // The claim is issued from the snapshot Verify matched, never from a later read of CurrentHash.
+        if (passwordSource.Verify(password) is not { } credential)
         {
             var lockout = throttle.RecordFailure(clientKey);
             if (lockout is null)
@@ -61,7 +65,7 @@ public sealed class LoginService(
         var identity = new ClaimsIdentity(
             [
                 new Claim(ClaimTypes.Name, ArkClaimTypes.OwnerName),
-                new Claim(ArkClaimTypes.PasswordHash, passwordSource.CurrentHash!),
+                new Claim(ArkClaimTypes.PasswordHash, credential),
                 new Claim(ArkClaimTypes.ExpiresAt, PasswordClaimValidator.EncodeExpiry(expiresAt)),
             ],
             CookieAuthenticationDefaults.AuthenticationScheme);

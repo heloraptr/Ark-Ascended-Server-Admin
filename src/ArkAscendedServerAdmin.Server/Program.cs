@@ -1,8 +1,11 @@
 using System.Net;
+using System.Reflection;
+using ArkAscendedServerAdmin.Auth;
 using ArkAscendedServerAdmin.Components.Layout;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Infrastructure;
 using ArkAscendedServerAdmin.Server;
+using ArkAscendedServerAdmin.Server.Auth;
 using ArkAscendedServerAdmin.Server.Components;
 using ArkAscendedServerAdmin.Server.Middleware;
 using Microsoft.AspNetCore.Antiforgery;
@@ -11,6 +14,14 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Hosting.WindowsServices;
 using Radzen;
+
+// `--hash-password` runs before the host exists (release plan step A1): no configuration is read and no
+// DataRoot is touched, so a broken appsettings.json cannot stop the installer from hashing. Stdin in,
+// hash on stdout, nothing else.
+if (args is [HashPasswordCommand.Argument])
+{
+    return HashPasswordCommand.Run(Console.OpenStandardInput(), Console.Out, Console.Error);
+}
 
 var isWindowsService = WindowsServiceHelpers.IsWindowsService();
 
@@ -38,13 +49,20 @@ var bindUrls = builder.Configuration.GetSection("Kestrel:Endpoints").GetChildren
     .Select(url => url!)
     .ToList();
 
+// MinVer stamps the informational version (1.0.0+sha, or 0.0.0-preview.0.N+sha off a tag) on every
+// assembly; it is shown on Settings and in the rail footer (release plan step A4).
+var version = typeof(ServiceExtensions).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+    ?? typeof(ServiceExtensions).Assembly.GetName().Version?.ToString()
+    ?? "unknown";
+
 builder.Services.AddSingleton(new HostConfiguration(
     layout.Root,
     bindUrls,
     arkOptions.KnownProxies,
     arkOptions.AllowInsecureHttp,
-    !string.IsNullOrEmpty(arkOptions.Password),
-    isWindowsService));
+    PasswordCredential.Resolve(arkOptions.Password, arkOptions.PasswordHash).IsUsable,
+    isWindowsService,
+    version));
 
 // ---- services ------------------------------------------------------------------------------------
 builder.Services.AddArkInfrastructure(layout);
@@ -59,10 +77,11 @@ var app = builder.Build();
 
 var logger = app.Logger;
 logger.LogInformation("DataRoot: {DataRoot}", layout.Root);
-if (string.IsNullOrEmpty(arkOptions.Password))
-{
-    logger.LogError("No login password is configured (ArkAdmin:Password in appsettings.json). Every login will be refused.");
-}
+logger.LogInformation("Version: {Version}", version);
+
+// Resolving the singleton now, rather than at the first login, puts its credential diagnostics (no
+// password, both keys set, malformed hash) in the startup log where the installer's event-log tail sees them.
+_ = app.Services.GetRequiredService<PasswordSource>();
 
 if (arkOptions.AllowInsecureHttp)
 {
@@ -106,6 +125,7 @@ app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapStaticAssets().AllowAnonymous();
+app.MapHealth();
 
 app.MapPost("/logout", async (HttpContext context, IAntiforgery antiforgery) =>
 {
@@ -119,3 +139,4 @@ app.MapRazorComponents<App>()
     .AddAdditionalAssemblies(typeof(MainLayout).Assembly);
 
 app.Run();
+return 0;

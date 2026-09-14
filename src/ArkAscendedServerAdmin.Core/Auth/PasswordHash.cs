@@ -4,9 +4,11 @@ using System.Text;
 namespace ArkAscendedServerAdmin.Auth;
 
 /// <summary>
-/// The password-hash claim value: lower-case hex SHA-256 of the configured password. It is not a storage
-/// hash (the password itself lives in <c>appsettings.json</c>); it exists so a cookie or circuit issued
-/// under an old password can be recognized and refused after the password changes.
+/// The password-hash claim value for a plaintext <c>ArkAdmin:Password</c>: lower-case hex SHA-256 of the
+/// configured password. It is not a storage hash (the password itself lives in <c>appsettings.json</c>);
+/// it exists so a cookie or circuit issued under an old password can be recognized and refused after the
+/// password changes. With <c>ArkAdmin:PasswordHash</c> the claim is the stored
+/// <see cref="Pbkdf2PasswordHash"/> string instead; <see cref="PasswordCredential"/> picks.
 /// </summary>
 public static class PasswordHash
 {

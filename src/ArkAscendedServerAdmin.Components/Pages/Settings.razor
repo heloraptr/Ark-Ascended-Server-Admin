@@ -97,7 +97,7 @@ else
             <div class="field">
                 <label for="st-cf">CurseForge API key</label>
                 <RadzenTextBox id="st-cf" @bind-Value="_edit.CurseForgeApiKey" autocomplete="off" />
-                <span class="hint">Stored in plain text in the database. Enables mod search and metadata; without it mods are added by id.</span>
+                <span class="hint">Stored in plain text in the database. Enables mod search and metadata; without it mods are added by id. The key is your own and its use is subject to CurseForge's API terms.</span>
             </div>
         </div>
     </section>
@@ -129,7 +129,8 @@ else
                 <dt>Known proxies</dt><dd class="mono">@(_host.KnownProxies.Count == 0 ? "none" : string.Join(", ", _host.KnownProxies))</dd>
                 <dt>Plain HTTP allowed</dt><dd>@(_host.AllowInsecureHttp ? "yes (development only)" : "no")</dd>
                 <dt>Password configured</dt><dd>@(_host.IsPasswordConfigured ? "yes" : "no: every login is refused")</dd>
-                <dt>Running as</dt><dd>@(_host.IsWindowsService ? "Windows service" : "console process")</dd>
+                <dt>Hosting</dt><dd>@(_host.IsWindowsService ? "Windows service" : "Console")</dd>
+                <dt>Version</dt><dd class="mono">@_host.Version</dd>
             </dl>
         }
     </section>
@@ -151,6 +152,10 @@ else
             </div>
         </div>
     </section>
+
+    <footer class="ark-disclaimer">
+        Not affiliated with, sponsored by, or endorsed by Studio Wildcard or Snail Games. ARK: Survival Ascended and related marks are trademarks of their respective owners.
+    </footer>
 }
 
 @code {

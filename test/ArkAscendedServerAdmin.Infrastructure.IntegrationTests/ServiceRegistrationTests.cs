@@ -29,7 +29,7 @@ public class ServiceRegistrationTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IHostApplicationLifetime, StubLifetime>();
-        services.AddSingleton(new HostConfiguration(root.Layout.Root, ["http://127.0.0.1:5000"], [], true, true, false));
+        services.AddSingleton(new HostConfiguration(root.Layout.Root, ["http://127.0.0.1:5000"], [], true, true, false, "0.0.0-test"));
         services.AddArkInfrastructure(root.Layout);
 
         using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
