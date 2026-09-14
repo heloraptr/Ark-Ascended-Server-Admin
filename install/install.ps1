@@ -712,11 +712,12 @@ function Invoke-Rollback($installation) {
 
 # ---- main ---------------------------------------------------------------------------------------------
 
-$modes = @($SetPassword, $SetCertificate, $Verify, $Rollback | Where-Object { $_ }).Count
-if ($modes -gt 1) { throw 'Use only one of -SetPassword, -SetCertificate, -Verify, -Rollback.' }
-
 $mutex = $null
 try {
+    # Inside the try so the message comes out as the one-line ERROR every other refusal prints.
+    if (@($SetPassword, $SetCertificate, $Verify, $Rollback | Where-Object { $_ }).Count -gt 1) {
+        throw 'Use only one of -SetPassword, -SetCertificate, -Verify, -Rollback.'
+    }
     $mutex = Enter-ArkInstallMutex
     if ($Rollback) { Invoke-Rollback (Assert-Installation) }
     elseif ($Verify) { Invoke-Verify (Assert-Installation) }
