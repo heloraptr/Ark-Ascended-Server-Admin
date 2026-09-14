@@ -56,9 +56,20 @@ public interface IUpdateService
     Task<OperationOutcome> SkipEntryAsync(int instanceId, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// What a delete leaves behind. The two choices are independent: the world can be archived while its
+/// backups go, or removed while they stay.
+/// </summary>
+/// <param name="KeepWorldData">Move <c>Saved</c> to <c>Archive</c> under the data root instead of deleting it.</param>
+/// <param name="DeleteBackups">
+/// Delete the instance's backup archives under <c>Backups\&lt;slug&gt;</c>. The backup history in the database
+/// goes with the instance either way; this decides whether the zip files on disk go with it.
+/// </param>
+public sealed record InstanceDeleteOptions(bool KeepWorldData, bool DeleteBackups);
+
 /// <summary>Instance delete (plan step 30), run under the instance lock on a detached job that the call nevertheless awaits: it returns once the rows are gone, or with the reason the job stopped.</summary>
 public interface IInstanceDeleteService
 {
-    /// <summary>Stop with verified exit → firewall rules → junctions → archive or delete <c>Saved</c> → database rows.</summary>
-    Task<OperationOutcome> DeleteAsync(int instanceId, bool keepWorldData, CancellationToken cancellationToken);
+    /// <summary>Stop with verified exit → firewall rules → junctions → archive or delete <c>Saved</c> → backups → database rows.</summary>
+    Task<OperationOutcome> DeleteAsync(int instanceId, InstanceDeleteOptions options, CancellationToken cancellationToken);
 }

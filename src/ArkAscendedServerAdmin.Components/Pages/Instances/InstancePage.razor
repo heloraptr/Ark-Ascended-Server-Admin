@@ -44,13 +44,13 @@ else
             }
             else if (_runtime.HasLiveProcess)
             {
-                <RadzenButton Text="Stop" Icon="stop" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Outlined" Click="@(() => Fire(() => Instances.StopAsync(Id, false), "Stopped", instance.Name))" />
-                <RadzenButton Text="Restart" Icon="restart_alt" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Click="@(() => Fire(() => Instances.RestartAsync(Id), "Restarted", instance.Name))" />
+                <RadzenButton Text="Stop" Icon="stop" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Outlined" Click="@(() => Fire(() => Instances.StopAsync(Id, false), ActionVerb.Stopped, instance.Name))" />
+                <RadzenButton Text="Restart" Icon="restart_alt" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Click="@(() => Fire(() => Instances.RestartAsync(Id), ActionVerb.Restarted, instance.Name))" />
                 <RadzenButton Text="Back up now" Icon="save" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Disabled="@(_runtime.State != InstanceState.Running)" Click="BackupNow" />
             }
             else
             {
-                <RadzenButton Text="Start" Icon="play_arrow" ButtonStyle="ButtonStyle.Success" Disabled="@(_runtime.State == InstanceState.Unknown)" Click="@(() => Fire(() => Instances.StartAsync(Id), "Started", instance.Name))" />
+                <RadzenButton Text="Start" Icon="play_arrow" ButtonStyle="ButtonStyle.Success" Disabled="@(_runtime.State == InstanceState.Unknown)" Click="@(() => Fire(() => Instances.StartAsync(Id), ActionVerb.Started, instance.Name))" />
             }
             <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Text" title="Delete instance" Click="DeleteAsync" />
         </Actions>
@@ -63,7 +63,7 @@ else
             <Actions>
                 @if (_runtime.State == InstanceState.IdentityUnpersisted)
                 {
-                    <RadzenButton Text="Retry persist" Icon="sync" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Click="@(() => Fire(() => Instances.RetryPersistIdentityAsync(Id), "Saved identity of", instance.Name))" />
+                    <RadzenButton Text="Retry persist" Icon="sync" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Click="@(() => Fire(() => Instances.RetryPersistIdentityAsync(Id), ActionVerb.SavedIdentityOf, instance.Name))" />
                 }
             </Actions>
         </Notice>
@@ -302,7 +302,7 @@ else
                             </RadzenDataGridColumn>
                         </Columns>
                     </RadzenDataGrid>
-                    <p class="hint muted" style="margin-top:10px">Archives live under DataRoot\Backups\@instance.Slug. Restoring is manual: stop the instance, unzip over ShooterGame\Saved.</p>
+                    <p class="hint muted" style="margin-top:10px">Archives live under DataRoot\Backups\@instance.Slug. Restoring is manual: stop the instance, unzip the archive somewhere, then copy the files under World\ into ShooterGame\Saved\@instance.Slug\@(instance.Map!.Key)\, and for a cluster member the files under Cluster\ into the cluster's folder.</p>
                 }
             </RadzenTabsItem>
         </Tabs>
@@ -381,7 +381,7 @@ else
         if (StartRequested && _detail is { } detail)
         {
             StartRequested = false;
-            Fire(() => Instances.StartAsync(Id), "Started", detail.Instance.Name);
+            Fire(() => Instances.StartAsync(Id), ActionVerb.Started, detail.Instance.Name);
             Navigation.NavigateTo($"instances/{Id}", replace: true);
         }
     }
@@ -516,17 +516,17 @@ else
     private async Task DeleteAsync()
     {
         var instance = _detail!.Instance;
-        var keep = await Dialogs.OpenAsync<DeleteInstanceDialog>(
+        var answer = await Dialogs.OpenAsync<DeleteInstanceDialog>(
             $"Delete {instance.Name}",
             new Dictionary<string, object?> { ["Name"] = instance.Name, ["Slug"] = instance.Slug, ["IsLive"] = _runtime.HasLiveProcess },
             new DialogOptions { Width = "520px" });
-        if (keep is not bool keepWorld)
+        if (answer is not InstanceDeleteOptions options)
         {
             return;
         }
 
         Notifications.Info($"Deleting {instance.Name}", _runtime.HasLiveProcess ? "Stopping the server first." : null);
-        Fire(() => Instances.DeleteAsync(Id, keepWorld), "Deleted", instance.Name, () => Navigation.NavigateTo(""));
+        Fire(() => Instances.DeleteAsync(Id, options), ActionVerb.Deleted, instance.Name, () => Navigation.NavigateTo(""));
     }
 
     private async Task SaveSettingsAsync()
@@ -550,7 +550,7 @@ else
         await GuardedAsync(async () =>
         {
             var result = await Instances.SaveLaunchFlagsAsync(Id, flags);
-            Notifications.Report(result, "Saved", "launch options");
+            Notifications.Report(result, ActionVerb.Saved, "launch options");
             if (result.Succeeded)
             {
                 _detail = await Instances.GetAsync(Id);
@@ -564,7 +564,7 @@ else
         await GuardedAsync(async () =>
         {
             var result = await Instances.SetModsAsync(Id, ids);
-            Notifications.Report(result, "Saved", "mods");
+            Notifications.Report(result, ActionVerb.Saved, "mods");
             if (result.Succeeded)
             {
                 _detail = await Instances.GetAsync(Id);
@@ -584,7 +584,7 @@ else
         await GuardedAsync(async () =>
         {
             var result = await Config.SaveOverrideAsync(value);
-            Notifications.Report(new CommandResult(result.Succeeded, result.Errors), "Saved", "override");
+            Notifications.Report(new CommandResult(result.Succeeded, result.Errors), ActionVerb.Saved, "override");
             if (result.Succeeded)
             {
                 _overrides = await Config.GetOverridesAsync(Id);

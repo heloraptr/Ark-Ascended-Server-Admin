@@ -194,7 +194,7 @@ else
         await GuardedAsync(async () =>
         {
             var result = await ClusterCommands.SaveLaunchFlagsAsync(Id, flags);
-            Notifications.Report(result, "Saved", "launch options");
+            Notifications.Report(result, ActionVerb.Saved, "launch options");
             if (result.Succeeded)
             {
                 _detail = await ClusterCommands.GetAsync(Id);
@@ -207,7 +207,7 @@ else
         await GuardedAsync(async () =>
         {
             var result = await ClusterCommands.SetModsAsync(Id, ids);
-            Notifications.Report(result, "Saved", "cluster mods");
+            Notifications.Report(result, ActionVerb.Saved, "cluster mods");
             if (result.Succeeded)
             {
                 _detail = await ClusterCommands.GetAsync(Id);
@@ -226,7 +226,7 @@ else
         await GuardedAsync(async () =>
         {
             var result = await ClusterCommands.DeleteAsync(Id);
-            Notifications.Report(result, "Deleted", name);
+            Notifications.Report(result, ActionVerb.Deleted, name);
             if (result.Succeeded)
             {
                 Navigation.NavigateTo("clusters");

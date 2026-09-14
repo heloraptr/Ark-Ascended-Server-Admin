@@ -238,7 +238,7 @@
         await GuardedAsync(async () =>
         {
             var result = await ModCommands.RemoveAsync(mod.Id);
-            Notifications.Report(result, "Removed", mod.Name);
+            Notifications.Report(result, ActionVerb.Removed, mod.Name);
         });
         await LoadAsync();
     }

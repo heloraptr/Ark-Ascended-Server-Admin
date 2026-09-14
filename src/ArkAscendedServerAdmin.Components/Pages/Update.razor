@@ -82,8 +82,8 @@
                             @if (entry.Error is { } error)
                             {
                                 <span class="tone-bad">@error</span>
-                                <RadzenButton Text="Retry" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Primary" Click="@(() => Fire(() => MaintenanceCommands.RetryEntryAsync(entry.InstanceId), "Re-queued", NameOf(entry.InstanceId)))" />
-                                <RadzenButton Text="Skip" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => Fire(() => MaintenanceCommands.SkipEntryAsync(entry.InstanceId), "Skipped", NameOf(entry.InstanceId)))" />
+                                <RadzenButton Text="Retry" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Primary" Click="@(() => Fire(() => MaintenanceCommands.RetryEntryAsync(entry.InstanceId), ActionVerb.Requeued, NameOf(entry.InstanceId)))" />
+                                <RadzenButton Text="Skip" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => Fire(() => MaintenanceCommands.SkipEntryAsync(entry.InstanceId), ActionVerb.Skipped, NameOf(entry.InstanceId)))" />
                             }
                             else
                             {
@@ -131,7 +131,7 @@
         else if (_maintenance.Phase is MaintenancePhase.Stopping or MaintenancePhase.Updating)
         {
             <div class="form-actions">
-                <RadzenButton Text="Resume update" Icon="replay" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" title="Re-runs the interrupted phase if SteamCMD failed and nothing is running." Click="@(() => Fire(() => MaintenanceCommands.ResumeMaintenanceAsync(), "Resumed", "the update"))" />
+                <RadzenButton Text="Resume update" Icon="replay" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" title="Re-runs the interrupted phase if SteamCMD failed and nothing is running." Click="@(() => Fire(() => MaintenanceCommands.ResumeMaintenanceAsync(), ActionVerb.Resumed, "the update"))" />
             </div>
         }
     </div>

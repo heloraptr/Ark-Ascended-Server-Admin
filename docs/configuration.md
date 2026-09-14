@@ -1,12 +1,13 @@
 # Configuration
 
-Two kinds of settings, deliberately kept apart.
+Settings come in two kinds, and they are kept apart.
 
-- **Host settings** are read once at startup from `appsettings.Production.json` (written by
-  `install.ps1`) or from environment variables on the service. Changing one needs a service restart.
-  They are the subject of this page.
-- **App Settings** live in the database and are edited on the Settings page while the service runs.
-  They are listed [at the end](#app-settings-in-the-database).
+Host settings are read once at startup from `appsettings.Production.json` (written by `install.ps1`)
+or from environment variables on the service, and changing one needs a service restart. Most of this
+page is about them.
+
+App Settings live in the database and are edited on the Settings page while the service runs; they
+are listed [at the end](#app-settings-in-the-database).
 
 Paths below assume the installer defaults: the app in `C:\ArkAscendedServerAdmin\App`, data in
 `C:\ArkAscendedServerAdmin`.

@@ -14,62 +14,61 @@ Ascended and related marks are trademarks of their respective owners.
 
 ## What it does
 
-- **One game install, many servers.** SteamCMD installs the game once under `DataRoot\Server`;
-  every instance runs the same binaries through its own NTFS junction tree with a private `Saved`
-  folder, so updates happen once and worlds never mix.
-- **Instances and clusters.** A wizard creates an instance (name, cluster, map, INI starting point,
-  mods, launch options, ports) and can start it straight away. Clusters share INI files, mods, base
-  launch options, an admin whitelist, and a transfer directory.
-- **Configuration you can read.** `Game.ini` and `GameUserSettings.ini` are edited as plain text
-  and kept as the source of truth on disk, mirrored into the database. Per-instance overrides sit
-  on top. The manager fills in only what it owns (session name, ports, RCON, player cap) and warns
-  when your text contradicts it.
-- **Lifecycle with verification.** Start goes through a stagger queue and a port check against live
-  OS listeners; stop broadcasts a countdown, asks the server to save and exit over RCON, and
-  verifies the exit. A restarted service re-attaches to servers that kept running.
-- **Console.** A live tail of each server's `ShooterGame.log` with startup markers, plus an RCON
+SteamCMD installs the game once under `DataRoot\Server`, and every instance runs those same binaries
+through its own NTFS junction tree with a private `Saved` folder, so updates happen once and worlds
+never mix. On top of that:
+
+- A wizard creates an instance (name, cluster, map, INI starting point, mods, launch options, ports)
+  and can start it straight away. Clusters share INI files, mods, base launch options, an admin
+  whitelist, and a transfer directory.
+- `Game.ini` and `GameUserSettings.ini` are edited as plain text and kept as the source of truth on
+  disk, mirrored into the database. Per-instance overrides sit on top. The manager fills in only
+  what it owns (session name, ports, RCON, player cap) and warns when your text contradicts it.
+- Start goes through a stagger queue and a port check against live OS listeners; stop broadcasts a
+  countdown, asks the server to save and exit over RCON, and verifies the exit. A restarted service
+  re-attaches to servers that kept running.
+- Each server's `ShooterGame.log` is tailed live in a console, with startup markers and an RCON
   input.
-- **Backups that are checked.** `saveworld`, wait for the files to settle, snapshot, zip, verify
-  every entry, then prune to the retention count. Skipped or failed attempts are recorded, never
-  silent.
-- **Game updates.** Stop everything with verified exits, run SteamCMD, verify the manifest, relaunch
-  through the queue, and persist every step so an interrupted update resumes after a service
-  restart.
-- **Mods** from CurseForge (search with an API key, or add by id), **players** (recorded from the
-  game log as they join and leave, with an on-demand `ListPlayers` per instance), custom **maps**, and a
-  **config export** of the database.
+- Every backup is checked: `saveworld`, wait for the files to settle, snapshot, zip, verify every
+  entry, then prune to the retention count. Skipped or failed attempts are recorded, never silent.
+- A game update stops everything with verified exits, runs SteamCMD, verifies the manifest,
+  relaunches through the queue, and persists every step, so an interrupted update resumes after a
+  service restart.
+- Mods come from CurseForge (search with an API key, or add by id). Players are recorded from the
+  game log as they join and leave, with an on-demand `ListPlayers` per instance. There are custom
+  maps too, and a config export of the database.
 
 ## What it does not do
 
-These are deliberate decisions, not gaps waiting for time. If you are about to open an issue for one of
-them (or something close), read the reason first; a request that changes the reasoning is welcome, a
-request that repeats the feature will be closed with a link here.
+These are decisions, not gaps waiting for time. If you are about to open an issue for one of them (or
+something close), read the reason first; a request that changes the reasoning is welcome, a request
+that repeats the feature will be closed with a link here.
 
-- **Translations.** The UI is English only. Every string sits inline in the pages, and a wrong
+- Translations. The UI is English only. Every string sits inline in the pages, and a wrong
   translation of a destructive button is worse than English. Reconsidered only if a contributor offers
   and maintains a complete translation.
-- **A Discord bot.** One-way notifications to a Discord channel are planned; two-way control from
+- A Discord bot. One-way notifications to a Discord channel are planned; two-way control from
   Discord is not. The web UI already works from a phone, and a bot needs its own authentication story
   for a single-password app.
-- **Updating itself from inside the app.** The service cannot safely replace its own binaries while
+- Updating itself from inside the app. The service cannot safely replace its own binaries while
   running. The installer script owns upgrades, with a journal and rollback; the app will only tell you
   that a newer release exists.
-- **UPnP.** Many routers disable it, leases expire or vanish on a router reboot, and it would need a
-  re-announce loop and honest failure reporting. The Connection card tells you exactly which UDP port
+- UPnP. Many routers disable it, leases expire or vanish on a router reboot, and it would need a
+  re-announce loop and honest failure reporting. Each instance shows its game port, which is the one
   to forward; Tailscale or ZeroTier are documented alternatives.
-- **AsaApi plugin management.** Every instance shares one `ShooterGame\Binaries` folder through a
+- AsaApi plugin management. Every instance shares one `ShooterGame\Binaries` folder through a
   junction, so a hand-installed loader lands on every server at once. That layout is untested with
   AsaApi and the app does not install, list, or launch through it.
-- **Managing servers on other machines.** One box, one service, one install. A remote-agent design
+- Managing servers on other machines. One box, one service, one install. A remote-agent design
   would change nearly every layer.
-- **Tribe and player data tools.** Character snapshots, single-player restore, and reading
+- Tribe and player data tools. Character snapshots, single-player restore, and reading
   `.arkprofile` or `.arktribe` files are out of scope.
-- **Map rotation.** Event-server behavior, not something a home cluster needs.
-- **SFTP or S3 backup targets.** A planned "copy verified backups to this folder" setting works with
+- Map rotation. Event-server behavior, not something a home cluster needs.
+- SFTP or S3 backup targets. A planned "copy verified backups to this folder" setting works with
   any mounted drive, NAS share, or sync client; the app will not carry cloud SDKs or credentials.
-- **Looking up your public IP or probing reachability.** Both need an outside service. You type your
+- Looking up your public IP or probing reachability. Both need an outside service. You type your
   public address once; the app prints the `open` command.
-- **IIS.** Kestrel as a Windows service is the deployment that is tested. IIS is untested and
+- IIS. Kestrel as a Windows service is the deployment that is tested. IIS is untested and
   expected to break; [hosting.md](docs/hosting.md#iis) says why.
 
 ## Documentation
@@ -103,12 +102,12 @@ carries two zips and a `SHA256SUMS` file:
 
 Take the first one unless you already keep .NET installed.
 
-1. **Download** the zip. Optionally check it: `Get-FileHash .\ArkAscendedServerAdmin-1.0.0-win-x64.zip`
+1. Download the zip. Optionally check it: `Get-FileHash .\ArkAscendedServerAdmin-1.0.0-win-x64.zip`
    against `SHA256SUMS`.
-2. **Unblock** it before extracting, or the scripts inside are refused by the execution policy:
+2. Unblock it before extracting, or the scripts inside are refused by the execution policy:
    right-click the zip, Properties, tick **Unblock**, or `Unblock-File .\ArkAscendedServerAdmin-1.0.0-win-x64.zip`.
    Then extract it anywhere; the folder is only the source to copy from.
-3. **Run the installer** elevated. Start, type `powershell`, *Run as administrator* (Windows
+3. Run the installer elevated. Start, type `powershell`, *Run as administrator* (Windows
    PowerShell 5.1 is enough; PowerShell 7 works too), then:
 
    ```powershell
@@ -116,7 +115,7 @@ Take the first one unless you already keep .NET installed.
    .\install.ps1
    ```
 
-4. **Answer the prompts.** Each one has a default and can be given as a parameter instead:
+4. Answer the prompts. Each one has a default and can be given as a parameter instead:
 
    | Prompt | Parameter | Default |
    |---|---|---|
@@ -134,12 +133,12 @@ Take the first one unless you already keep .NET installed.
    folders, registers the `ArkAscendedServerAdmin` service under LocalSystem, starts it, and checks
    that it answers.
 
-5. **Open the URL.** With `LanHttps` it is `https://<box-ip>:5001/`, behind a self-signed
+5. Open the URL. With `LanHttps` it is `https://<box-ip>:5001/`, behind a self-signed
    certificate the browser will warn about. With the default `Loopback` there is no URL yet: the
    app listens on `http://127.0.0.1:5000` for a reverse proxy on the same box that terminates HTTPS,
    forwards `X-Forwarded-Proto`, and passes WebSockets; a direct `http://` request answers 403 by
    design. [hosting.md](docs/hosting.md) has the three modes and proxy examples.
-6. **Wait for `/setup`.** Every page shows the SteamCMD console until the game install under
+6. Wait for `/setup`. Every page shows the SteamCMD console until the game install under
    `DataRoot\Server` is downloaded and verified: 12 GB, roughly 20 minutes on a fast line. Then log
    in with the password and create the first instance.
 
@@ -167,7 +166,7 @@ For running the app straight from the repository without installing, see
 
 ## Configuration
 
-Two kinds of settings, deliberately kept apart.
+Settings come in two kinds, and they are kept apart.
 
 **Host settings** live in `appsettings.Production.json` next to the executable (the installer writes
 it), or in environment variables on the service, and need a service restart to change. The ones you
@@ -196,15 +195,17 @@ export contains it.
 ### Security model
 
 Kestrel binds to loopback by default; the owner's reverse proxy terminates HTTPS and forwards to
-it. The app additionally refuses any request whose effective scheme is not HTTPS, so a LAN rebind
-without the proxy fails closed; the `LanHttps` mode gets its HTTPS from a self-signed certificate
-instead. Authentication is one password with a 12-hour sliding cookie named
-`ArkAscendedServerAdmin.Auth`; the password is stored as a PBKDF2 hash, the hash is validated on
-every request and every Blazor circuit is revalidated every five minutes, and every command
-re-checks the session server-side before doing anything. The cookie key ring is DPAPI-protected for
-the service account. The service runs as LocalSystem so firewall rules, WMI, and junctions need no
-separate elevation; RCON never leaves loopback. `GET /healthz` is the one anonymous endpoint: plain
-text `ArkAscendedServerAdmin ok`, no version, no state, for the installer's probe and for monitoring.
+it. The app also refuses any request whose effective scheme is not HTTPS, so a LAN rebind without
+the proxy fails closed. The `LanHttps` mode gets its HTTPS from a self-signed certificate instead.
+
+Authentication is one password with a 12-hour sliding cookie named `ArkAscendedServerAdmin.Auth`.
+The password is stored as a PBKDF2 hash, the hash is validated on every request and every Blazor
+circuit is revalidated every five minutes, and every command re-checks the session server-side
+before doing anything. The cookie key ring is DPAPI-protected for the service account.
+
+The service runs as LocalSystem so firewall rules, WMI, and junctions need no separate elevation;
+RCON never leaves loopback. `GET /healthz` is the one anonymous endpoint: plain text
+`ArkAscendedServerAdmin ok`, no version, no state, for the installer's probe and for monitoring.
 
 ### Data layout
 
@@ -240,9 +241,9 @@ maintenance) is observed through the singleton services' events.
 | Mods | CurseForge search with an API key, manual ids without one, usage per cluster, instance, and custom map. A custom map's own mod is tagged and can only be added through the map. |
 | Players | Everyone who has joined a server, recorded from the log as it happens: online or last seen, where, platform, EOS id; pick an id into a whitelist. |
 | Maps, Settings, Setup | Map list with type (official story, official non-canon, custom/mod), release date, and a custom map's mod id; App Settings (including the manager-wide admin whitelist) plus read-only host values, the app version, and config export; install console. |
-| Update (`/update`) | Installed build, a "verify game files" switch, the SteamCMD console, and the run's outcome: already current, or updated from one build to another. The rail's "Update game" button lands here. |
+| Update (`/update`) | Installed build, a "verify game files" switch, the SteamCMD console, and the run's outcome: already current, or updated from one build to another. The sidebar's "Update game" button lands here. |
 
-The visual system (fonts, tokens, the horizon rule, the state lamp) is in
+The visual system (fonts, tokens, the horizon rule, the state indicator) is in
 `src/ArkAscendedServerAdmin.Components/wwwroot/css/ark.css`; Radzen's `standard-dark` theme is
 re-tokened rather than restyled.
 
@@ -285,7 +286,7 @@ and run on Windows; on Linux/WSL they compile with `-p:EnableWindowsTargeting=tr
 password to `dev`, and allows plain HTTP, so
 `dotnet run --project src/ArkAscendedServerAdmin.Server` works without a proxy.
 
-The readiness pipeline only needs `DataRoot\Server\steamapps\appmanifest_2430930.acf` with
+Startup only needs `DataRoot\Server\steamapps\appmanifest_2430930.acf` with
 `StateFlags 4`, the game tree under `Server`, and `DataRoot\SteamCMD\steamcmd.exe`. With an existing
 game install elsewhere, junction `Server\Engine` and `Server\ShooterGame` at it, copy the manifest
 and `steamcmd.exe`, and `dotnet run` reaches Ready in a few seconds instead of downloading 12 GB.
@@ -308,7 +309,7 @@ with the service stopped, which is when the installer takes its copy before an u
 - `-port=` is mandatory; the game ignores `Port` in the INI. `RCONPort`, `RCONEnabled`, and
   `ServerAdminPassword` are honored from the INI.
 - The player cap is `-WinLiveMaxPlayers`; ASA ignores the INI `MaxPlayers` and resets it. The
-  manager writes both from the one *Max players* field.
+  manager writes both from the one **Max players** field.
 - ASA does not use the Steam query port. Each server still opens UDP 27015 as a vestigial Steam
   socket and several instances can share it; only the game port (UDP, plus port + 1) needs a
   firewall rule, and RCON stays on loopback. See [exposing-servers.md](docs/exposing-servers.md)

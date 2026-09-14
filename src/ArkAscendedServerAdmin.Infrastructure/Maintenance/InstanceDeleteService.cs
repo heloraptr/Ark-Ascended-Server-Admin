@@ -15,7 +15,7 @@ namespace ArkAscendedServerAdmin.Infrastructure.Maintenance;
 /// Instance delete (plan step 30). <see cref="DeleteAsync"/> only reports acceptance: it takes the instance
 /// lock without waiting ("operation in progress" when held) and runs the job in the background — stop with
 /// verified exit (a failed verification aborts the job with the reason), firewall rules, junctions,
-/// archive or delete <c>Saved</c>, then the database rows. Completion is visible through the instance
+/// archive or delete <c>Saved</c>, the backup archives if asked for, then the database rows. Completion is visible through the instance
 /// disappearing (and a line on its console); the lock is released in a <c>finally</c>.
 /// </summary>
 public sealed class InstanceDeleteService(
@@ -45,8 +45,10 @@ public sealed class InstanceDeleteService(
         }
     }
 
-    public async Task<OperationOutcome> DeleteAsync(int instanceId, bool keepWorldData, CancellationToken cancellationToken)
+    public async Task<OperationOutcome> DeleteAsync(int instanceId, InstanceDeleteOptions options, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(options);
+
         string slug;
         await using (var db = await contextFactory.CreateDbContextAsync(cancellationToken))
         {
@@ -67,7 +69,7 @@ public sealed class InstanceDeleteService(
 
         // The job is detached from the caller (a closed browser tab must not abort a half-done delete), but the
         // caller waits for it so "Deleted" is only reported, and the instance list only reloaded, once the rows are gone.
-        var job = Task.Run(() => RunAsync(instanceId, slug, keepWorldData, lease, lifetime.ApplicationStopping), CancellationToken.None);
+        var job = Task.Run(() => RunAsync(instanceId, slug, options, lease, lifetime.ApplicationStopping), CancellationToken.None);
         lock (_sync)
         {
             _lastJob = job;
@@ -76,7 +78,7 @@ public sealed class InstanceDeleteService(
         return await job.WaitAsync(cancellationToken);
     }
 
-    private async Task<OperationOutcome> RunAsync(int instanceId, string slug, bool keepWorldData, IDisposable lease, CancellationToken cancellationToken)
+    private async Task<OperationOutcome> RunAsync(int instanceId, string slug, InstanceDeleteOptions options, IDisposable lease, CancellationToken cancellationToken)
     {
         try
         {
@@ -93,17 +95,19 @@ public sealed class InstanceDeleteService(
 
             firewall.RemoveInstanceRules(instanceId);
             await layoutService.RemoveJunctionsAsync(slug, cancellationToken);
-            var archive = await layoutService.RetireAsync(slug, keepWorldData, cancellationToken);
-            if (!keepWorldData)
+            var archive = await layoutService.RetireAsync(slug, options.KeepWorldData, cancellationToken);
+            if (options.DeleteBackups)
             {
                 TryDeleteDirectory(layout.InstanceBackupDirectory(slug));
             }
 
             await DeleteRowsAsync(instanceId, cancellationToken);
 
-            Announce(instanceId, archive is null
-                ? $"Instance '{slug}' deleted; its world data was removed."
-                : $"Instance '{slug}' deleted; its world data was archived to {archive}.");
+            var world = archive is null ? "its world data was removed" : $"its world data was archived to {archive}";
+            var backups = options.DeleteBackups
+                ? "its backups were deleted"
+                : $"its backups were kept in {layout.InstanceBackupDirectory(slug)}";
+            Announce(instanceId, $"Instance '{slug}' deleted; {world} and {backups}.");
             return OperationOutcome.Success;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
