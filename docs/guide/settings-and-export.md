@@ -118,7 +118,7 @@ Snail Games. ARK: Survival Ascended and related marks are trademarks of their re
 The version and the disclaimer are here because Settings is the one page every owner opens at least
 once.
 
-## When a save or a button fails
+## What can go wrong here
 
 | Where | Message | Meaning and what to do |
 |---|---|---|

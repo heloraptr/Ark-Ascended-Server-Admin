@@ -5,7 +5,7 @@ takes as the first argument on its command line, such as `TheIsland_WP`), a disp
 a release date, and, for a custom map, the CurseForge id of the mod that ships it. Adding a new map,
 official or custom, is a row on this page, not a new release of the manager.
 
-## The list
+## The map list
 
 The columns are **Name**, **Key**, **Type** (`Official - Story`, `Official - Non-Canon`, or
 `Custom/Mod`, with "mod id *N*" under a custom map), **Released**, **Used by** (*N* instances), and
