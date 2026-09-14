@@ -1,0 +1,65 @@
+# Publish a GitHub release for every v* tag (release plan step C17). The owner creates and pushes the tags.
+#
+# build/publish-release.ps1 builds, runs both test executables, publishes the self-contained and the
+# framework-dependent packages, and writes SHA256SUMS. The MinVer version (without build metadata) must
+# equal the tag without its "v", otherwise the job fails before anything is published.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # MinVer needs the tags
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Build, test, publish, zip
+        shell: pwsh
+        run: |
+          $version = (& build/publish-release.ps1)[-1]
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Check the version against the tag
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $expected = $tag.Substring(1)
+          if ($env:VERSION -ne $expected) {
+            Write-Error "MinVer produced version '$env:VERSION' but the tag is '$tag' (expected '$expected'). Is the tag on this commit?"
+            exit 1
+          }
+          Write-Host "Version $env:VERSION matches tag $tag."
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: artifacts/release/TestResults/**/*.trx
+          if-no-files-found: warn
+
+      - name: Create the GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          $zips = Get-ChildItem artifacts/release -Filter 'ArkAscendedServerAdmin-*.zip' | ForEach-Object { $_.FullName }
+          if ($zips.Count -ne 2) { Write-Error "Expected two zips in artifacts/release, found $($zips.Count)."; exit 1 }
+          gh release create "$env:TAG" --generate-notes --prerelease @zips artifacts/release/SHA256SUMS
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
