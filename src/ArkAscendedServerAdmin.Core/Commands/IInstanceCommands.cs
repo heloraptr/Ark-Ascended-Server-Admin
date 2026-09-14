@@ -1,4 +1,5 @@
 using ArkAscendedServerAdmin.Domain;
+using ArkAscendedServerAdmin.Maintenance;
 using ArkAscendedServerAdmin.Ports;
 using ArkAscendedServerAdmin.Processes;
 
@@ -132,7 +133,7 @@ public interface IInstanceCommands
     Task<CommandResult<BackupRecord>> BackupNowAsync(int instanceId, CancellationToken cancellationToken = default);
 
     /// <summary>Runs the delete job to completion (plan step 30); the dialog is finished before this is called.</summary>
-    Task<OperationOutcome> DeleteAsync(int instanceId, bool keepWorldData, CancellationToken cancellationToken = default);
+    Task<OperationOutcome> DeleteAsync(int instanceId, InstanceDeleteOptions options, CancellationToken cancellationToken = default);
 
     /// <summary>Sends one RCON command from the console input and returns the reply; both are echoed into the console.</summary>
     Task<CommandResult<string>> SendRconAsync(int instanceId, string command, CancellationToken cancellationToken = default);
