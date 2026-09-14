@@ -101,6 +101,10 @@ Stops and deletes the service, removes the firewall rule, and deletes the app fo
 `.previous-*` copies. The data folder is left in place: the game install, instances, backups, keys,
 database, and certificate are yours.
 
+Because the installer replaces the permissions on the data folder, a later `install.ps1` only accepts a
+data folder that is new, empty, or the one an installed service already uses. To install again into the
+folder an uninstall left behind, move or empty it first.
+
 ## First start
 
 Every page shows `/setup` until the 12 GB game install under `DataRoot\Server` finishes; the SteamCMD
