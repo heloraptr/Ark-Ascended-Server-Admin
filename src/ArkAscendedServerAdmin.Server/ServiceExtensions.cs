@@ -27,9 +27,10 @@ public static class ServiceExtensions
     }
 
     /// <summary>
-    /// Cookie authentication for the single password (plan step 8): 12 h sliding expiry, secure cookie,
-    /// password-hash claim validated on every request, circuits revalidated every 5 minutes, and a
-    /// fallback policy that makes every endpoint require the cookie unless it is <c>[AllowAnonymous]</c>.
+    /// Cookie authentication for the single password (plan step 8): DPAPI-protected key ring, 12 h sliding
+    /// expiry, secure cookie, password-hash claim validated on every request, circuits revalidated every
+    /// 5 minutes, and a fallback policy that makes every endpoint require the cookie unless it is
+    /// <c>[AllowAnonymous]</c>.
     /// </summary>
     public static IServiceCollection AddArkAuthentication(this IServiceCollection services, ArkAdminOptions options, DataRootLayout layout)
     {
@@ -39,7 +40,10 @@ public static class ServiceExtensions
 
         services.AddDataProtection()
             .SetApplicationName(ApplicationName)
-            .PersistKeysToFileSystem(new DirectoryInfo(layout.Keys));
+            .PersistKeysToFileSystem(new DirectoryInfo(layout.Keys))
+            // PersistKeysToFileSystem alone writes the key ring in plaintext; DPAPI (current user, the
+            // service account) is what keeps other local accounts from reading it (release plan step A2).
+            .ProtectKeysWithDpapi();
 
         services.AddHttpContextAccessor();
         services.AddSingleton<PasswordSource>();

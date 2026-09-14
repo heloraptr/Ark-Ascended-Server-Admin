@@ -14,8 +14,19 @@ public sealed class ArkAdminOptions
     /// </summary>
     public string? DataRoot { get; set; }
 
-    /// <summary>The single login password. Empty disables login entirely (and logs an error at startup).</summary>
+    /// <summary>
+    /// The single login password in plaintext (development, or anyone who prefers it). Ignored, with a
+    /// warning, when <see cref="PasswordHash"/> is set. With neither set every login is refused and an
+    /// error is logged at startup.
+    /// </summary>
     public string? Password { get; set; }
+
+    /// <summary>
+    /// The login password as the <c>pbkdf2$&lt;iterations&gt;$&lt;salt&gt;$&lt;hash&gt;</c> string printed by
+    /// <c>--hash-password</c>. Wins over <see cref="Password"/>; a malformed value refuses every login
+    /// (no fallback) and logs an error.
+    /// </summary>
+    public string? PasswordHash { get; set; }
 
     /// <summary>
     /// Development only: accept requests whose effective scheme is HTTP. In production every non-HTTPS

@@ -232,7 +232,7 @@ public class ProcessManagerReconcileTests
                 root,
                 root.Layout,
                 settings,
-                new HostConfiguration(root.Layout.Root, ["https://localhost:5001"], [], false, true, false),
+                new HostConfiguration(root.Layout.Root, ["https://localhost:5001"], [], false, true, false, "0.0.0-test"),
                 _readiness,
                 Locks,
                 Gate,

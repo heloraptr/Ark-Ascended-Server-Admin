@@ -34,7 +34,7 @@ internal sealed class CommandTestHost : IDisposable
     {
         Root = new TempDataRoot();
         Clock = new FixedTimeProvider(Now);
-        Host = new HostConfiguration(Root.Layout.Root, [$"http://127.0.0.1:{WebPort}"], [], true, true, false);
+        Host = new HostConfiguration(Root.Layout.Root, [$"http://127.0.0.1:{WebPort}"], [], true, true, false, "0.0.0-test");
         Settings = new AppSettingsStore(Root);
         IniStore = new IniSourceStore(Root.Layout, Root, Clock, NullLogger<IniSourceStore>.Instance);
         GeneratedConfig = new GeneratedConfigWriter(Root.Layout, Root, IniStore, Settings, NullLogger<GeneratedConfigWriter>.Instance);
