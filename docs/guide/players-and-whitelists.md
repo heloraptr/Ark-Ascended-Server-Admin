@@ -7,54 +7,40 @@ admin whitelist wants EOS ids, not names, and the **Players** page is where you 
 it on a list. There are three lists, manager-wide, per cluster, and per instance, and their union
 is written to the file the game reads at every start.
 
-## What it does
+## The Players page
 
-- Records name, EOS id, platform, first seen, last joined, last left, and last instance for every
-  player, live from the log, including the lines backfilled when the service re-attaches to a
-  server it did not start.
-- Marks players online and offline from joins, leaves, `ListPlayers`, and instance exits.
-- Asks one running instance for its current players (`ListPlayers`) on demand.
-- Edits three admin whitelists: Settings (every instance), a cluster (its members), and an
-  instance (itself), with the inherited entries shown locked.
-- Writes the union to `ShooterGame\Saved\AllowedCheaterAccountIDs.txt` when the instance starts.
-
-## How to use it
-
-**The Players page** (rail: **Players**) lists everyone known, by name, with the columns **Name**,
-**Status** (**Online** on *instance*, or "Last seen *N* ago on *instance*"), **Platform**, **EOS
-id** (with a copy button), **First seen**, **Last joined**, **Whitelist** (a **Choose a list**
-drop-down of every cluster and instance, and **Add**), and a forget button. The summary line reads
-"*N* players known, *M* online now." The page follows the log: a join appears without a reload.
-Before anyone has joined it says "No players yet. A player appears here the moment they join a
-running server; nothing to press."
+**Players** in the sidebar lists everyone known, by name, with the columns **Name**, **Status**
+(**Online** on *instance*, or "Last seen *N* ago on *instance*"), **Platform**, **EOS id** (with a
+copy button), **First seen**, **Last joined**, **Whitelist** (a **Choose a list** drop-down of every
+cluster and instance, and **Add**), and a forget button. The summary line reads "*N* players known,
+*M* online now." The page follows the log: a join appears without a reload. Before anyone has joined
+it says "No players yet. A player appears here the moment they join a running server; nothing to
+press."
 
 **Add** puts the row's EOS id on the chosen cluster's or instance's whitelist (the toast says
 "Added to *X*'s whitelist"). **Forget** deletes the row; "Forgetting a player only clears this row;
 they come back on their next join."
 
-**The instance Players tab** ("On the server now") asks the server with `ListPlayers` every time the
+## Who is on a server right now
+
+The instance **Players** tab ("On the server now") asks the server with `ListPlayers` every time the
 tab opens and on **List players**; both need the state **Running**. It shows **Name** and **EOS
 id** with a copy button, "No players connected", or the RCON error. When the instance is not
 running: "The instance is not running. Start it to see who is on it."
 
-**The three whitelists**, each edited with the same control:
+The command goes over RCON with the RCON command timeout from Settings, and the reply is parsed as
+lines of the form `0. Name, <id>` (a `Name, <id>` line without the index is accepted too);
+`No Players Connected` is an empty list. Everyone listed is upserted as online on that instance with
+`LastSeenAt` = now; anyone the table thought was online there but who is not in the reply is marked
+offline. A `ListPlayers` reply carries no platform, so that column stays as the last join line set
+it.
 
-| List | Where | Applies to |
-|---|---|---|
-| Manager-wide | Settings, *Admin whitelist* | Every instance. "Put yourself here once; the other editors show these ids locked." |
-| Cluster | Cluster page, **Admin whitelist** | Every member of the cluster. |
-| Instance | Instance page, **Settings** tab, **Admin whitelist**; also the wizard's *Ports* step | That instance. |
+`ListPlayers` runs only when you ask. It answers "who is on right now" and corrects the table at the
+same time, without a timer hitting every server.
 
-The editor has a "Player name or EOS id" box with suggestions drawn from the Players table
-("*Name* · *id*"), an **Add** button, and the list: locked rows first (the id, "from Settings" or
-"from the cluster", and a lock icon), then the list's own rows with a remove button. A row whose id
-has never joined shows **TBD** in place of the name ("Shown once they join a server") and fills in
-when they do. Changes are saved with the page's **Save settings** button; the instance page adds
-the reminder "The whole list is written to AllowedCheaterAccountIDs.txt at start."
+## Where the names and ids come from
 
-## What happens underneath
-
-**The log lines.** Every instance console is a tail of
+Every instance console is a tail of
 `Instances\<slug>\ShooterGame\Saved\Logs\ShooterGame.log`. The tracker watches each console for a
 line of this shape (captured from a live server):
 
@@ -69,27 +55,46 @@ happened, not when they were read; an event older than the row's latest evidence
 makes a replay harmless. Events are applied one at a time in log order on a background queue, so
 the console never waits on the database.
 
-**Online and offline.** A join sets `IsOnline`, `LastJoinedAt`, and `LastInstance`; a leave clears
-`IsOnline` and sets `LastLeftAt`. When an instance's process is gone (a stop, a crash, or a
-re-attach that finds nothing), every player last seen online on it is marked offline; when they
-left is unknown, so only the flag changes.
+The log is the source rather than a poll over RCON because the game writes the join and leave lines
+itself with a UTC stamp. That gives an exact history at no cost, and it survives service restarts
+through the backfill, including servers the service re-attached to instead of starting.
 
-**`ListPlayers`.** The tab sends `ListPlayers` over RCON (with the RCON command timeout from
-Settings) and parses lines of the form `0. Name, <id>` (a `Name, <id>` line without the index is
-accepted too); `No Players Connected` is an empty list. Everyone listed is upserted as online on
-that instance with `LastSeenAt` = now; anyone the table thought was online there but who is not in
-the reply is marked offline. A `ListPlayers` reply carries no platform, so that column stays as
-the last join line set it.
+A join sets `IsOnline`, `LastJoinedAt`, and `LastInstance`; a leave clears `IsOnline` and sets
+`LastLeftAt`. When an instance's process is gone (a stop, a crash, or a re-attach that finds
+nothing), every player last seen online on it is marked offline; when they left is unknown, so only
+the flag changes.
 
-**The table** is `KnownPlayers` (`Name`, `EosId`, `Platform`, `FirstSeenAt`, `LastSeenAt`,
+The table is `KnownPlayers` (`Name`, `EosId`, `Platform`, `FirstSeenAt`, `LastSeenAt`,
 `LastJoinedAt`, `LastLeftAt`, `IsOnline`, `LastInstanceId`). Deleting an instance clears
 `LastInstanceId` and `IsOnline` on its players; the rows stay.
 
-**The whitelists** are one-id-per-line strings: `AdminWhitelist` on the App Settings row, on the
-`Clusters` row, and on the `Instances` row. Saving trims each line and drops blank ones. At every
-start the config writer builds the union in this order: manager list, cluster list, instance list;
-trimmed, blank and `;`/`#` comment lines skipped, duplicates dropped with the first occurrence
-kept. It writes the result, one id per line with Windows line endings, to
+## The three admin whitelists
+
+| List | Where | Applies to |
+|---|---|---|
+| Manager-wide | Settings, *Admin whitelist* | Every instance. "Put yourself here once; the other editors show these ids locked." |
+| Cluster | Cluster page, **Admin whitelist** | Every member of the cluster. |
+| Instance | Instance page, **Settings** tab, **Admin whitelist**; also the wizard's *Ports* step | That instance. |
+
+All three use the same control: a "Player name or EOS id" box with suggestions drawn from the
+Players table ("*Name* · *id*"), an **Add** button, and the list itself, locked rows first (the id,
+"from Settings" or "from the cluster", and a lock icon), then the list's own rows with a remove
+button. A row whose id has never joined shows **TBD** in place of the name ("Shown once they join a
+server") and fills in when they do. Changes are saved with the page's **Save settings** button; the
+instance page adds the reminder "The whole list is written to AllowedCheaterAccountIDs.txt at
+start."
+
+The manager-wide list is there so you enter your own id once instead of on every cluster and every
+instance.
+
+Each list is a one-id-per-line string: `AdminWhitelist` on the App Settings row, on the `Clusters`
+row, and on the `Instances` row. Saving trims each line and drops blank ones.
+
+## The file the game reads
+
+At every start the config writer builds the union in this order: manager list, cluster list,
+instance list; trimmed, blank and `;`/`#` comment lines skipped, duplicates dropped with the first
+occurrence kept. It writes the result, one id per line with Windows line endings, to
 
 ```
 Instances\<slug>\ShooterGame\Saved\AllowedCheaterAccountIDs.txt
@@ -99,28 +104,13 @@ atomically (temp file and rename). An empty union writes an empty file, so clear
 takes effect. The file is generated, never read back: editing it by hand lasts until the next
 start. The **Launch** tab's preview is built from the same inputs.
 
-**What the file grants.** `AllowedCheaterAccountIDs.txt` is ASA's admin whitelist: an account whose
-id is in it can use admin commands on that server without entering the server admin password. The
-manager writes the file directly under `ShooterGame\Saved`; the code carries a note that whether the game reads
-it from exactly that location when launched with `AltSaveDirectoryName` was still to be confirmed
-on a live server, so check on your own server once before relying on it.
+`AllowedCheaterAccountIDs.txt` is ASA's admin whitelist: an account whose id is in it can use admin
+commands on that server without entering the server admin password. The manager writes the file
+directly under `ShooterGame\Saved`; the code carries a note that whether the game reads it from
+exactly that location when launched with `AltSaveDirectoryName` was still to be confirmed on a live
+server, so check on your own server once before relying on it.
 
-## Why it works this way
-
-DESIGN.md decided the admin whitelist is editable per cluster and per instance with the union
-written to the instance file, that ASA wants EOS ids, and that the manager keeps a known-players
-table populated from the log and `ListPlayers` so the editor can pick by name or paste an id. The
-manager-wide list came later so the owner enters their own id once instead of on every cluster and
-instance. Player tracking was originally out of scope as a "player list UI"; it exists in this
-form because the whitelist editor needs the ids, and the log already carries them.
-
-The log, not RCON polling, is the source because the game writes the join and leave lines itself
-with a UTC stamp, which gives an exact history at no cost and survives service restarts through
-the backfill. `ListPlayers` is on demand only: it answers "who is on right now" when you ask, and
-it corrects the table (someone missing from the reply is marked offline) without a timer hitting
-every server.
-
-## When it refuses or fails
+## When an id or a name is refused
 
 | Where | Message | Meaning and what to do |
 |---|---|---|
@@ -135,6 +125,8 @@ every server.
 | Settings save | `AdminWhitelist must hold one id per line with no spaces.` | A line contains whitespace or a control character. |
 | Copy button | "Copy failed: The browser refused clipboard access." | Clipboard access needs a secure context; select the id and copy by hand. |
 
-A player who never appears: check the instance console for the join line. The tracker only reads
-lines the console received, so a server whose log tail stopped (`Log tail stopped: ...` in the
-console) records nothing until the instance is restarted.
+## A player who never appears
+
+Check the instance console for the join line. The tracker only reads lines the console received, so
+a server whose log tail stopped (`Log tail stopped: ...` in the console) records nothing until the
+instance is restarted.

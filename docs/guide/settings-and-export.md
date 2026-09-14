@@ -6,25 +6,17 @@ and the disclaimer, and has two buttons that act on the configuration data: **Ex
 backup**, which writes a consistent copy of the database, and **Restore INI files from database**,
 which rewrites every INI source file on disk from its database mirror.
 
-## What it does
+## Why there are two kinds of setting
 
-- Edits the runtime settings: launch stagger, stop countdown and timeouts, RCON timeout, console
-  backfill, port ranges, backup defaults, SteamCMD `validate`, the CurseForge API key, and the
-  manager-wide admin whitelist.
-- Validates every value on save and shows the problems under the form; nothing is written until
-  all of them pass.
-- Shows `DataRoot`, the bind URLs, known proxies, whether plain HTTP is allowed, whether a usable
-  password is configured, the hosting model, and the version.
-- Exports the database while the service runs, using SQLite's online backup so the copy is
-  consistent.
-- Restores the INI source files from the database.
+The page lead says it: "Runtime settings live in the database and apply immediately. Host settings
+come from appsettings.json and need a service restart."
 
-## How to use it
+Anything the host needs before it can serve a page (where it listens, where `DataRoot` is, the login
+password) is in the file and read once at startup. Everything the running manager consults while it
+works is in SQLite, where the UI can edit it. Every path in the database is relative to one
+`DataRoot`, so the database restores onto another box.
 
-The page lead: "Runtime settings live in the database and apply immediately. Host settings come
-from appsettings.json and need a service restart."
-
-### App Settings
+## App Settings
 
 | Section | Field | Default | Range or rule |
 |---|---|---|---|
@@ -47,11 +39,21 @@ Each field's hint on the page says what it feeds; the pages that use them are
 [backups.md](backups.md), [game-updates.md](game-updates.md), [mods.md](mods.md), and
 [players-and-whitelists.md](players-and-whitelists.md).
 
-**Save settings** validates and writes; the button shows "Saving…" for about two seconds so the
-click visibly did something, then a toast says "Saved settings". **Reset** reloads the stored
-values and discards edits.
+**Save settings** validates every value and writes; if anything fails, the problems appear under the
+form and nothing at all is written. The button shows "Saving…" for about two seconds so the click
+visibly did something, then a toast says "Saved settings". **Reset** reloads the stored values and
+discards edits.
 
-### Host
+The values are rows in the `AppSettings` table, one per key, decoded into one settings object that
+is cached in memory after the first read and replaced on save. Because the cache is replaced, every
+consumer (the launch queue, the port allocator, the backup scheduler, the CurseForge handler that
+adds the `x-api-key` header) sees the new value on its next call, with no restart.
+
+The CurseForge key is stored as it is typed because, as the hint on the field says, it is your own
+key on your own box and it is only ever sent to CurseForge; the folders that hold the database and
+its copies are locked down by the installer instead.
+
+## Host
 
 "From appsettings.json; edit the file and restart the service to change these."
 
@@ -63,74 +65,60 @@ values and discards edits.
 | **Plain HTTP allowed** | `yes (development only)` or `no`. |
 | **Password configured** | `yes`, or `no: every login is refused`. `yes` means a usable credential: `ArkAdmin:Password` or a well-formed `ArkAdmin:PasswordHash`. |
 | **Hosting** | `Windows service` or `Console`. |
-| **Version** | The assembly's informational version, `1.0.0+<commit sha>` for a release build. The same string sits in the rail footer on every page. |
+| **Version** | The assembly's informational version, `1.0.0+<commit sha>` for a release build. The same string sits at the bottom of the sidebar on every page. |
 
-[configuration.md](../configuration.md) explains each host setting and how to change it.
-
-### Configuration data
-
-**Export config backup**: "Export a consistent copy of the database to `Exports` under the data
-root. Copying the .db file by hand is only safe with the service stopped." The toast "Exported
-config backup" carries the path, and the page shows "Written to *path*".
-
-**Restore INI files from database**: "Rewrite every INI source file on disk from its database copy.
-This is the only direction the database ever writes files, and it overwrites whatever is in the
-Config folders now." It asks first: "Every Game.ini and GameUserSettings.ini under Clusters\*\Config
-and Instances\*\Config is overwritten with the database copy. Unsaved edits on disk are lost."
-Confirm with **Overwrite the files**.
-
-At the bottom of the page: "Not affiliated with, sponsored by, or endorsed by Studio Wildcard or
-Snail Games. ARK: Survival Ascended and related marks are trademarks of their respective owners."
-
-## What happens underneath
-
-**App Settings** are rows in the `AppSettings` table, one per key, decoded into one settings
-object that is cached in memory after the first read and replaced on save. Saving runs the
-validation, then updates or inserts each row in one `SaveChanges`. Because the cache is replaced,
-every consumer (the launch queue, the port allocator, the backup scheduler, the CurseForge
-handler that adds the `x-api-key` header) sees the new value on its next call, with no restart.
-
-**Host values** are read once at startup from `appsettings.json` (plus `appsettings.Production.json`
-and environment variables) into a read-only record; the page shows that record. The one exception
-is the password: the credential follows configuration reloads, so a changed `Password` or
+These are read once at startup from `appsettings.json` (plus `appsettings.Production.json` and
+environment variables) into a read-only record, and the page shows that record. The password is the
+one exception: the credential follows configuration reloads, so a changed `Password` or
 `PasswordHash` invalidates every cookie on its next request and every circuit at its next
 revalidation without a restart, while the **Password configured** row still shows the value from
 startup.
 
-**Export** opens a second SQLite connection to `DataRoot\Exports\config-yyyyMMdd-HHmmss.db.tmp`,
+[configuration.md](../configuration.md) explains each host setting and how to change it.
+
+## Export config backup
+
+"Export a consistent copy of the database to `Exports` under the data root. Copying the .db file by
+hand is only safe with the service stopped." The toast "Exported config backup" carries the path,
+and the page shows "Written to *path*".
+
+The button opens a second SQLite connection to `DataRoot\Exports\config-yyyyMMdd-HHmmss.db.tmp`,
 runs SQLite's online backup API from the live connection into it (consistent even with
 write-ahead-log traffic in flight), closes it, and renames it to `config-yyyyMMdd-HHmmss.db`
-(local time). Nothing else is written. The file is a complete copy of the database: clusters,
-instances, maps, the mod library and assignments, the INI text mirrors, overrides, known players,
-backup records, the maintenance state, and every App Setting, **including the CurseForge API key in
-plain text**. The installer restricts `DataRoot\Exports` to `SYSTEM` and administrators for that
-reason. No import button exists; to use an export you stop the service, replace
+(local time). Nothing else is written. A raw copy of a SQLite database that is being written is not
+a consistent file, which is the whole reason this button exists: you never have to stop the service
+to keep a copy of your configuration.
+
+The file is a complete copy of the database: clusters, instances, maps, the mod library and
+assignments, the INI text mirrors, overrides, known players, backup records, the maintenance state,
+and every App Setting, **including the CurseForge API key in plain text**. The installer restricts
+`DataRoot\Exports` to `SYSTEM` and administrators for that reason.
+
+No import button exists; to use an export you stop the service, replace
 `DataRoot\Data\ArkAscendedServerAdmin.db` (and delete any `-wal` and `-shm` next to it), and start
-the service again.
+the service again. The installer's own database copies during an upgrade are a different thing
+([backups.md](backups.md#the-installers-backups_app-copies)).
 
-**Restore INI files from database** reads every row of `IniDocuments` (cluster or instance owner,
-file, text) and writes each one atomically to its source path, `Clusters\<slug>\Config\<file>` or
-`Instances\<slug>\Config\<file>`. It does not touch the generated files under
-`ShooterGame\Saved\Config\WindowsServer`, which are rewritten from the source at the next start;
-see [configuration-files.md](configuration-files.md).
+## Restore INI files from database
 
-## Why it works this way
+"Rewrite every INI source file on disk from its database copy. This is the only direction the
+database ever writes files, and it overwrites whatever is in the Config folders now." It asks first:
+"Every Game.ini and GameUserSettings.ini under Clusters\*\Config and Instances\*\Config is
+overwritten with the database copy. Unsaved edits on disk are lost." Confirm with **Overwrite the
+files**.
 
-DESIGN.md split configuration in two: host settings that need a restart, in `appsettings.json`,
-and runtime settings in SQLite that the UI edits; every path in the database is relative to one
-`DataRoot` so the database restores on another box. The same section states the config backup
-story: copy the SQLite file, and "restore from database" recreates the INI files. The export
-button exists because a raw copy of a SQLite database that is being written is not a consistent
-file; the online backup API produces one while the service runs, so the owner never has to stop
-the service to keep a configuration copy. The installer's own database copies during an upgrade
-are a different thing ([backups.md](backups.md#the-installers-backups_app-copies)).
+It reads every row of `IniDocuments` (cluster or instance owner, file, text) and writes each one
+atomically to its source path, `Clusters\<slug>\Config\<file>` or `Instances\<slug>\Config\<file>`.
+It does not touch the generated files under `ShooterGame\Saved\Config\WindowsServer`, which are
+rewritten from the source at the next start; see
+[configuration-files.md](configuration-files.md).
 
-The key is stored as it is typed because, as the hint on the field says, it is your own key on
-your own box and it is only ever sent to CurseForge; the folders that hold the database and its
-copies are locked down by the installer instead. The disclaimer and the version are on this page
-because it is the one page every owner opens at least once.
+At the bottom of the page: "Not affiliated with, sponsored by, or endorsed by Studio Wildcard or
+Snail Games. ARK: Survival Ascended and related marks are trademarks of their respective owners."
+The version and the disclaimer are here because Settings is the one page every owner opens at least
+once.
 
-## When it refuses or fails
+## When a save or a button fails
 
 | Where | Message | Meaning and what to do |
 |---|---|---|
