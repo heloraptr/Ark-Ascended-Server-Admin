@@ -290,7 +290,7 @@ else
         await GuardedAsync(async () =>
         {
             var result = await Config.RestoreFromDatabaseAsync();
-            Notifications.Report(result, "Restored", "INI files from the database");
+            Notifications.Report(result, ActionVerb.Restored, "INI files from the database");
         });
     }
 }

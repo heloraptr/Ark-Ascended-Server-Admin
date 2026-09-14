@@ -31,8 +31,8 @@
                         @if (entry.Error is { } error)
                         {
                             <span class="tone-bad">@error</span>
-                            <RadzenButton Text="Retry" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Primary" Click="@(() => Fire(() => MaintenanceCommands.RetryEntryAsync(entry.InstanceId), "Re-queued", NameOf(entry.InstanceId)))" />
-                            <RadzenButton Text="Skip" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => Fire(() => MaintenanceCommands.SkipEntryAsync(entry.InstanceId), "Skipped", NameOf(entry.InstanceId)))" />
+                            <RadzenButton Text="Retry" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Primary" Click="@(() => Fire(() => MaintenanceCommands.RetryEntryAsync(entry.InstanceId), ActionVerb.Requeued, NameOf(entry.InstanceId)))" />
+                            <RadzenButton Text="Skip" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => Fire(() => MaintenanceCommands.SkipEntryAsync(entry.InstanceId), ActionVerb.Skipped, NameOf(entry.InstanceId)))" />
                         }
                         else
                         {
@@ -46,7 +46,7 @@
         <Actions>
             @if (_maintenance.Phase is MaintenancePhase.Stopping or MaintenancePhase.Updating)
             {
-                <RadzenButton Text="Resume update" Icon="replay" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" title="Re-runs the interrupted phase if SteamCMD failed and nothing is running." Click="@(() => Fire(() => MaintenanceCommands.ResumeMaintenanceAsync(), "Resumed", "the update"))" />
+                <RadzenButton Text="Resume update" Icon="replay" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" title="Re-runs the interrupted phase if SteamCMD failed and nothing is running." Click="@(() => Fire(() => MaintenanceCommands.ResumeMaintenanceAsync(), ActionVerb.Resumed, "the update"))" />
             }
         </Actions>
     </Notice>
@@ -130,13 +130,13 @@ else
                             }
                             else if (runtime.HasLiveProcess)
                             {
-                                <RadzenButton Icon="stop" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Danger" title="Stop" Click="@(() => Fire(() => Instances.StopAsync(instance.Id, false), "Stopped", instance.Name))" />
-                                <RadzenButton Icon="restart_alt" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Restart" Click="@(() => Fire(() => Instances.RestartAsync(instance.Id), "Restarted", instance.Name))" />
+                                <RadzenButton Icon="stop" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Danger" title="Stop" Click="@(() => Fire(() => Instances.StopAsync(instance.Id, false), ActionVerb.Stopped, instance.Name))" />
+                                <RadzenButton Icon="restart_alt" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Restart" Click="@(() => Fire(() => Instances.RestartAsync(instance.Id), ActionVerb.Restarted, instance.Name))" />
                                 <RadzenButton Icon="save" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Back up now" Disabled="@(runtime.State != InstanceState.Running)" Click="@(() => BackupNow(instance))" />
                             }
                             else
                             {
-                                <RadzenButton Icon="play_arrow" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Success" title="Start" Disabled="@(runtime.State == InstanceState.Unknown)" Click="@(() => Fire(() => Instances.StartAsync(instance.Id), "Started", instance.Name))" />
+                                <RadzenButton Icon="play_arrow" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Success" title="Start" Disabled="@(runtime.State == InstanceState.Unknown)" Click="@(() => Fire(() => Instances.StartAsync(instance.Id), ActionVerb.Started, instance.Name))" />
                             }
                             <RadzenButton Icon="terminal" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Open console" Click="@(() => Navigation.NavigateTo($"instances/{instance.Id}"))" />
                         </div>

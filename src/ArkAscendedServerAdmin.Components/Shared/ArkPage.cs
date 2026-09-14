@@ -38,7 +38,7 @@ public abstract class ArkPage : ComponentBase
     }
 
     /// <summary>Runs a long operation without holding up the page; the outcome is reported when it completes.</summary>
-    protected void Fire(Func<Task<OperationOutcome>> operation, string verb, string subject, Action? whenDone = null) =>
+    protected void Fire(Func<Task<OperationOutcome>> operation, ActionVerb verb, string subject, Action? whenDone = null) =>
         _ = InvokeAsync(async () =>
         {
             try
@@ -53,7 +53,7 @@ public abstract class ArkPage : ComponentBase
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                Notifications.Failed($"Could not {verb.ToLowerInvariant()} {subject}", ex.Message);
+                Notifications.Failed($"Could not {verb.Plain} {subject}", ex.Message);
             }
 
             whenDone?.Invoke();

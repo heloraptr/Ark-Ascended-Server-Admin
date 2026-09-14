@@ -7,6 +7,30 @@ using Radzen;
 namespace ArkAscendedServerAdmin.Components.Shared;
 
 /// <summary>
+/// The two forms a toast needs for one action: past tense for the success line ("Started Alpha") and
+/// the plain form for the failure ("Could not start Alpha"). The failure line used to lower-case the
+/// past tense, which read "Could not started Alpha"; English is too irregular to derive one from the
+/// other, so both are named here once and the call sites pick a member.
+/// </summary>
+/// <param name="Past">Past tense, used as <c>{Past} {subject}</c> when the operation succeeded.</param>
+/// <param name="Plain">Plain form, used as <c>Could not {Plain} {subject}</c> when it did not.</param>
+public sealed record ActionVerb(string Past, string Plain)
+{
+    public static ActionVerb Started { get; } = new("Started", "start");
+    public static ActionVerb Stopped { get; } = new("Stopped", "stop");
+    public static ActionVerb Restarted { get; } = new("Restarted", "restart");
+    public static ActionVerb Deleted { get; } = new("Deleted", "delete");
+    public static ActionVerb Saved { get; } = new("Saved", "save");
+    public static ActionVerb Removed { get; } = new("Removed", "remove");
+    public static ActionVerb Restored { get; } = new("Restored", "restore");
+    public static ActionVerb Resumed { get; } = new("Resumed", "resume");
+    public static ActionVerb Skipped { get; } = new("Skipped", "skip");
+    public static ActionVerb Requeued { get; } = new("Re-queued", "re-queue");
+    public static ActionVerb AddedTo { get; } = new("Added to", "add to");
+    public static ActionVerb SavedIdentityOf { get; } = new("Saved identity of", "save identity of");
+}
+
+/// <summary>
 /// Toast helpers over Radzen's <see cref="NotificationService"/> so every page reports the same way:
 /// the verb that was clicked, then what happened. A <see cref="NotAuthorizedException"/> from a facade
 /// sends the browser back to the login page (the layout tears the circuit down).
@@ -26,29 +50,31 @@ public static class Feedback
         Show(notifications, NotificationSeverity.Error, summary, detail, 12000);
 
     /// <summary>Reports an <see cref="OperationOutcome"/>: the verb on success, the reason on rejection.</summary>
-    public static void Report(this NotificationService notifications, OperationOutcome outcome, string verb, string subject)
+    public static void Report(this NotificationService notifications, OperationOutcome outcome, ActionVerb verb, string subject)
     {
         ArgumentNullException.ThrowIfNull(outcome);
+        ArgumentNullException.ThrowIfNull(verb);
         if (outcome.Succeeded)
         {
-            notifications.Done($"{verb} {subject}");
+            notifications.Done($"{verb.Past} {subject}");
         }
         else
         {
-            notifications.Failed($"Could not {verb.ToLowerInvariant()} {subject}", outcome.Error);
+            notifications.Failed($"Could not {verb.Plain} {subject}", outcome.Error);
         }
     }
 
-    public static void Report(this NotificationService notifications, CommandResult result, string verb, string subject)
+    public static void Report(this NotificationService notifications, CommandResult result, ActionVerb verb, string subject)
     {
         ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(verb);
         if (result.Succeeded)
         {
-            notifications.Done($"{verb} {subject}");
+            notifications.Done($"{verb.Past} {subject}");
         }
         else
         {
-            notifications.Failed($"Could not {verb.ToLowerInvariant()} {subject}", result.Error);
+            notifications.Failed($"Could not {verb.Plain} {subject}", result.Error);
         }
     }
 

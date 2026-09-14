@@ -100,7 +100,7 @@ else
         await GuardedAsync(async () =>
         {
             var result = await MapCommands.DeleteAsync(map.Id);
-            Notifications.Report(result, "Deleted", map.Name);
+            Notifications.Report(result, ActionVerb.Deleted, map.Name);
         });
         await LoadAsync();
     }
