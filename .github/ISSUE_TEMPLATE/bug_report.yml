@@ -1,0 +1,77 @@
+name: Bug report
+description: Something the app does wrong, or does not do.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Fill in what you can; the version, Windows version, and bind mode are
+        the three things that are hard to guess from the outside. Remove passwords, API keys, and
+        public IP addresses before pasting anything.
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Shown on the Settings page under the host values, and in the rail footer.
+      placeholder: "1.0.0+abc1234"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: "`winver`, or `(Get-CimInstance Win32_OperatingSystem).Caption` plus the build."
+      placeholder: "Windows 11 Pro 24H2 (26100), Windows Server 2022"
+    validations:
+      required: true
+  - type: dropdown
+    id: bind
+    attributes:
+      label: Bind mode
+      description: What you chose in `install.ps1`, or what `Kestrel:Endpoints` in `appsettings.Production.json` says.
+      options:
+        - Loopback (reverse proxy on the same box)
+        - LanHttps (self-signed certificate on the LAN)
+        - Proxy (reverse proxy on another machine, KnownProxies set)
+        - Running from source (dotnet run)
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      options:
+        - Self-contained zip (win-x64)
+        - Framework-dependent zip (win-x64-fdd)
+        - Built from source
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you saw. Which page, which button, which instance.
+    validations:
+      required: true
+  - type: textarea
+    id: eventlog
+    attributes:
+      label: Event-log excerpt
+      description: |
+        Windows event log, Application log, source `ArkAscendedServerAdmin.Server`, around the time it happened.
+        In an elevated PowerShell:
+        `Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='ArkAscendedServerAdmin.Server'} -MaxEvents 50 | Format-List TimeCreated, LevelDisplayName, Message`
+      render: text
+  - type: textarea
+    id: setup
+    attributes:
+      label: /setup console text
+      description: Only if the problem is with the game install or update. Copy the SteamCMD console from the `/setup` or `/update` page.
+      render: text
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: "`appsettings.Production.json` with `Password`, `PasswordHash`, and the certificate password removed. Include the instance's launch options if it is an instance problem."
+      render: json

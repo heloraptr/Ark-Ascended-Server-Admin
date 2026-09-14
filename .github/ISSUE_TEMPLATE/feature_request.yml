@@ -1,0 +1,43 @@
+name: Feature request
+description: Something you want the app to do.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read [What it does not do](https://github.com/heloraptr/Ark-Ascended-Server-Admin#what-it-does-not-do)
+        first. Those are decisions with reasons. A request that changes the reasoning is welcome; a
+        request that repeats one of them is closed with a link there.
+
+        Features land when I have the time and bandwidth. No schedule, no guarantees.
+  - type: checkboxes
+    id: read
+    attributes:
+      label: Checked
+      options:
+        - label: I read "What it does not do" and this is not on the list, or I am arguing against the reason given.
+          required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: What you want to do
+      description: The task, not the button. "Restart every server at 04:00" rather than "add a scheduler page".
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What you do today instead
+      description: How you get it done now (by hand, another tool, not at all) and what is wrong with that.
+    validations:
+      required: true
+  - type: textarea
+    id: shape
+    attributes:
+      label: How it could look
+      description: Optional. Where in the UI, what it would write on disk, what happens when it fails.
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Shown on the Settings page.

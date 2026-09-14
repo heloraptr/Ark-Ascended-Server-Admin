@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/heloraptr/Ark-Ascended-Server-Admin/security/advisories/new
+    about: Report privately. Do not open a public issue for a vulnerability.
+  - name: Before requesting a feature
+    url: https://github.com/heloraptr/Ark-Ascended-Server-Admin#what-it-does-not-do
+    about: Read the list of things the app deliberately does not do.
