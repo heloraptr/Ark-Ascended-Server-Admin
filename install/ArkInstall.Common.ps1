@@ -91,7 +91,7 @@ function Get-PathAncestors([string]$path) {
 
 # Folders the installer never touches, with every ancestor (so "C:\" and "C:\Users" are refused too).
 function Get-ForbiddenPaths {
-    $set = New-Object System.Collections.Generic.HashSet[string] ([System.StringComparer]::OrdinalIgnoreCase)
+    $set = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     $roots = New-Object System.Collections.Generic.List[string]
     foreach ($drive in [System.IO.DriveInfo]::GetDrives()) { $roots.Add($drive.Name) }
     foreach ($name in 'SystemRoot', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramData', 'Public', 'ProgramW6432') {
@@ -113,7 +113,8 @@ function Get-ForbiddenPaths {
         [void]$set.Add($canonical)
         foreach ($ancestor in Get-PathAncestors $canonical) { [void]$set.Add($ancestor) }
     }
-    return $set
+    # The comma keeps the set from being unrolled into an array on output.
+    return , $set
 }
 
 # Returns the first segment of $path (or an ancestor) that is a reparse point, or $null.
@@ -142,7 +143,7 @@ function Assert-ManagedPath([string]$path, [string]$label, [string]$zipDir) {
     }
     if (Test-PathIsRoot $path) { throw "$label '$path' is a volume root." }
     $forbidden = Get-ForbiddenPaths
-    if ($forbidden.Contains($path)) {
+    if ($forbidden.Contains($path) -or (@($forbidden) -contains $path)) {
         throw "$label '$path' is a Windows, Program Files, ProgramData, Public, or user-profile folder (or an ancestor of one)."
     }
     if ($zipDir) {
@@ -259,8 +260,33 @@ function Get-ServiceProcessId([string]$serviceName) {
 
 # ---- ACLs ---------------------------------------------------------------------------------------------
 
+# The ACL API without the Microsoft.PowerShell.Security module: .NET Framework has the static
+# Directory/File methods, .NET (pwsh 7) has FileSystemAclExtensions. Access section only, so the owner is
+# never touched.
+function Get-FileSystemSecurity([string]$path) {
+    $isDirectory = (Get-Item -LiteralPath $path -Force).PSIsContainer
+    $sections = [System.Security.AccessControl.AccessControlSections]::Access
+    if ($PSVersionTable.PSEdition -eq 'Core') {
+        if ($isDirectory) { return [System.IO.FileSystemAclExtensions]::GetAccessControl([System.IO.DirectoryInfo]$path, $sections) }
+        return [System.IO.FileSystemAclExtensions]::GetAccessControl([System.IO.FileInfo]$path, $sections)
+    }
+    if ($isDirectory) { return [System.IO.Directory]::GetAccessControl($path, $sections) }
+    return [System.IO.File]::GetAccessControl($path, $sections)
+}
+
+function Set-FileSystemSecurity([string]$path, $security) {
+    $isDirectory = (Get-Item -LiteralPath $path -Force).PSIsContainer
+    if ($PSVersionTable.PSEdition -eq 'Core') {
+        if ($isDirectory) { [System.IO.FileSystemAclExtensions]::SetAccessControl([System.IO.DirectoryInfo]$path, $security) }
+        else { [System.IO.FileSystemAclExtensions]::SetAccessControl([System.IO.FileInfo]$path, $security) }
+        return
+    }
+    if ($isDirectory) { [System.IO.Directory]::SetAccessControl($path, $security) }
+    else { [System.IO.File]::SetAccessControl($path, $security) }
+}
+
 function Get-AclRuleSet([string]$path) {
-    $acl = Get-Acl -LiteralPath $path
+    $acl = Get-FileSystemSecurity $path
     $rules = $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])
     $set = @()
     foreach ($rule in $rules) {
@@ -308,7 +334,7 @@ function Set-ProtectedAcl([string]$path, [bool]$usersRead) {
     $expected = New-ExpectedRuleSet $isDirectory $usersRead
     if (Test-RuleSetsEqual (Get-AclRuleSet $path) $expected) { return }
 
-    $acl = Get-Acl -LiteralPath $path
+    $acl = Get-FileSystemSecurity $path
     $acl.SetAccessRuleProtection($true, $false)
     foreach ($rule in @($acl.GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier]))) {
         [void]$acl.RemoveAccessRuleAll($rule)
@@ -323,7 +349,7 @@ function Set-ProtectedAcl([string]$path, [bool]$usersRead) {
         $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($sid, $rights, $inheritance, $propagation, $allow)
         $acl.AddAccessRule($rule)
     }
-    Set-Acl -LiteralPath $path -AclObject $acl
+    Set-FileSystemSecurity $path $acl
 
     $actual = Get-AclRuleSet $path
     if (-not (Test-RuleSetsEqual $actual $expected)) {
@@ -384,7 +410,7 @@ function Copy-ProtectedFile([string]$source, [string]$destination) {
 function Restore-ProtectedFileBackup([string]$path) {
     $bak = "$path.bak"
     if (-not (Test-Path -LiteralPath $bak)) { return $false }
-    if (Test-Path -LiteralPath $path) { [System.IO.File]::Replace($bak, $path, $null) }
+    if (Test-Path -LiteralPath $path) { [System.IO.File]::Replace($bak, $path, [NullString]::Value) }
     else { [System.IO.File]::Move($bak, $path) }
     Set-ProtectedAcl $path $false
     return $true
@@ -404,7 +430,7 @@ function Write-Journal([string]$dataRoot, $journal) {
     $path = Get-JournalPath $dataRoot
     $tmp = "$path.tmp"
     Write-Utf8File $tmp (ConvertTo-JsonText $journal)
-    if (Test-Path -LiteralPath $path) { [System.IO.File]::Replace($tmp, $path, $null) }
+    if (Test-Path -LiteralPath $path) { [System.IO.File]::Replace($tmp, $path, [NullString]::Value) }
     else { [System.IO.File]::Move($tmp, $path) }
 }
 

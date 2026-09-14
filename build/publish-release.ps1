@@ -115,6 +115,13 @@ function New-Zip([string]$sourceDir, [string]$zipPath) {
     }
 }
 
+function Get-Sha256Hex([string]$path) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $stream = [System.IO.File]::OpenRead($path)
+    try { $bytes = $sha.ComputeHash($stream) } finally { $stream.Dispose(); $sha.Dispose() }
+    return ([System.BitConverter]::ToString($bytes) -replace '-', '').ToLowerInvariant()
+}
+
 function New-Package([string]$name, [string[]]$publishArgs, [bool]$selfContained, [string]$version) {
     $staging = Join-Path $OutputDir "staging-$name"
     if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
@@ -200,7 +207,7 @@ try {
 
     Step 'SHA256SUMS'
     $sums = foreach ($zip in $zips) {
-        $hash = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+        $hash = Get-Sha256Hex $zip
         "$hash  $(Split-Path $zip -Leaf)"
     }
     $sumsPath = Join-Path $OutputDir 'SHA256SUMS'
