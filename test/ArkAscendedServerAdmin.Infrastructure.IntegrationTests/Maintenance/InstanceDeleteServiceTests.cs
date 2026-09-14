@@ -2,6 +2,7 @@ using ArkAscendedServerAdmin.Consoles;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Firewall;
 using ArkAscendedServerAdmin.Infrastructure.Maintenance;
+using ArkAscendedServerAdmin.Maintenance;
 using ArkAscendedServerAdmin.Processes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
@@ -21,7 +22,7 @@ public class InstanceDeleteServiceTests
         var ct = TestContext.Current.CancellationToken;
         var f = await Fixture.CreateAsync(root, ct);
 
-        var outcome = await f.Service.DeleteAsync(f.Instance.Id, keepWorldData: false, ct);
+        var outcome = await f.Service.DeleteAsync(f.Instance.Id, new InstanceDeleteOptions(KeepWorldData: false, DeleteBackups: true), ct);
         Assert.True(outcome.Succeeded, outcome.Error);
         await f.Service.Completion.WaitAsync(_timeout, ct);
 
@@ -49,7 +50,7 @@ public class InstanceDeleteServiceTests
         var ct = TestContext.Current.CancellationToken;
         var f = await Fixture.CreateAsync(root, ct);
 
-        Assert.True((await f.Service.DeleteAsync(f.Instance.Id, keepWorldData: true, ct)).Succeeded);
+        Assert.True((await f.Service.DeleteAsync(f.Instance.Id, new InstanceDeleteOptions(KeepWorldData: true, DeleteBackups: false), ct)).Succeeded);
         await f.Service.Completion.WaitAsync(_timeout, ct);
 
         var archives = Directory.GetDirectories(root.Layout.Archive);
@@ -62,6 +63,42 @@ public class InstanceDeleteServiceTests
         Assert.False(await db.Instances.AnyAsync(ct));
     }
 
+    /// <summary>The dialog's default: the world is archived and the backup archives go with the instance.</summary>
+    [Fact]
+    public async Task Delete_KeepingWorldDataAndDeletingBackups_ArchivesSavedAndRemovesTheZips()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        var f = await Fixture.CreateAsync(root, ct);
+
+        Assert.True((await f.Service.DeleteAsync(f.Instance.Id, new InstanceDeleteOptions(KeepWorldData: true, DeleteBackups: true), ct)).Succeeded);
+        await f.Service.Completion.WaitAsync(_timeout, ct);
+
+        var archive = Assert.Single(Directory.GetDirectories(root.Layout.Archive));
+        Assert.True(File.Exists(Path.Combine(archive, "alpha", "TheIsland_WP", "TheIsland_WP.ark")));
+        Assert.False(Directory.Exists(root.Layout.InstanceBackupDirectory("alpha")));
+    }
+
+    /// <summary>The two choices are independent: the world can go while the zips stay.</summary>
+    [Fact]
+    public async Task Delete_RemovingWorldDataButKeepingBackups_LeavesTheZipsOnDisk()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        var f = await Fixture.CreateAsync(root, ct);
+
+        Assert.True((await f.Service.DeleteAsync(f.Instance.Id, new InstanceDeleteOptions(KeepWorldData: false, DeleteBackups: false), ct)).Succeeded);
+        await f.Service.Completion.WaitAsync(_timeout, ct);
+
+        Assert.Empty(Directory.GetDirectories(root.Layout.Archive));
+        Assert.False(Directory.Exists(root.Layout.InstanceDirectory("alpha")));
+        Assert.True(File.Exists(Path.Combine(root.Layout.InstanceBackupDirectory("alpha"), "old.zip")));
+
+        // The history rows go with the instance even when the files stay.
+        await using var db = root.CreateDbContext();
+        Assert.False(await db.BackupRecords.AnyAsync(ct));
+    }
+
     [Fact]
     public async Task Delete_StopsALiveInstanceWithVerifiedExitFirst()
     {
@@ -70,7 +107,7 @@ public class InstanceDeleteServiceTests
         var f = await Fixture.CreateAsync(root, ct);
         f.Processes.Set(f.Instance.Id, InstanceState.Running);
 
-        Assert.True((await f.Service.DeleteAsync(f.Instance.Id, keepWorldData: false, ct)).Succeeded);
+        Assert.True((await f.Service.DeleteAsync(f.Instance.Id, new InstanceDeleteOptions(KeepWorldData: false, DeleteBackups: true), ct)).Succeeded);
         await f.Service.Completion.WaitAsync(_timeout, ct);
 
         var stop = Assert.Single(f.Processes.Stops);
@@ -88,7 +125,7 @@ public class InstanceDeleteServiceTests
         f.Processes.Set(f.Instance.Id, InstanceState.Running);
         f.Processes.StopOutcomes[f.Instance.Id] = OperationOutcome.Rejected("exit not verified");
 
-        var outcome = await f.Service.DeleteAsync(f.Instance.Id, keepWorldData: false, ct);
+        var outcome = await f.Service.DeleteAsync(f.Instance.Id, new InstanceDeleteOptions(KeepWorldData: false, DeleteBackups: true), ct);
         await f.Service.Completion.WaitAsync(_timeout, ct);
 
         Assert.False(outcome.Succeeded);
@@ -111,7 +148,7 @@ public class InstanceDeleteServiceTests
 
         using (f.Locks.TryAcquire(f.Instance.Id))
         {
-            var outcome = await f.Service.DeleteAsync(f.Instance.Id, keepWorldData: false, ct);
+            var outcome = await f.Service.DeleteAsync(f.Instance.Id, new InstanceDeleteOptions(KeepWorldData: false, DeleteBackups: true), ct);
 
             Assert.False(outcome.Succeeded);
             Assert.Contains("in progress", outcome.Error, StringComparison.Ordinal);
@@ -128,7 +165,7 @@ public class InstanceDeleteServiceTests
         var ct = TestContext.Current.CancellationToken;
         var f = await Fixture.CreateAsync(root, ct);
 
-        var outcome = await f.Service.DeleteAsync(999, keepWorldData: false, ct);
+        var outcome = await f.Service.DeleteAsync(999, new InstanceDeleteOptions(KeepWorldData: false, DeleteBackups: true), ct);
 
         Assert.False(outcome.Succeeded);
     }

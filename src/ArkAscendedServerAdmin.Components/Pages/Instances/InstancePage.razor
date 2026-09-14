@@ -516,17 +516,17 @@ else
     private async Task DeleteAsync()
     {
         var instance = _detail!.Instance;
-        var keep = await Dialogs.OpenAsync<DeleteInstanceDialog>(
+        var answer = await Dialogs.OpenAsync<DeleteInstanceDialog>(
             $"Delete {instance.Name}",
             new Dictionary<string, object?> { ["Name"] = instance.Name, ["Slug"] = instance.Slug, ["IsLive"] = _runtime.HasLiveProcess },
             new DialogOptions { Width = "520px" });
-        if (keep is not bool keepWorld)
+        if (answer is not InstanceDeleteOptions options)
         {
             return;
         }
 
         Notifications.Info($"Deleting {instance.Name}", _runtime.HasLiveProcess ? "Stopping the server first." : null);
-        Fire(() => Instances.DeleteAsync(Id, keepWorld), "Deleted", instance.Name, () => Navigation.NavigateTo(""));
+        Fire(() => Instances.DeleteAsync(Id, options), "Deleted", instance.Name, () => Navigation.NavigateTo(""));
     }
 
     private async Task SaveSettingsAsync()

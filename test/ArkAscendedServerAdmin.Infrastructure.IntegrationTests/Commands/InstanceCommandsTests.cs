@@ -3,6 +3,7 @@ using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Consoles;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Ini;
+using ArkAscendedServerAdmin.Maintenance;
 using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Provisioning;
 using ArkAscendedServerAdmin.Rcon;
@@ -47,7 +48,7 @@ public class InstanceCommandsTests
             await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.StopAsync(1, false, ct));
             await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.StartManyAsync([1], ct));
             await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.BackupNowAsync(1, ct));
-            await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.DeleteAsync(1, true, ct));
+            await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.DeleteAsync(1, new InstanceDeleteOptions(KeepWorldData: true, DeleteBackups: false), ct));
             await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.SendRconAsync(1, "saveworld", ct));
             await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.CreateAsync(Draft(mapId), ct));
             await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.PreviewLaunchAsync(1, ct));
@@ -516,12 +517,13 @@ public class InstanceCommandsTests
         using (host)
         {
             var created = await host.Instances.CreateAsync(Draft(mapId), ct);
-            host.DeleteService.DeleteAsync(created.Value, true, Arg.Any<CancellationToken>()).Returns(OperationOutcome.Success);
+            host.DeleteService.DeleteAsync(created.Value, Arg.Any<InstanceDeleteOptions>(), Arg.Any<CancellationToken>()).Returns(OperationOutcome.Success);
 
-            var outcome = await host.Instances.DeleteAsync(created.Value, keepWorldData: true, ct);
+            var options = new InstanceDeleteOptions(KeepWorldData: true, DeleteBackups: false);
+            var outcome = await host.Instances.DeleteAsync(created.Value, options, ct);
 
             Assert.True(outcome.Succeeded);
-            await host.DeleteService.Received(1).DeleteAsync(created.Value, true, Arg.Any<CancellationToken>());
+            await host.DeleteService.Received(1).DeleteAsync(created.Value, options, Arg.Any<CancellationToken>());
         }
     }
 

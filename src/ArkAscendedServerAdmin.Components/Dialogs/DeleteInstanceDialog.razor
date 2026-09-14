@@ -1,4 +1,4 @@
-@* Plan step 30: the keep/delete world-data choice and the typed name are collected here, before the job is enqueued. *@
+@* Plan step 30: the world-data choice, the backup choice, and the typed name are collected here, before the job is enqueued. *@
 @inject DialogService Dialogs
 
 <div style="display:flex;flex-direction:column;gap:14px">
@@ -20,11 +20,27 @@
             <span class="dot"></span>
             <span>
                 <strong>Delete the world data</strong>
-                <span>The Saved folder, including the world and player files, is removed. Backups under Backups\@Slug are not touched.</span>
+                <span>The Saved folder, including the world and player files, is removed.</span>
             </span>
         </button>
     </div>
-    @if (!_keep)
+    <div class="field">
+        <div class="check-row">
+            <RadzenCheckBox TValue="bool" @bind-Value="_deleteBackups" Name="del-backups" />
+            <label for="del-backups">Delete the backup archives too</label>
+        </div>
+        <span class="hint">
+            @if (_deleteBackups)
+            {
+                <text>Every zip under Backups\@Slug is removed with the instance.</text>
+            }
+            else
+            {
+                <text>The zips under Backups\@Slug are left on disk. Their entries in the backup history go with the instance either way, so restoring one afterwards means unzipping it by hand.</text>
+            }
+        </span>
+    </div>
+    @if (RequiresTypedName)
     {
         <div class="field">
             <label for="del-confirm">Type the instance name to confirm: <code>@Name</code></label>
@@ -33,12 +49,13 @@
     }
     <div class="form-actions" style="justify-content:flex-end;margin-top:4px">
         <RadzenButton Text="Cancel" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => Dialogs.Close(null))" />
-        <RadzenButton Text="@(_keep ? "Delete instance, keep world" : "Delete instance and world")" Icon="delete" ButtonStyle="ButtonStyle.Danger" Disabled="@(!_keep && !string.Equals(_typed?.Trim(), Name, StringComparison.Ordinal))" Click="@(() => Dialogs.Close(_keep))" />
+        <RadzenButton Text="@ConfirmText" Icon="delete" ButtonStyle="ButtonStyle.Danger" Disabled="@(RequiresTypedName && !string.Equals(_typed?.Trim(), Name, StringComparison.Ordinal))" Click="@(() => Dialogs.Close(new InstanceDeleteOptions(_keep, _deleteBackups)))" />
     </div>
 </div>
 
 @code {
     private bool _keep = true;
+    private bool _deleteBackups = true;
     private string? _typed;
 
     [Parameter]
@@ -49,4 +66,15 @@
 
     [Parameter]
     public bool IsLive { get; set; }
+
+    /// <summary>The typed name guards anything irreversible: removing the world, the backups, or both.</summary>
+    private bool RequiresTypedName => !_keep || _deleteBackups;
+
+    private string ConfirmText => (_keep, _deleteBackups) switch
+    {
+        (true, false) => "Delete instance, keep world and backups",
+        (true, true) => "Delete instance and backups, keep world",
+        (false, false) => "Delete instance and world, keep backups",
+        (false, true) => "Delete instance, world, and backups",
+    };
 }

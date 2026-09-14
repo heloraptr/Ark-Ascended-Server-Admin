@@ -187,10 +187,10 @@ public sealed class InstanceCommands(
         }
     }
 
-    public async Task<OperationOutcome> DeleteAsync(int instanceId, bool keepWorldData, CancellationToken cancellationToken = default)
+    public async Task<OperationOutcome> DeleteAsync(int instanceId, InstanceDeleteOptions options, CancellationToken cancellationToken = default)
     {
         await guard.EnsureAuthorizedAsync(cancellationToken);
-        return await deleteService.DeleteAsync(instanceId, keepWorldData, cancellationToken);
+        return await deleteService.DeleteAsync(instanceId, options, cancellationToken);
     }
 
     // ---- console -------------------------------------------------------------------------------------
