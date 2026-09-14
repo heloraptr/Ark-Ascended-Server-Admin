@@ -33,6 +33,37 @@ Built for one owner running a handful of servers, clustered or standalone, on on
   game log as they join and leave, with an on-demand `ListPlayers` per instance), custom **maps**, and a
   **config export** of the database.
 
+## What it does not do
+
+These are deliberate decisions, not gaps waiting for time. If you are about to open an issue for one of
+them (or something close), read the reason first; a request that changes the reasoning is welcome, a
+request that repeats the feature will be closed with a link here.
+
+- **Translations.** The UI is English only. Every string sits inline in the pages, and a wrong
+  translation of a destructive button is worse than English. Reconsidered only if a contributor offers
+  and maintains a complete translation.
+- **A Discord bot.** One-way notifications to a Discord channel are planned; two-way control from
+  Discord is not. The web UI already works from a phone, and a bot needs its own authentication story
+  for a single-password app.
+- **Updating itself from inside the app.** The service cannot safely replace its own binaries while
+  running. The installer script owns upgrades, with a journal and rollback; the app will only tell you
+  that a newer release exists.
+- **UPnP.** Many routers disable it, leases expire or vanish on a router reboot, and it would need a
+  re-announce loop and honest failure reporting. The Connection card tells you exactly which UDP port
+  to forward; Tailscale or ZeroTier are documented alternatives.
+- **AsaApi plugin management.** Every instance shares one `ShooterGame\Binaries` folder through a
+  junction, so a hand-installed loader lands on every server at once. That layout is untested with
+  AsaApi and the app does not install, list, or launch through it.
+- **Managing servers on other machines.** One box, one service, one install. A remote-agent design
+  would change nearly every layer.
+- **Tribe and player data tools.** Character snapshots, single-player restore, and reading
+  `.arkprofile` or `.arktribe` files are out of scope.
+- **Map rotation.** Event-server behavior, not something a home cluster needs.
+- **SFTP or S3 backup targets.** A planned "copy verified backups to this folder" setting works with
+  any mounted drive, NAS share, or sync client; the app will not carry cloud SDKs or credentials.
+- **Looking up your public IP or probing reachability.** Both need an outside service. You type your
+  public address once; the app prints the `open` command.
+
 ## Documentation
 
 - [What happens when you create an instance](docs/instance-creation.md): every step behind the
