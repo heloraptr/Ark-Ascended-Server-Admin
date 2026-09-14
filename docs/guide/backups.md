@@ -167,6 +167,7 @@ which is why the installer restricts them to `SYSTEM` and administrators.
 | Settings tab | "Backup interval must be between 1 and 10080 minutes, or left blank to use the default." | Fix the field or clear it. |
 | Settings tab | "Backups to keep must be between 1 and 1000, or left blank to use the default." | Same. |
 
-Deleting an instance with **Delete the world data** also removes `Backups\<slug>\`; deleting with
-**Keep the world data** leaves the folder in place (the records go with the instance row either
-way). See [instances.md](instances.md).
+Deleting an instance asks whether to delete its backup archives, with the box ticked. Leave it
+ticked and `Backups\<slug>\` goes with the instance; clear it and the zips stay on disk. The records
+go with the instance row either way, so a kept zip is restored by hand. See
+[instances.md](instances.md).
