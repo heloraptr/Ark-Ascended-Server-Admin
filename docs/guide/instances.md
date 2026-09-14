@@ -1,23 +1,16 @@
 # Instances
 
-The Instances page at `/` is the dashboard: every server the box runs, grouped by cluster, with its
-lamp, ports, last backup, and the start, stop, restart, and backup buttons. Each row opens the instance
-page with its console and tabs. This page covers the dashboard, what a start and a stop actually do,
-how a restarted service finds servers that kept running, the instance page, and deleting an instance.
-Creating one is the wizard, described step by step in
-[instance-creation.md](../instance-creation.md).
-
-## What it does
-
 An instance is one `ArkAscendedServer.exe` process and the definition behind it: name, slug, map,
 session name, game and RCON port, player cap, whitelist, mods, launch options, and either a cluster
-or its own INI files. The dashboard shows live state for all of them; the instance page is where one
-of them is configured and watched. Start, stop, restart, back up, and delete are the lifecycle
-operations, and every one of them completes with a toast that says what happened or why it was refused.
+or its own INI files.
 
-## How to use it
+The Instances page at `/` is the dashboard: every server the box runs, grouped by cluster, with its
+state, ports, last backup, and the start, stop, restart, and backup buttons. Each row opens the
+instance page, where one server is configured and watched. Start, stop, restart, back up, and delete
+all finish with a toast that says what happened or why it was refused. Creating an instance is the
+wizard, described step by step in [instance-creation.md](../instance-creation.md).
 
-### The Instances page
+## The dashboard
 
 The lead line reads `Every server this box runs, grouped by cluster.` or, once you have some,
 `2 instances running of 3.` **New instance** opens the wizard. With no instances the page shows
@@ -30,10 +23,10 @@ final **Standalone** section for instances without a cluster. Each row shows:
 | Column | Content |
 |---|---|
 | Checkbox | Adds the row to the selection. A bar appears above the groups: `2 instances selected`, **Start selected**, **Stop selected**, **Clear**. |
-| Lamp and name | The state lamp, the instance name (a link to its page), the session name under it. |
+| Name | The small triangle for the state, the instance name (a link to its page), the session name under it. |
 | Map | The map name and `3 mods` or `vanilla`. |
 | Ports | `7777 game`, `27020 rcon`. |
-| State and backup | The state label ([README](README.md#the-state-lamp-and-instance-states)) and the last backup: `Backed up 12 min ago`, `Skipped 1 h ago`, `Failed`, or `no backup yet`. Hovering the backup shows its reason. |
+| State and backup | The state label ([README](README.md#instance-states)) and the last backup: `Backed up 12 min ago`, `Skipped 1 h ago`, `Failed`, or `no backup yet`. Hovering the backup shows its reason. |
 | Actions | While a process is live: **Stop**, **Restart**, **Back up now** (enabled only when **Running**). While stopping: **Stop now** (skips the countdown). Otherwise **Start** (disabled when the state is **Unknown**). Always: **Open console**. |
 
 **Start all**, **Stop all**, **Start selected**, and **Stop selected** submit every eligible row at
@@ -44,11 +37,11 @@ A notice above the groups appears only during a game update or its recovery
 ([game-updates.md](game-updates.md)): the phase, one line per instance (`waiting`, `done`, or an
 error with **Retry** and **Skip**), and **Resume update** while the phase is stopping or updating.
 
-### Start
+## Start
 
 **Start** on a row or on the instance page, **Start all**, **Start selected**, and the wizard's
 **Start the server right away** all run the same sequence. The toast `Started <name>` arrives when
-the process is up and its identity is saved; refusals arrive as `Could not started <name>` with the
+the process is up and its identity is saved; refusals arrive as `Could not start <name>` with the
 reason. The console shows the details as they happen.
 
 1. Refused unless the service is Ready, no update holds the maintenance gate, no other operation
@@ -75,7 +68,12 @@ reason. The console shows the details as they happen.
 
 The state is **Starting** until the first RCON probe answers, then **Running**.
 
-### Stop
+Step 6 is the one that earns its keep. The game does not report a failed bind: it starts, answers
+RCON, and is never reachable from outside. Refusing the start is the only honest place to catch that.
+The queue in step 2 exists because several servers loading at once fight over the disk and RAM, and
+the stagger delay is the one knob you get.
+
+## Stop
 
 **Stop** on a row or the instance page, **Stop all**, **Stop selected**, the first half of
 **Restart**, delete, and a game update all run the same stop job. It holds the instance's lock for
@@ -104,18 +102,29 @@ manager has no RCON credentials for (re-attached without a generated `GameUserSe
 `doexit` outright: `No RCON credentials for this process; skipping doexit and waiting for the graceful
 timeout before killing.`
 
-### Restart
+RCON is the only stop path the game offers. It saves and exits cleanly on `doexit` and has no other
+remote signal, and killing the process loses whatever was not saved. That is why the manager verifies
+the exit rather than trusting the command, why a start is refused without an admin password, and why
+`doexit`'s exit code -1 is never treated as a crash. The design note asked for `saveworld` before
+`doexit`; the code sends only `doexit`, after observing that the game saves twice on its own on the
+way out.
+
+## Restart
 
 **Restart** is the stop job followed by a start. If the stop is refused or its exit cannot be
 verified, the start is not attempted and the toast carries the stop's reason.
 
-### Re-attach after a service restart
+## Finding servers again after a service restart
 
-Game processes are not killed when the service stops. On the next start, during the
-`Reconciling instance processes` step, the service lists every running `ArkAscendedServer.exe`
+Game processes are not killed when the service stops. That is on purpose: the servers stay up through
+app upgrades and service restarts, and players do not notice. The price is that the service has to
+find them again on its next start.
+
+During the `Reconciling instance processes` step it lists every running `ArkAscendedServer.exe`
 through WMI and, for each instance, looks for one whose executable lies under `DataRoot\Instances`
 and whose command line carries exactly `AltSaveDirectoryName=<slug>`. The saved PID plus start time
-wins when it matches; otherwise the slug token alone decides.
+wins when it matches; otherwise the slug token alone decides. Matching on that token rather than the
+process name is the only option, since every instance is the same executable.
 
 - Exactly one match: the instance is **Starting** again with the console line
   `re-attached — log history (pid <n>, started 2026-09-14 08:12:03)`, the last *Console history on
@@ -124,12 +133,13 @@ wins when it matches; otherwise the slug token alone decides.
   the RCON password and port are read from the ones the process started with.
 - No match: **Stopped**.
 - More than one match: **Unknown**, with `2 running processes claim this instance (pids 4120,
-  5316); stop the extra ones by hand and restart the service.` **Start** is disabled.
+  5316); stop the extra ones by hand and restart the service.` **Start** is disabled. The manager
+  will not guess which process belongs to the slug.
 
 An **Unreachable** re-attach (`Cannot probe RCON: ... Check ServerAdminPassword / RCONPort; the
 process is still watched for exit.`) is still stoppable; the stop skips `doexit` as described above.
 
-### The instance page
+## The instance page
 
 The header shows the name, the crumb (`Instances / <cluster>`), the state, map, ports, and slug, and
 the buttons **Start** / **Stop**, **Restart**, **Back up now**, **Stop now**, and the delete icon. Under
@@ -147,7 +157,7 @@ preview finds a problem while the instance is stopped.
 | **Settings** | **Instance name**, **Session name**, **Max players**, **Game port**, **RCON port**, **Backup interval, minutes**, **Backups to keep**, **Admin whitelist**; **Save settings**, **Reset**. While the process is live: `Port and player changes apply at the next start.` The slug and the map cannot change. |
 | **Backups** | The backup list with outcome, archive name, size, and trigger. [backups.md](backups.md). |
 
-### Deleting an instance
+## Deleting an instance
 
 The delete icon in the header opens `Delete <name>`. If the server is running the dialog says so:
 `The server is running. It will be saved and stopped first; the delete waits for the process to exit.`
@@ -179,7 +189,7 @@ with each half naming what you chose, and you land on the Instances page.
 The backup history in the database always goes with the instance row. Keeping the zips keeps the
 files, not the list of them.
 
-## What happens underneath
+## What each operation touches
 
 | Operation | Database | Disk | RCON | Console |
 |---|---|---|---|---|
@@ -189,34 +199,16 @@ files, not the list of them.
 | Delete | Rows removed in one transaction. | Firewall rules, junctions, `Saved` archived or deleted, `Backups\<slug>` when the checkbox is ticked. | The stop's commands. | `Delete:` lines. |
 
 The runtime state you see (**Starting**, **Running**, ...) lives in memory in the process manager and
-is mirrored into the instance row best-effort; the rail's `N instances up` and every lamp update from
-the same events without a page reload. A crash (an exit without a stop from the manager) prints
-`Server exited unexpectedly (code <n>).` and the state returns to **Stopped**; nothing restarts it.
+is mirrored into the instance row best-effort; the sidebar's `N instances up` and every state
+indicator update from the same events, without a page reload. A crash (an exit without a stop from the
+manager) prints `Server exited unexpectedly (code <n>).` and the state returns to **Stopped**; nothing
+restarts it.
 
-## Why it works this way
-
-RCON is the only stop path because the game saves and exits cleanly on `doexit` and has no other
-remote signal; killing the process loses whatever was not saved. That is why the manager verifies the
-exit rather than trusting the command, why a start is refused without an admin password, and why
-`doexit`'s exit code -1 is never treated as a crash. The design note asked for `saveworld` before
-`doexit`; the code sends only `doexit` after observing that the game saves twice on its own on the way
-out.
-
-Servers are detached children on purpose: the box stays up through app upgrades and service
-restarts, and players do not notice. That forces the re-attach step, which matches by the exact
-`AltSaveDirectoryName` token rather than the process name because every instance is the same
-executable, and refuses to guess when two processes claim one slug.
-
-The port check is load-bearing: the game does not report a failed bind. It runs, answers RCON, and is
-simply never reachable. Refusing the start is the only honest place to catch that. The launch queue
-exists because several servers loading at once fight over the disk and RAM; the stagger delay is the
-one knob.
-
-## When it refuses or fails
+## Refusals and failures
 
 | Message | Meaning and what to do |
 |---|---|
-| `The service is not ready yet (<phase>: <message>).` | The readiness pipeline has not reached Ready; watch `/setup`. |
+| `The service is not ready yet (<phase>: <message>).` | Startup has not reached Ready; watch `/setup`. |
 | `update in progress` | A game update or install holds the maintenance gate, or the launch was queued when one began. Try after it finishes. |
 | `operation in progress` | A stop, backup, delete, or another start of this instance is running. |
 | `The instance is already running.` (or `starting`, `stopping`, ...) | There is already a live process. |

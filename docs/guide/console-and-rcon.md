@@ -2,22 +2,17 @@
 
 Every instance page opens on its **Console** tab: a live tail of the server's `ShooterGame.log` with
 the manager's own notes mixed in, and an RCON input under it for sending commands to the running
-server. This page covers what the panel shows, the startup markers the manager reads from the log, the
-RCON input, the few commands worth knowing, and why RCON never leaves the box.
+server.
 
-## What it does
-
-The console is not the game's stdout. The server is started without a console window and without
-output capture; the panel follows the file `Instances\<slug>\ShooterGame\Saved\Logs\ShooterGame.log`
-about 200 ms behind the game and shows each line as it appears. Manager lines (`Launched pid ...`,
-`RCON: doexit`, `Config: ...`) are interleaved with a different tone. The input at the bottom sends
-one RCON command per press of Enter and echoes the reply into the same panel.
+The panel follows the file `Instances\<slug>\ShooterGame\Saved\Logs\ShooterGame.log` about 200 ms
+behind the game and shows each line as it appears. The server itself is started without a console
+window and without output capture, so the log file is the only source. Manager lines (`Launched pid
+...`, `RCON: doexit`, `Config: ...`) are interleaved with a different tone. The input at the bottom
+sends one RCON command per press of Enter and echoes the reply into the same panel.
 
 The Setup page uses the same panel for SteamCMD's output, without an input.
 
-## How to use it
-
-### The panel
+## The panel
 
 The bar shows the title (`<instance name> · ShooterGame.log`), tags, and three controls:
 
@@ -35,7 +30,7 @@ Lines that start with `[` are the game's own, already stamped by the game; every
 manager's clock in front of it. Empty panel: `No output yet. Start the instance and the log appears
 here within a second of the game writing it.`
 
-### The startup markers
+## The startup markers
 
 Three log lines drive the hint under the **Starting** state and the state's progress:
 
@@ -46,18 +41,25 @@ Three log lines drive the hint under the **Starting** state and the state's prog
 | `Log file closed` | Clean shutdown | (the process exits shortly after) |
 
 Before the first marker the hint is `Loading the world.` The line `Server: "..." has successfully
-started!`, which the game prints a few seconds in, means nothing yet: the world is not loaded. Markers
-only advance the **Starting** phase; **Running** is decided by the RCON probe, which succeeds soon
-after the advertising line.
+started!`, which the game prints a few seconds in, means nothing yet: the world is not loaded, and
+the manager ignores it. Markers only advance the **Starting** phase; **Running** is decided by the
+RCON probe, which succeeds soon after the advertising line.
 
-### The RCON input
+Each live line is also classified for the player tracker, which reads join and leave lines from the
+same tail ([players-and-whitelists.md](players-and-whitelists.md)).
+
+## Sending a command
 
 The input is enabled only while the instance has a live process (`Start the instance to send
 commands` otherwise). Type a command, press Enter or **Send**. The command is echoed as `> ListPlayers`,
 the reply follows line by line, or `(no reply)`. Arrow up and down walk the history of this tab.
 
 The placeholder names the commands you will use most: `ListPlayers, SaveWorld, Broadcast <message>
-…`. Anything the game's RCON accepts goes through unchanged. The ones the manager uses itself:
+…`. Anything the game's RCON accepts goes through unchanged.
+
+A failure is appended to the console as `RCON Connect: ...` and shown as a toast.
+
+### The commands the manager sends itself
 
 | Command | What it does | Reply |
 |---|---|---|
@@ -66,52 +68,50 @@ The placeholder names the commands you will use most: `ListPlayers, SaveWorld, B
 | `broadcast <message>` | A message to every player; the stop countdown uses it. | (none) |
 | `doexit` | Saves and exits the server. **Stop** sends it; typing it yourself skips the countdown and the manager still notices the exit. | `Exiting...` |
 
-Each command opens a new connection to `127.0.0.1:<RCON port>`, authenticates with the
-`ServerAdminPassword` from the generated `GameUserSettings.ini`, sends, reads, and closes. The whole
-exchange is bounded by *RCON command timeout, seconds* (Settings, 10 by default); the hint there
-warns that `Commands take 2 to 7 seconds while a server is still starting.`
-
-## What happens underneath
-
-**The tail.** Every 100 ms the manager opens the log with shared read, write, and delete access,
-reads whatever appeared after its last offset, and splits it into lines. It detects rotation (the
-game renames the previous log about a second into a new launch) by the NTFS file id or a shrinking
-length, and restarts at offset 0 of the new file. On a fresh launch it starts at the end of any old
-log so the previous session is not replayed; on re-attach it reads the last *Console history on
-re-attach, lines* (Settings, 200 by default) as history, then follows. `LogSentrySdk:` lines and
-their continuation lines are dropped before they reach the panel.
-
-**Markers and players.** Each live line is classified for the three markers above, and the player
-tracker reads join and leave lines from the same tail ([players-and-whitelists.md](players-and-whitelists.md)).
-
-**The probe.** Every 15 s while a process is alive, `ListPlayers` over RCON. The first success moves
-**Starting** to **Running** and stamps the time; ten minutes without one becomes **Starting,
-unconfirmed** (launched here) or **Unreachable** (re-attached). Probe failures are not shown in the
-console.
-
-**Your commands.** The input calls the same client with the same credentials and timeout. The
-command and the reply are appended to the console; a failure is appended as `RCON Connect: ...` and
-shown as a toast.
-
-**Stop.** The stop job's commands appear as `RCON: broadcast Server shutting down in 1 minute.`,
+A stop shows its own commands in the panel as `RCON: broadcast Server shutting down in 1 minute.`,
 `RCON: broadcast Server shutting down now.`, `RCON: doexit`, each with its reply, then
 `Server exited (code -1).` from the liveness poll ([instances.md](instances.md#stop)).
 
-## Why it works this way
+### One connection per command
 
-The Phase 2 spike tried stdout capture (`-stdout -FullStdOutLogOutput`) and settled on the log tail:
-the file is what the game writes anyway, it survives a service restart (a re-attached instance gets
+Each command opens a new connection to `127.0.0.1:<RCON port>`, authenticates with the
+`ServerAdminPassword` from the generated `GameUserSettings.ini`, sends, reads, and closes. The whole
+exchange is bounded by **RCON command timeout, seconds** (Settings, 10 by default); the hint there
+warns that `Commands take 2 to 7 seconds while a server is still starting.`
+
+A fresh connection each time is the point: the server is slow to authenticate (5 to 7 s) until it is
+advertising, and holding a socket open across that gains nothing while making a failure harder to
+attribute.
+
+### The liveness probe
+
+Every 15 s while a process is alive, the manager sends `ListPlayers` over RCON. The first success
+moves **Starting** to **Running** and stamps the time; ten minutes without one becomes **Starting,
+unconfirmed** (launched here) or **Unreachable** (re-attached). Probe failures are not shown in the
+console.
+
+## How the tail keeps up
+
+Every 100 ms the manager opens the log with shared read, write, and delete access, reads whatever
+appeared after its last offset, and splits it into lines. It detects rotation (the game renames the
+previous log about a second into a new launch) by the NTFS file id or a shrinking length, and
+restarts at offset 0 of the new file. On a fresh launch it starts at the end of any old log so the
+previous session is not replayed; on re-attach it reads the last **Console history on re-attach,
+lines** (Settings, 200 by default) as history, then follows. `LogSentrySdk:` lines and their
+continuation lines are dropped before they reach the panel.
+
+The Phase 2 spike tried stdout capture (`-stdout -FullStdOutLogOutput`) and settled on the tail: the
+file is what the game writes anyway, it survives a service restart (a re-attached instance gets
 history, a captured pipe would be gone), and the measured latency was around 200 ms. The startup
-markers came from the same spike, which is why `has successfully started!` is deliberately ignored.
+markers came from the same spike.
 
-RCON is loopback-only because the admin password crosses that connection in plain text and RCON
-gives full control of the server. The client always connects to `127.0.0.1`, no firewall rule is
-written for the RCON port, and the web UI (which sits behind HTTPS and the login) is the way to reach
-it remotely. One fresh connection per command is deliberate too: the server is slow to authenticate
-(5 to 7 s) until it is advertising, and holding a socket open across that gains nothing while making
-failure harder to attribute.
+## Why RCON never leaves the box
 
-## When it refuses or fails
+The admin password crosses an RCON connection in plain text, and RCON gives full control of the
+server. So the client always connects to `127.0.0.1`, no firewall rule is written for the RCON port,
+and the web UI (which sits behind HTTPS and the login) is the way to reach it remotely.
+
+## When a command does not go through
 
 | Where | Message | Meaning and what to do |
 |---|---|---|

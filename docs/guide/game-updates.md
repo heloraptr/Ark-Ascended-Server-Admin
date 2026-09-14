@@ -7,22 +7,18 @@ that were running are started again through the launch queue. Every step of the 
 the database before it runs, so an update interrupted by a service restart picks up where it
 stopped, and a relaunch that fails waits for you to **Retry** or **Skip** it.
 
-## What it does
+In one run the manager compares the installed build with Steam's and downloads only what changed
+(`app_update 2430930`), optionally verifies every game file (`validate`), stops every live instance
+first with the countdown broadcast, a save, and a graceful exit that is verified before SteamCMD
+runs, refuses to go near SteamCMD while any
+`ArkAscendedServer.exe` under `DataRoot` is still alive (even one it does not know about), retries
+SteamCMD with backoff when Steam throttles anonymous downloads, and relaunches the stopped instances
+one at a time through the stagger queue.
 
-- Compares the installed build with Steam's and downloads only what changed (`app_update 2430930`).
-- Optionally verifies every game file (`validate`), once per run or always.
-- Stops every live instance first, with the countdown broadcast, a save, and a graceful exit that
-  is verified before SteamCMD runs.
-- Refuses to run SteamCMD while any `ArkAscendedServer.exe` under `DataRoot` is still alive, even
-  one the manager does not know about.
-- Retries SteamCMD with backoff when Steam throttles anonymous downloads.
-- Relaunches the stopped instances one at a time through the stagger queue and records each one.
-- Persists the phase and the per-instance progress so a service restart resumes the flow.
+## The page
 
-## How to use it
-
-Open **Update game** from the rail footer (the button is disabled until the service is **Ready**)
-or go to `/update`. The panel shows:
+Open **Update game** from the bottom of the sidebar (the button is disabled until the service is
+**Ready**) or go to `/update`. The panel shows:
 
 | Row | What it shows |
 |---|---|
@@ -34,17 +30,18 @@ Under those: a progress bar while SteamCMD downloads (state, bytes done of total
 instances the run is acting on (`waiting`, `done`, or the error with **Retry** and **Skip**), and
 the SteamCMD console.
 
-To run an update:
+## Running an update
 
 1. Tick **Verify game files** if you want `validate` for this run. When **SteamCMD validate** is on
    in Settings the box is checked and disabled with "Always on: the SteamCMD validate setting is
-   enabled on the Settings page."
+   enabled on the Settings page." Verifying is slow, which is why it is a toggle rather than the
+   default; reach for it when the install looks broken.
 2. Press **Check for updates** when nothing is running, or **Stop *N* instances and update** when
    something is. The second one asks for confirmation: "*N* instances are running. Each gets the
    broadcast countdown, a world save, and a graceful stop before SteamCMD runs, then starts again."
    Confirm with **Stop and update**.
-3. Watch the console. The rail footer shows the phase on every page, and when the flow ends a
-   toast says "Game updated" or "Game is up to date" with the summary, or "Update stopped" with the
+3. Watch the console. The bottom of the sidebar shows the phase on every page, and when the flow ends
+   a toast says "Game updated" or "Game is up to date" with the summary, or "Update stopped" with the
    reason.
 
 While a phase is **Stopping instances for update** or **Updating the game**, both the Update page
@@ -52,13 +49,15 @@ and the Instances page offer **Resume update**, which re-runs the interrupted ph
 background (its tooltip: "Re-runs the interrupted phase if SteamCMD failed and nothing is
 running.").
 
-## What happens underneath
+## The phases
 
 The flow is a state machine whose every decision is persisted to the single `MaintenanceStates`
 row (phase, the list of instance entries with `done` and `error`, start time) before the action it
 decided on is executed.
 
-**Begin.** The request is refused if an update or recovery already holds the operation lock, if the
+### Begin
+
+The request is refused if an update or recovery already holds the operation lock, if the
 persisted phase is not `None`, if any instance is in the **Unknown** state (reconciliation found
 more than one process), if any instance is in **Identity not saved**, or if instances are running
 and you did not confirm. Then the maintenance gate is taken exclusively: the launch queue drains,
@@ -67,7 +66,9 @@ in-flight launches finish, and from here until the install is verified no start 
 **Stopping**, the SteamCMD console is cleared, and the console reads "Update started; stopping *N*
 instance(s)."
 
-**Stopping.** Every entry is stopped with `RequireVerifiedExit`: the pre-stop broadcast countdown
+### Stopping
+
+Every entry is stopped with `RequireVerifiedExit`: the pre-stop broadcast countdown
 (unless set to zero), `doexit` over RCON, a wait of **Graceful stop timeout** seconds, then a kill
 if needed, and the exit must be observed. An instance that is already dead is marked done. If any
 stop cannot be verified the update ends with "Could not stop every instance with a verified exit
@@ -76,7 +77,9 @@ Once every entry is done, the manager enumerates processes and refuses if any
 `ArkAscendedServer.exe` still runs from under `DataRoot`: "ArkAscendedServer.exe is still running
 under the data root (*path* (PID *n*)); stop it before updating."
 
-**Updating.** The console reads "Running SteamCMD app_update 2430930 [validate]; installed build
+### Updating
+
+The console reads "Running SteamCMD app_update 2430930 [validate]; installed build
 *X*." SteamCMD is downloaded and extracted to `DataRoot\SteamCMD` if `steamcmd.exe` is missing,
 then run with
 
@@ -84,17 +87,24 @@ then run with
 steamcmd.exe +force_install_dir <DataRoot>\Server +login anonymous +app_update 2430930 [validate] +quit
 ```
 
+Anonymous login is the default because the dedicated server depot needs no account.
+
 Exit code 7 (SteamCMD updated itself) re-runs immediately, up to three times in a row. Any other
 non-zero exit, or exit 0 without a verified manifest, costs one of five attempts with waits of
 30 s, 60 s, 120 s, and 240 s between them ("Attempt *N* failed (...); retrying in *X* (attempt *N+1*
-of 5)."). The install counts as verified only when `appmanifest_2430930.acf` reports `StateFlags 4`;
+of 5)."). Steam throttles anonymous downloads in practice, and without the backoff a single failed
+attempt meant a manual retry.
+
+The install counts as verified only when `appmanifest_2430930.acf` reports `StateFlags 4`;
 a folder that exists is never taken as proof. On success the console prints the summary, the
-**Last run** row and the rail footer update, and the phase becomes **Restarting**. On failure the
+**Last run** row and the sidebar update, and the phase becomes **Restarting**. On failure the
 phase stays **Updating** with the detail "SteamCMD did not produce a verified install: ..." so
 that **Resume update** (or the next service start) runs SteamCMD again; nothing is launched against
 an unverified install.
 
-**Restarting.** The gate is released. Entries are launched one at a time through the normal start
+### Restarting
+
+The gate is released. Entries are launched one at a time through the normal start
 path (recovery launches are allowed before the service is fully **Ready**), which means the stagger
 delay from Settings applies between them. Each entry is persisted `done` as soon as its process is
 started and its identity saved, so a restart in the middle relaunches only what has not launched.
@@ -105,29 +115,26 @@ that entry again; **Skip** marks it done without launching. When every entry is 
 returns to `None` and the console reads "Update complete; every instance has been relaunched or
 resolved."
 
-**After a service restart.** The readiness pipeline's "Resuming interrupted maintenance" step reads
-the row. A **Stopping** or **Updating** phase re-takes the gate and runs to the end of SteamCMD
-before the service reports **Ready**; a **Restarting** phase hands the pending relaunches to a
-background task so readiness does not wait for them. The console reads "Resuming interrupted
-update from the *Phase* phase." A `steamcmd.exe` left running from the previous service instance
-is waited for and then killed, so two SteamCMDs never write the same install.
+## Picking up after a service restart
 
-## Why it works this way
+The "Resuming interrupted maintenance" step during startup reads the row. A **Stopping** or
+**Updating** phase re-takes the gate and runs to the end of SteamCMD before the service reports
+**Ready**; a **Restarting** phase hands the pending relaunches to a background task so readiness
+does not wait for them. The console reads "Resuming interrupted update from the *Phase* phase." A
+`steamcmd.exe` left running from the previous service instance is waited for and then killed, so two
+SteamCMDs never write the same install.
+
+## Why every transition is written down first
 
 DESIGN.md fixed the update flow as: broadcast countdown, graceful stop of running instances,
 SteamCMD, staggered restart of the ones that were running, and blocked while instances run unless
-confirmed. Anonymous login is the default because the dedicated server depot needs no account; the
-automatic retry with backoff exists because anonymous downloads are throttled in practice and a
-single failed attempt used to mean a manual retry. `validate` is a toggle because it is slow and
-only useful when the install looks broken.
+confirmed. Persisting every transition, and verifying the manifest rather than trusting an exit
+code, come from the single-install layout: every instance shares `DataRoot\Server` through
+junctions, so a half-written update or a launch against it would break all of them at once. The
+verified stop and the foreign-process check are the same rule from the other side: nothing may hold
+the binaries while SteamCMD replaces them.
 
-Persisting every transition, and verifying the manifest rather than trusting an exit code, come
-from the single-install layout: every instance shares `DataRoot\Server` through junctions, so a
-half-written update or a launch against it would break all of them at once. The verified stop and
-the foreign-process check are the same rule from the other side: nothing may hold the binaries
-while SteamCMD replaces them.
-
-## When it refuses or fails
+## Messages, and what to do about them
 
 | Message | Meaning and what to do |
 |---|---|

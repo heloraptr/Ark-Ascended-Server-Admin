@@ -1,8 +1,7 @@
 # Hosting
 
-How the app runs on the box, how you reach it, and how you keep it running across upgrades. The
-only deployment that is tested is the one `install.ps1` makes: Kestrel as a Windows service. IIS is
-covered [at the end](#iis), as untested.
+The only deployment that is tested is the one `install.ps1` makes: Kestrel as a Windows service. IIS
+is covered [at the end](#iis), as untested.
 
 Paths assume the installer defaults: the app in `C:\ArkAscendedServerAdmin\App` (`InstallDir`),
 data in `C:\ArkAscendedServerAdmin` (`DataRoot`). Every `install.ps1` command below runs from an

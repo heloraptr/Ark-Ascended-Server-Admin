@@ -8,30 +8,36 @@ while the instance is running, or on demand. Every attempt is recorded, includin
 were skipped or failed, so a missed schedule is never silent. There is no restore button; restoring
 is a manual unzip described below.
 
-## What it does
+## What ends up in the zip
 
-- Runs a backup of one instance on demand (**Back up now**) or on a schedule (every *N* minutes
-  while the instance is `Running`).
-- Archives only what a restore needs: `<MapKey>.ark`, `*.arkprofile`, and `*.arktribe` from the
-  world folder, plus the whole cluster directory for a cluster member. The game's own rolling
-  copies (`*.arkrbf`, `*_AntiCorruptionBackup.bak`) are never archived.
-- Verifies the zip before it counts: every file listed in `manifest.json` must be present with the
-  recorded length and SHA-256, and the world file must be among them.
-- Keeps the newest *N* successful archives per instance and deletes the rest. Manual and scheduled
-  backups count alike.
-- Records every attempt as **Backed up**, **Skipped**, or **Failed** with a reason, on the
-  instance's **Backups** tab and as the last-backup line on the Instances page.
+Only what a restore needs: `<MapKey>.ark`, `*.arkprofile`, and `*.arktribe` from the world folder,
+plus the whole cluster directory for a cluster member. The game's own rolling copies (`*.arkrbf`,
+`*_AntiCorruptionBackup.bak`) are never archived.
 
-## How to use it
+```
+manifest.json
+World/TheIsland_WP.ark
+World/<eos id>.arkprofile
+World/<tribe id>.arktribe
+Cluster/...                     (cluster members only: the transfer directory, recursively)
+```
 
-**Back up now.** On the instance page the header has a **Back up now** button next to **Stop** and
-**Restart**; it is enabled only while the state is **Running**. The Instances page has the same
-action as the save icon on each row. A toast says "Backing up *name*", then "Backed up" with the
-file name and size, or "Backup skipped" / "Backup failed" with the reason.
+The zips live in `DataRoot\Backups\<slug>\`, named `yyyyMMdd-HHmmss-<n>.zip` in local time, where
+`<n>` starts at 1 and only climbs if two archives land in the same second. The manager keeps the
+newest *N* successful archives per instance and deletes the rest; manual and scheduled backups count
+alike.
 
-**Schedule.** Nothing to switch on. Once an instance reaches **Running**, the scheduler includes it
-at its interval. The interval and retention come from the Settings page unless the instance
-overrides them:
+## Running a backup by hand
+
+On the instance page the header has a **Back up now** button next to **Stop** and **Restart**; it is
+enabled only while the state is **Running**. The Instances page has the same action as the save icon
+on each row. A toast says "Backing up *name*", then "Backed up" with the file name and size, or
+"Backup skipped" / "Backup failed" with the reason.
+
+## The schedule
+
+Nothing to switch on. Once an instance reaches **Running**, the scheduler includes it at its
+interval. The interval and retention come from the Settings page unless the instance overrides them:
 
 | Where | Field | Default | Range |
 |---|---|---|---|
@@ -41,19 +47,28 @@ overrides them:
 | Instance page, **Settings** tab | **Backup interval, minutes** | blank ("default from Settings") | 1 to 10080 |
 | Instance page, **Settings** tab | **Backups to keep** | blank ("default from Settings") | 1 to 1000 |
 
-**The Backups tab** on the instance page lists every attempt, newest first, 20 per page, with the
-columns **When**, **Outcome**, **Archive** (the file name, or the reason for a skip or failure),
-**Size**, and **Trigger** (`manual` or `scheduled`). The tab updates on its own when a scheduled
-backup finishes. Before the first attempt it reads "No backups yet. They run every *N* minutes
-while the instance is running, or on demand with Back up now."
+The scheduler ticks once a minute. An instance is due when its newest record of any outcome is
+older than its interval. A due `Running` instance gets a backup; a due `Unreachable` or
+`StartingUnconfirmed` instance gets a skipped record so the missed schedule is visible; a stopped
+instance is left alone. Two backups of the same instance never overlap.
 
-**Where the zips are.** `DataRoot\Backups\<slug>\`, named `yyyyMMdd-HHmmss-<n>.zip` in local time,
-where `<n>` starts at 1 and only climbs if two archives land in the same second.
+## The Backups tab
 
-## What happens underneath
+The tab on the instance page lists every attempt, newest first, 20 per page, with the columns
+**When**, **Outcome**, **Archive** (the file name, or the reason for a skip or failure), **Size**,
+and **Trigger** (`manual` or `scheduled`). It updates on its own when a scheduled backup finishes.
+Before the first attempt it reads "No backups yet. They run every *N* minutes while the instance is
+running, or on demand with Back up now."
 
-One backup, in order. Everything runs under the instance lock, so a backup waits behind a stop or a
-delete of the same instance and vice versa.
+Every attempt is recorded as **Backed up**, **Skipped**, or **Failed** with a reason, here and as
+the last-backup line on the Instances page. A skipped or failed attempt is stored like a successful
+one because the alternative, a schedule that quietly stops producing archives when RCON breaks, is
+exactly the failure an owner discovers too late.
+
+## One backup, step by step
+
+Everything runs under the instance lock, so a backup waits behind a stop or a delete of the same
+instance and vice versa.
 
 1. **State check.** The instance must be `Running`. Anything else is recorded as skipped:
    `instance not running (<State>)`, or `RCON unreachable (<State>)` when the state is
@@ -95,35 +110,15 @@ delete of the same instance and vice versa.
     row together. The console shows `Pruned <n> backup(s) beyond the retention of <r>.` Skipped and
     failed records hold no file and are never pruned by this rule.
 
-The scheduler ticks once a minute. An instance is due when its newest record of any outcome is
-older than its interval. A due `Running` instance gets a backup; a due `Unreachable` or
-`StartingUnconfirmed` instance gets a skipped record so the missed schedule is visible; a stopped
-instance is left alone. Two backups of the same instance never overlap.
+## Why there is no volume snapshot
 
-Inside an archive:
-
-```
-manifest.json
-World/TheIsland_WP.ark
-World/<eos id>.arkprofile
-World/<tribe id>.arktribe
-Cluster/...                     (cluster members only: the transfer directory, recursively)
-```
-
-## Why it works this way
-
-The design decision (DESIGN.md, world backups) was a per-instance `saveworld` followed by a zip of
-the save folder, on a manual button and an in-manager interval that runs only while the instance
-is running, with a retention count that manual backups share. What the implementation adds is
-honesty about the one thing it cannot do: there is no volume snapshot, so the game can start
-another save while the copy is in progress and tear the world file. Instead of pretending, the
-backup inventories the files before and after the copy and records a **Skipped** attempt when they
-moved; the next interval tries again. Verifying the zip against a manifest closes the other gap,
-a zip that is written but not readable.
-
-A skipped or failed attempt is stored like a successful one because the alternative, a schedule
-that quietly stops producing archives when RCON breaks, is exactly the failure an owner discovers
-too late. The Instances page shows the newest record's outcome and age for the same reason.
+DESIGN.md asked for a per-instance `saveworld` followed by a zip of the save folder, on a manual
+button and an in-manager interval that runs only while the instance is running, with a retention
+count that manual backups share. That is what you get, minus one thing the manager cannot do: freeze
+the disk. The game can start another save while the copy is in progress and tear the world file.
+Rather than pretend otherwise, the backup inventories the files before and after the copy and records
+a **Skipped** attempt when they moved; the next interval tries again. Verifying the zip against a
+manifest closes the other gap, a zip that is written but not readable.
 
 ## Restoring a world by hand
 
@@ -149,7 +144,7 @@ a Backups tab, retention does not touch them, and they hold the CurseForge API k
 which is why the installer restricts them to `SYSTEM` and administrators.
 [hosting.md](../hosting.md#upgrading) covers the upgrade and rollback flow.
 
-## When it refuses or fails
+## When a backup is skipped or fails
 
 | Where | Message | Meaning and what to do |
 |---|---|---|
@@ -166,6 +161,8 @@ which is why the installer restricts them to `SYSTEM` and administrators.
 | Toast | "Could not back up: Instance *N* does not exist." | The instance was deleted while the button was pressed. |
 | Settings tab | "Backup interval must be between 1 and 10080 minutes, or left blank to use the default." | Fix the field or clear it. |
 | Settings tab | "Backups to keep must be between 1 and 1000, or left blank to use the default." | Same. |
+
+## What happens to the zips when an instance goes
 
 Deleting an instance asks whether to delete its backup archives, with the box ticked. Leave it
 ticked and `Backups\<slug>\` goes with the instance; clear it and the zips stay on disk. The records
