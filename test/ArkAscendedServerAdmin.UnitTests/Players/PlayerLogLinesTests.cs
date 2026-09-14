@@ -6,8 +6,8 @@ public sealed class PlayerLogLinesTests
 {
     // Captured 2026-09-13 from a live server; the bracketed stamp is UTC (the log's "Log file open" line
     // showed 14:31 local for an 18:31 stamp).
-    private const string JoinLine = "[2026.09.13-18.48.40:782][696]2026.09.13_18.48.40: HeloRaptr [UniqueNetId:0002f16bad3d4330b6097fcec38c5610 Platform:None] joined this ARK!";
-    private const string LeaveLine = "[2026.09.13-18.50.08:364][320]2026.09.13_18.50.08: HeloRaptr [UniqueNetId:0002f16bad3d4330b6097fcec38c5610 Platform:None] left this ARK!";
+    private const string JoinLine = "[2026.09.13-18.48.40:782][696]2026.09.13_18.48.40: Survivor42 [UniqueNetId:0002c0ffee11d00d4242beef00c0ffee Platform:None] joined this ARK!";
+    private const string LeaveLine = "[2026.09.13-18.50.08:364][320]2026.09.13_18.50.08: Survivor42 [UniqueNetId:0002c0ffee11d00d4242beef00c0ffee Platform:None] left this ARK!";
 
     [Fact]
     public void Parses_the_captured_join_line_with_its_utc_stamp()
@@ -15,8 +15,8 @@ public sealed class PlayerLogLinesTests
         var parsed = PlayerLogLines.TryParse(JoinLine);
 
         Assert.NotNull(parsed);
-        Assert.Equal("HeloRaptr", parsed.Name);
-        Assert.Equal("0002f16bad3d4330b6097fcec38c5610", parsed.EosId);
+        Assert.Equal("Survivor42", parsed.Name);
+        Assert.Equal("0002c0ffee11d00d4242beef00c0ffee", parsed.EosId);
         Assert.Equal("None", parsed.Platform);
         Assert.Equal(PlayerPresence.Joined, parsed.Presence);
         Assert.Equal(new DateTimeOffset(2026, 9, 13, 18, 48, 40, 782, TimeSpan.Zero), parsed.At);
@@ -56,9 +56,9 @@ public sealed class PlayerLogLinesTests
     [Theory]
     [InlineData("")]
     [InlineData("No Players Connected")]
-    [InlineData("HeloRaptr joined this ARK!")]
-    [InlineData("[2026.09.13-18.48.40:782][696]2026.09.13_18.48.40: HeloRaptr [UniqueNetId:notanid Platform:None] joined this ARK!")]
-    [InlineData("[2026.09.13-18.48.40:782][696]2026.09.13_18.48.40: HeloRaptr (Global): someone joined this ARK!")]
+    [InlineData("Survivor42 joined this ARK!")]
+    [InlineData("[2026.09.13-18.48.40:782][696]2026.09.13_18.48.40: Survivor42 [UniqueNetId:notanid Platform:None] joined this ARK!")]
+    [InlineData("[2026.09.13-18.48.40:782][696]2026.09.13_18.48.40: Survivor42 (Global): someone joined this ARK!")]
     public void Ignores_everything_else(string line)
     {
         Assert.Null(PlayerLogLines.TryParse(line));

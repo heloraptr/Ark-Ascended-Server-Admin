@@ -18,7 +18,7 @@ public sealed record PlayerLogEvent(string Name, string EosId, string? Platform,
 
 /// <summary>
 /// Recognizes the join and leave lines of <c>ShooterGame.log</c>. Captured 2026-09-13 from a live server:
-/// <c>[2026.09.13-18.48.40:782][696]2026.09.13_18.48.40: HeloRaptr [UniqueNetId:0002f16bad3d4330b6097fcec38c5610 Platform:None] joined this ARK!</c>
+/// <c>[2026.09.13-18.48.40:782][696]2026.09.13_18.48.40: Survivor42 [UniqueNetId:0002c0ffee11d00d4242beef00c0ffee Platform:None] joined this ARK!</c>
 /// and the matching <c>left this ARK!</c>. The bracketed stamp is UTC (the same file's <c>Log file open</c>
 /// line shows local time four hours earlier). Both prefixes are optional so a line pasted without them
 /// still parses; the id is a 32-hex-digit EOS id or a 17-digit Steam id.
