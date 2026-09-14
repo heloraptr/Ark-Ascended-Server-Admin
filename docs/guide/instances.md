@@ -151,24 +151,33 @@ preview finds a problem while the instance is stopped.
 
 The delete icon in the header opens `Delete <name>`. If the server is running the dialog says so:
 `The server is running. It will be saved and stopped first; the delete waits for the process to exit.`
-Choose one:
+There are two independent choices. First, the world data:
 
 - **Keep the world data**: `The Saved folder moves to Archive under DataRoot with a timestamp. The
-  slug stays reserved.` Button: **Delete instance, keep world**.
-- **Delete the world data**: `The Saved folder, including the world and player files, is removed.
-  Backups under Backups\<slug> are not touched.` You must type the instance name to enable
-  **Delete instance and world**.
+  slug stays reserved.`
+- **Delete the world data**: `The Saved folder, including the world and player files, is removed.`
+
+Then the checkbox **Delete the backup archives too**, which starts ticked: every zip under
+`Backups\<slug>` is removed with the instance. Clear it and `The zips under Backups\<slug> are left
+on disk. Their entries in the backup history go with the instance either way, so restoring one
+afterwards means unzipping it by hand.` The button names the combination you picked, from **Delete
+instance, keep world and backups** through to **Delete instance, world, and backups**.
+
+Anything irreversible needs the instance name typed into the confirmation field first: that is any
+delete that removes the world, the backups, or both. The only combination that does not ask is
+keeping both.
 
 The job then runs: a stop with verified exit (the console prints `Delete: stopping the instance with
 verified exit.`), removal of the firewall rules, removal of the junctions, then `ShooterGame\Saved`
 is moved to `Archive\<slug>-<yyyyMMdd-HHmmss>` or deleted, the rest of `Instances\<slug>` (including
-a standalone instance's `Config\` source files) is removed, and finally the database rows: the
-instance, its mods, overrides, INI mirror rows, and backup records; players last seen on it are marked
-offline. The last console line is `Instance '<slug>' deleted; its world data was archived to <path>.`
-or `... its world data was removed.`, and you land on the Instances page.
+a standalone instance's `Config\` source files) is removed, `Backups\<slug>` if you asked for it, and
+finally the database rows: the instance, its mods, overrides, INI mirror rows, and backup records;
+players last seen on it are marked offline. The last console line reads
+`Instance '<slug>' deleted; its world data was archived to <path> and its backups were deleted.`,
+with each half naming what you chose, and you land on the Instances page.
 
-Contrary to the dialog's second option, the code also removes `Backups\<slug>` when you delete the
-world data (it is left alone when you keep it). Treat the backups as part of the world.
+The backup history in the database always goes with the instance row. Keeping the zips keeps the
+files, not the list of them.
 
 ## What happens underneath
 
@@ -177,7 +186,7 @@ world data (it is left alone when you keep it). Treat the backups as part of the
 | Start | `LastPid`, `LastProcessStartTime`, `LastLaunchedAt`, `State` on the instance row. | Generated INI, `.bak`, whitelist file, firewall rules, the process. | Probe `ListPlayers` every 15 s. | `Config:`, `Firewall:`, `Launched pid`. |
 | Stop | `State`; PID cleared on exit. | Nothing. | `broadcast` per minute, `doexit`. | `RCON:` lines, replies, `Server exited`. |
 | Re-attach | PID and start time re-saved. | Reads the generated `GameUserSettings.ini` for credentials. | Probe as for a start. | `re-attached — log history`, backfill lines. |
-| Delete | Rows removed in one transaction. | Firewall rules, junctions, `Saved` archived or deleted, `Backups\<slug>` when deleting. | The stop's commands. | `Delete:` lines. |
+| Delete | Rows removed in one transaction. | Firewall rules, junctions, `Saved` archived or deleted, `Backups\<slug>` when the checkbox is ticked. | The stop's commands. | `Delete:` lines. |
 
 The runtime state you see (**Starting**, **Running**, ...) lives in memory in the process manager and
 is mirrored into the instance row best-effort; the rail's `N instances up` and every lamp update from
