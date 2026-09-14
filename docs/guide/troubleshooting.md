@@ -1,41 +1,39 @@
 # Troubleshooting
 
-Organized by what you see first. Each entry gives the exact message or observation, the cause, and
-the fix, and links to the page that explains the feature. Messages are quoted as the code emits
-them; a `<placeholder>` stands for the value the manager fills in.
+Sorted by what you see first. Messages are quoted as the code emits them; a `<placeholder>` stands
+for the value the manager fills in.
 
 ## Every page shows `/setup`
 
-**You see:** any URL lands on the Setup page with a lamp and one of **Initializing**,
-**Recovering**, **Installing the game**, **Install failed**, or **Startup failed**.
+Any URL lands on the Setup page with an indicator and one of **Initializing**, **Recovering**,
+**Installing the game**, **Install failed**, or **Startup failed**.
 
-**Cause:** the readiness pipeline has not reached **Ready**. Until it has, every page except
-`/setup`, `/login`, and `/healthz` is redirected there, and **Start** is refused inside the service
-too. On a fresh install the pipeline is downloading SteamCMD and the 12 GB game install; that is
-the normal first-run wait ([first-run.md](first-run.md)).
+The service has not finished starting. Until it has, every page except `/setup`, `/login`, and
+`/healthz` is redirected there, and **Start** is refused inside the service too. On a fresh install
+it is downloading SteamCMD and the 12 GB game install, which is the normal first-run wait
+([first-run.md](first-run.md)).
 
 | Phase on the page | Cause | Fix |
 |---|---|---|
 | **Installing the game** with a progress bar | SteamCMD is running. | Wait. The SteamCMD console on the page shows the download. |
 | **Install failed** with the hint "SteamCMD retried five times with backoff before giving up. Anonymous Steam downloads are sometimes throttled; trying again later usually works." | Five SteamCMD attempts failed, or `steamcmd.zip` could not be downloaded (`SteamCMD download failed: ...`). | Press **Retry install**. Check the box's outbound HTTPS if it keeps failing. |
 | **Install failed**: "Install finished but could not be verified" | SteamCMD exited 0 but `DataRoot\Server\steamapps\appmanifest_2430930.acf` does not report `StateFlags 4`. | **Retry install**; tick **SteamCMD validate** on Settings first if it recurs. |
-| **Startup failed**: "Startup failed; check the log and restart the service" | A pipeline step threw (database migration, process reconciliation, a `DataRoot` that cannot be created). The error text is on the page. | Read the event log entry, fix the cause, restart the service. "Only a service restart clears a failed pipeline step." |
+| **Startup failed**: "Startup failed; check the log and restart the service" | A startup step threw (database migration, process reconciliation, a `DataRoot` that cannot be created). The error text is on the page. | Read the event log entry, fix the cause, restart the service. "Only a service restart clears a failed pipeline step." |
 | **Recovering** for a long time | An interrupted update is being resumed; SteamCMD runs before **Ready**. | Wait; the SteamCMD console shows progress ([game-updates.md](game-updates.md)). |
 
 ## A direct `http://` request answers 403
 
-**You see:** the browser shows `HTTPS is required. Connect through the reverse proxy.` with status
-403.
+The browser shows `HTTPS is required. Connect through the reverse proxy.` with status 403.
 
-**Cause:** the HTTPS guard refuses every request whose effective scheme is not HTTPS. With the
-default `Loopback` bind the app listens on `http://127.0.0.1:5000` for a reverse proxy that
-terminates TLS and forwards `X-Forwarded-Proto`; hitting that port directly, or a `LanHttps` box
-over plain `http://`, is refused by design. Only `/healthz` is exempt.
+The HTTPS guard refuses every request whose effective scheme is not HTTPS. With the default
+`Loopback` bind the app listens on `http://127.0.0.1:5000` for a reverse proxy that terminates TLS
+and forwards `X-Forwarded-Proto`; hitting that port directly, or a `LanHttps` box over plain
+`http://`, is refused. Only `/healthz` is exempt.
 
-**Fix:** open the proxy's HTTPS address, or the `https://<box-ip>:5001/` address in `LanHttps`
-mode. If the proxy is set up but you still get 403, its address is not in `ArkAdmin:KnownProxies`
-or it is not sending `X-Forwarded-Proto`. [hosting.md](../hosting.md#bind-modes) has the three
-modes and proxy examples.
+Open the proxy's HTTPS address, or the `https://<box-ip>:5001/` address in `LanHttps` mode. If the
+proxy is set up but you still get 403, its address is not in `ArkAdmin:KnownProxies` or it is not
+sending `X-Forwarded-Proto`. [hosting.md](../hosting.md#bind-modes) has the three modes and proxy
+examples.
 
 ## Login is refused
 
@@ -53,7 +51,7 @@ notice on the instance page.
 
 | You see | Cause | Fix |
 |---|---|---|
-| `The service is not ready yet (<Phase>: <Message>).` | The readiness pipeline is not at **Ready**. | Watch `/setup`. |
+| `The service is not ready yet (<Phase>: <Message>).` | The service has not finished starting. | Watch `/setup`. |
 | `update in progress` | An update holds the maintenance gate. | Wait for it ([game-updates.md](game-updates.md)). |
 | `operation in progress` | A stop, backup, or delete of this instance is still running. | Wait. |
 | `The instance is already <state>.` | It has a live process. | Nothing to do; use **Restart** if you meant that. |
@@ -91,14 +89,12 @@ wrong, or the map is still loading on a slow disk. Check the console for the sta
 
 ## The service will not start
 
-**You see:** `Start-Service ArkAscendedServerAdmin` fails, or the browser cannot connect at all and
-`/healthz` does not answer.
+`Start-Service ArkAscendedServerAdmin` fails, or the browser cannot connect at all and `/healthz`
+does not answer. The host failed before it could listen: a malformed
+`appsettings.Production.json`, a port already bound, a `DataRoot` on a drive that is not there, a
+certificate that cannot be loaded in `LanHttps` mode.
 
-**Cause:** the host failed before it could listen: a malformed `appsettings.Production.json`, a
-port already bound, a `DataRoot` on a drive that is not there, a certificate that cannot be loaded
-in `LanHttps` mode.
-
-**Fix:** read the last entries in the Application event log under the source
+Read the last entries in the Application event log under the source
 `ArkAscendedServerAdmin.Server`:
 
 ```powershell
@@ -113,7 +109,7 @@ settings file names the URL it tried ([configuration.md](../configuration.md)).
 
 ## A backup was skipped
 
-**You see:** **Skipped** on the Backups tab or on the Instances row, with a reason.
+**Skipped** shows on the Backups tab or on the Instances row, with a reason.
 
 | Reason | Cause | Fix |
 |---|---|---|
@@ -131,12 +127,12 @@ settings file names the URL it tried ([configuration.md](../configuration.md)).
 
 | You see | Cause | Fix |
 |---|---|---|
-| Rail shows **Updating the game** and the SteamCMD console shows `Attempt <n> failed (...); retrying in <x> (attempt <n+1> of 5).` | Steam is throttling or unreachable. | Wait; five attempts span about eight minutes. |
+| The sidebar shows **Updating the game** and the SteamCMD console shows `Attempt <n> failed (...); retrying in <x> (attempt <n+1> of 5).` | Steam is throttling or unreachable. | Wait; five attempts span about eight minutes. |
 | Toast "Update stopped: SteamCMD did not produce a verified install: SteamCMD failed after 5 attempt(s): ..." and the phase stays **Updating the game** | Every attempt failed. Nothing is launched against an unverified install, and **Start** answers `update in progress`. | Press **Resume update** (Update page or the Instances page banner) later. |
 | Toast "Update stopped: Could not stop every instance with a verified exit (instance <n>: ...)." | A stop failed. The stopped instances stay stopped. | Fix the instance (see above), then start the update again. |
 | Toast "Update stopped: ArkAscendedServer.exe is still running under the data root (<path> (PID <n>)); stop it before updating." | A server process the manager does not own runs from `DataRoot`. | End it, then **Resume update** or start again. |
 | Banner **Update recovery incomplete.** with `Update recovery incomplete: instance <n>: <error>. Retry or skip each instance.` | A relaunch failed after SteamCMD finished. | Fix the start refusal, then **Retry**; or **Skip** and start by hand. |
-| Rail shows a phase after a service restart | The persisted phase is being resumed. | Wait; the SteamCMD console shows "Resuming interrupted update from the <Phase> phase." |
+| The sidebar shows a phase after a service restart | The persisted phase is being resumed. | Wait; the SteamCMD console shows "Resuming interrupted update from the <Phase> phase." |
 
 [game-updates.md](game-updates.md) explains each phase.
 
@@ -153,4 +149,4 @@ settings file names the URL it tried ([configuration.md](../configuration.md)).
 | Installer journal | `DataRoot\keys\install-pending.json` while an install or upgrade is unfinished | Which step the installer reached; `install.ps1 -Verify` or `-Rollback` clears it ([hosting.md](../hosting.md#upgrading)). |
 
 A bug report wants the event-log excerpt, the instance console around the failure, and the
-version from the rail footer.
+version from the bottom of the sidebar.
