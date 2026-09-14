@@ -829,8 +829,9 @@ function Invoke-RawHttp([string]$method, [string]$url, [hashtable]$headers, [str
         $pinned = $true
     }
     try {
-        if ($null -ne $body) {
-            $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+        # A [string] parameter turns $null into ''; only a POST carries a body.
+        if ($method -eq 'POST') {
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes([string]$body)
             $request.ContentType = 'application/x-www-form-urlencoded'
             $request.ContentLength = $bytes.Length
             $stream = $request.GetRequestStream()

@@ -104,7 +104,13 @@ function Read-Value([string]$prompt, [string]$default) {
 }
 
 function Read-PasswordValue([string]$prompt) {
-    if ($Password) { return (ConvertTo-SecureString $Password -AsPlainText -Force) }
+    if ($Password) {
+        # Built by hand: ConvertTo-SecureString needs the Microsoft.PowerShell.Security module.
+        $secure = New-Object System.Security.SecureString
+        foreach ($char in $Password.ToCharArray()) { $secure.AppendChar($char) }
+        $secure.MakeReadOnly()
+        return $secure
+    }
     if ($Quiet) { throw '-Quiet: -Password is required.' }
     while ($true) {
         $first = Read-Host -Prompt $prompt -AsSecureString
@@ -670,7 +676,7 @@ function Invoke-Rollback($installation) {
                 Rename-Item -LiteralPath $previousDir -NewName (Split-Path $installDir -Leaf)
                 Write-Host "$previousDir is back as $installDir"
             }
-            if (Test-PhaseReached $journal 'db-copied' -and $dbCopyDir -and (Test-Path -LiteralPath $dbCopyDir)) {
+            if ((Test-PhaseReached $journal 'db-copied') -and $dbCopyDir -and (Test-Path -LiteralPath $dbCopyDir)) {
                 Restore-DatabaseFiles $dataRoot $dbCopyDir
                 Write-Host "Database file set restored from $dbCopyDir"
             }
