@@ -45,7 +45,8 @@ visibly did something, then a toast says "Saved settings". **Reset** reloads the
 discards edits.
 
 The values are rows in the `AppSettings` table, one per key, decoded into one settings object that
-is cached in memory after the first read and replaced on save. Because the cache is replaced, every
+is cached in memory after the first read and replaced on save. A save updates or inserts every row
+in one `SaveChanges`, then swaps the cached object. Because the cache is replaced, every
 consumer (the launch queue, the port allocator, the backup scheduler, the CurseForge handler that
 adds the `x-api-key` header) sees the new value on its next call, with no restart.
 
