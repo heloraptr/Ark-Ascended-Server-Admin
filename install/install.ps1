@@ -190,9 +190,12 @@ function Write-ProbeFailure($probe, [string]$installDir, [string]$recovery) {
 function Get-Installation {
     $service = Get-ArkService $ServiceName
     if ($null -eq $service) { return $null }
+    # Variable names are case-insensitive in PowerShell, so the local $installDir below IS the -InstallDir
+    # parameter; what the caller asked for has to be captured before the service's own folder overwrites it.
+    $requestedInstallDir = $InstallDir
     $installDir = Get-ServiceBinaryDir $service
-    if ($InstallDir -and -not (Test-PathEquals (ConvertTo-CanonicalPath $InstallDir) $installDir)) {
-        throw "Service '$ServiceName' runs from '$installDir' but -InstallDir names '$(ConvertTo-CanonicalPath $InstallDir)'. Omit -InstallDir to upgrade the existing installation."
+    if ($requestedInstallDir -and -not (Test-PathEquals (ConvertTo-CanonicalPath $requestedInstallDir) $installDir)) {
+        throw "Service '$ServiceName' runs from '$installDir' but -InstallDir names '$(ConvertTo-CanonicalPath $requestedInstallDir)'. Omit -InstallDir to upgrade the existing installation."
     }
     $settings = Get-InstalledSettings $installDir
     if ($DataRoot -and -not (Test-PathEquals (ConvertTo-CanonicalPath $DataRoot) $settings.DataRoot)) {
@@ -250,6 +253,9 @@ function Invoke-FirstInstall($package) {
     $port = if ($Port) { $Port } else { [int](Read-Value 'Port' "$defaultPort") }
     if ($bind -eq 'LanHttps' -and $port -le 1) { throw 'LanHttps needs a port above 1 (the loopback listener uses the port below it).' }
     $proxies = @($KnownProxies | Where-Object { $_ } | ForEach-Object { $_.Trim() })
+    # $lanSource and the -LanSource parameter are one variable (names are case-insensitive), so whether the
+    # caller gave one is read from the bound parameters rather than from the variable below.
+    $lanSourceGiven = $scriptParameters.ContainsKey('LanSource')
     $lanSource = if ($LanSource) { $LanSource } else { 'LocalSubnet' }
     if ($bind -eq 'Proxy') {
         if ($proxies.Count -eq 0) {
@@ -259,7 +265,7 @@ function Invoke-FirstInstall($package) {
         if ($proxies.Count -eq 0) { throw 'Proxy mode needs -KnownProxies: the reverse proxy addresses to trust.' }
         foreach ($proxy in $proxies) { if (-not ($proxy -as [System.Net.IPAddress])) { throw "KnownProxies entry '$proxy' is not an IP address." } }
     }
-    elseif ($bind -eq 'LanHttps' -and -not $LanSource -and -not $Quiet) {
+    elseif ($bind -eq 'LanHttps' -and -not $lanSourceGiven -and -not $Quiet) {
         $lanSource = Read-Value 'Allow HTTPS from (LocalSubnet, Any, or an address)' 'LocalSubnet'
     }
     $password = Read-PasswordValue 'Login password for the web UI'
@@ -556,22 +562,24 @@ function Invoke-SetCertificate($installation) {
 
     $pfxOld = $settings.CertPath
     $pfxNew = Join-Path (Join-Path $dataRoot 'keys') "web-$(Get-Timestamp).pfx"
-    $pfxPassword = New-RandomPassword
+    # Not $pfxPassword: that name is the -PfxPassword parameter (PowerShell names are case-insensitive) and
+    # assigning to it would destroy the password of the user's own PFX before it is opened.
+    $newPfxPassword = New-RandomPassword
     $journal = New-Journal $dataRoot 'set-certificate' $installDir $null $null $null $pfxOld $pfxNew
     if ($PfxPath) {
         Write-Step "Import $PfxPath"
-        $thumbprint = Import-UserCertificate $PfxPath $PfxPassword $pfxNew $pfxPassword
+        $thumbprint = Import-UserCertificate $PfxPath $PfxPassword $pfxNew $newPfxPassword
     }
     else {
         Write-Step 'New self-signed certificate'
-        $thumbprint = New-SelfSignedWebCertificate $pfxNew $pfxPassword
+        $thumbprint = New-SelfSignedWebCertificate $pfxNew $newPfxPassword
     }
     Write-Host "Written $pfxNew (thumbprint $thumbprint)"
     Set-JournalPhase $dataRoot $journal 'copied'
 
     $raw = $settings.Raw
     $https = Get-JsonProperty (Get-JsonProperty (Get-JsonProperty $raw 'Kestrel') 'Endpoints') 'Https'
-    Set-JsonProperty $https 'Certificate' ([pscustomobject][ordered]@{ Path = $pfxNew; Password = $pfxPassword })
+    Set-JsonProperty $https 'Certificate' ([pscustomobject][ordered]@{ Path = $pfxNew; Password = $newPfxPassword })
     $bak = Write-ProtectedTextFile $settings.Path (ConvertTo-JsonText $raw)
     Set-JournalValue $dataRoot $journal 'settingsBak' $bak
     Set-JournalPhase $dataRoot $journal 'settings-written'

@@ -35,9 +35,12 @@ try {
 
     $service = Get-ArkService $ServiceName
     if ($null -eq $service) { throw "Service '$ServiceName' is not installed on this machine." }
+    # Variable names are case-insensitive in PowerShell, so the local $installDir below IS the -InstallDir
+    # parameter; what the caller asked for has to be captured before the service's own folder overwrites it.
+    $requestedInstallDir = $InstallDir
     $installDir = Get-ServiceBinaryDir $service
-    if ($InstallDir -and -not (Test-PathEquals (ConvertTo-CanonicalPath $InstallDir) $installDir)) {
-        throw "Service '$ServiceName' runs from '$installDir', not from '$(ConvertTo-CanonicalPath $InstallDir)'."
+    if ($requestedInstallDir -and -not (Test-PathEquals (ConvertTo-CanonicalPath $requestedInstallDir) $installDir)) {
+        throw "Service '$ServiceName' runs from '$installDir', not from '$(ConvertTo-CanonicalPath $requestedInstallDir)'."
     }
     $marker = Read-Marker $installDir
     if ($null -eq $marker) { throw "$installDir has no install.json; this installation was not made by install.ps1. Remove it by hand (sc.exe delete $ServiceName)." }
