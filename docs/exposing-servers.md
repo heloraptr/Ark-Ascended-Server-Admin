@@ -1,9 +1,7 @@
 # Exposing servers to players
 
 The app manages the servers on the box; getting players to them is network work outside the app.
-This page says what has to be reachable, the three shapes that work, and the shapes that look like
-they work and do not. Nothing here is automated in 1.0.0: the app writes the Windows firewall
-rule and you do the rest.
+None of it is automated in 1.0.0: the app writes the Windows firewall rule and you do the rest.
 
 ## What must be reachable
 
@@ -76,18 +74,18 @@ directory on disk, not over the network.
 
 ## Shapes that do not work
 
-- **Tunnels and relays: playit.gg, a VPS forwarding UDP to your home, and similar.** The server
+- Tunnels and relays: playit.gg, a VPS forwarding UDP to your home, and similar. The server
   registers with Epic from the box, so the list shows the home WAN address, not the relay's. The
   server appears in the list and every join through the list fails; joins with `open
   <relay-ip>:<port>` may work, which is the private shape with more moving parts. The launch flag
   `-PublicIPForEpic=<ip>` is documented for Survival Evolved and is untested on Survival Ascended;
   if you try it, pass it through the instance's extra launch arguments and report what you find.
-- **ngrok** carries TCP and HTTP, not UDP. **Cloudflare Tunnel** carries no public UDP either.
-  Neither can front a game port.
-- **An Epic relay.** There is none for dedicated servers. Console and crossplay listings still need
-  the UDP port reachable.
-- **Forwarding RCON so a remote tool can reach it.** See the table. Use the web UI over HTTPS
-  instead; it has the RCON console.
+- ngrok carries TCP and HTTP, not UDP. Cloudflare Tunnel carries no public UDP either. Neither can
+  front a game port.
+- An Epic relay. There is none for dedicated servers. Console and crossplay listings still need the
+  UDP port reachable.
+- Forwarding RCON so a remote tool can reach it. See the table. Use the web UI over HTTPS instead;
+  it has the RCON console.
 
 ## Checking
 
