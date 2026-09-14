@@ -147,7 +147,7 @@ cannot know yours, hence the paste-and-`TBD` path.
 | Browser | `403` on a plain `http://` request | The app refuses anything that is not HTTPS after forwarded-header processing. Use the proxy URL or `LanHttps`; [hosting.md](../hosting.md). |
 | Sign in | `Incorrect password.` | Wrong password; each failure costs a one-second delay. |
 | Sign in | `Too many failed attempts. Try again in a few minutes.` | Five failures from one address lock it out for five minutes. |
-| Sign in | `No login password is configured. Set ArkAdmin:Password in appsettings.json and restart the service.` | Neither `PasswordHash` nor `Password` is set; every login is refused. [configuration.md](../configuration.md). |
+| Sign in | `No usable login password is configured. Set ArkAdmin:PasswordHash (or ArkAdmin:Password) in appsettings.json and restart the service.` | Neither `PasswordHash` nor `Password` is set, or the hash is malformed; every login is refused. [configuration.md](../configuration.md). |
 | Setup | **Install failed** with `SteamCMD failed after 5 attempt(s): ...` | SteamCMD gave up. Click **Retry install**; the hint says why it usually works later: `Anonymous Steam downloads are sometimes throttled; trying again later usually works.` |
 | Setup | `Install finished but could not be verified` | SteamCMD exited 0 but the manifest is not `StateFlags 4`. Retry, with *SteamCMD validate* on if it repeats. |
 | Setup | **Startup failed** | A pipeline step threw. `Only a service restart clears a failed pipeline step. The service log has the stack trace.` |
