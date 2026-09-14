@@ -2,15 +2,13 @@
 
 A cluster is a set of instances that share INI source files, mandatory mods, base launch options, an
 admin whitelist, a cluster id, and a transfer directory, so players can move characters, items, and
-creatures between the maps. This page covers what a cluster shares, standalone versus clustered,
-creating and editing a cluster, why membership is fixed at creation, and what the game needs for
-transfers to work.
-
-## What it does
+creatures between the maps.
 
 The Clusters page lists your clusters; each cluster page has its members, its INI editors, its mods,
 its launch flags, and its settings. Everything on it applies to every member at that member's next
-start. An instance that is not in a cluster is *standalone* and carries the same things itself.
+start. An instance that is not in a cluster is standalone and carries the same things itself.
+
+## What a cluster shares
 
 | Shared by a cluster | Where it comes from | How a member can differ |
 |---|---|---|
@@ -23,11 +21,15 @@ start. An instance that is not in a cluster is *standalone* and carries the same
 
 Not shared: the map, session name, ports, player cap, backup interval and retention, and the world.
 
-## How to use it
+Everything the members have to agree on lives in one place, and the per-member files are generated
+from it, instead of you keeping several INI files in step by hand. The cluster owns the raw text; the
+manager takes it, applies the member's typed fields and overrides, and writes the generated files
+before every launch. The price is that a member cannot have its own INI file, so the answer to "this
+one map needs a different difficulty" is an override, not a copy.
 
-### Creating a cluster
+## Creating one
 
-**Clusters** in the rail, then **New cluster**. The form has two fields:
+**Clusters** in the sidebar, then **New cluster**. The form has two fields:
 
 - **Cluster name**. The hint: `Also the initial cluster id passed as -clusterid; both can be changed
   on the cluster page.` The slug (lower-case letters, digits, hyphens, at most 32 characters) is
@@ -41,15 +43,27 @@ With `Game defaults` the `GameUserSettings.ini` has an empty `ServerAdminPasswor
 **Config** tab before creating members, because a member cannot start without it
 ([configuration-files.md](configuration-files.md)).
 
-The empty list reads `No clusters yet.` with `Standalone instances work without one. Create a
-cluster when you want players to travel between maps.`
+On disk that is:
 
-### The cluster list
+```
+<DataRoot>\Clusters\<slug>\
+  Config\Game.ini
+  Config\GameUserSettings.ini
+```
+
+and in the database a `Clusters` row (name, slug, cluster key = slug, empty whitelist, default launch
+flags) plus two `IniDocuments` mirror rows with the SHA-256 of each file. Cluster mods are
+`ClusterMods` rows in order.
+
+## The cluster list
 
 One row per cluster: the name, `id <cluster id> · <slug>`, `2 members`, `1 cluster mod`, and an
 arrow to open it.
 
-### The cluster page
+The empty list reads `No clusters yet.` with `Standalone instances work without one. Create a
+cluster when you want players to travel between maps.`
+
+## The cluster page
 
 Header: the name, `cluster id <id> · 2 members · 1 mod`, **Start all**, **Stop all** (each acts on
 the members that are eligible), and a delete icon that is disabled while the cluster has members.
@@ -58,40 +72,25 @@ member at its next start.`
 
 | Tab | Content |
 |---|---|
-| **Members** | One row per member with its lamp, name, session name, map, ports, and state, and an arrow to the instance page. Empty: `No members yet.` with **New instance**. |
+| **Members** | One row per member with the state triangle, name, session name, map, ports, and state label, and an arrow to the instance page. Empty: `No members yet.` with **New instance**. |
 | **Config** | The `GameUserSettings.ini` and `Game.ini` editors for the cluster's source files. Same editor as a standalone instance's ([configuration-files.md](configuration-files.md)). |
 | **Mods** | `Mandatory for every member and loaded before each member's own mods. A custom map's own mod loads ahead of these on that member alone and is not listed here.` The ordered list with **Add**, move up and down, remove, **Save mods**. |
 | **Launch** | `The base every member starts from; a member can override each flag.` The flags editor with **Default** / **On** / **Off** per flag ([launch-options.md](launch-options.md)). |
 | **Settings** | **Cluster name** (`The folder stays Clusters\<slug>.`), **Cluster id** (`Passed as -clusterid; every member must share it for transfers to work. Changing it strands existing transfers.`), **Admin whitelist** (`Merged with the Settings list and each member's own list at start.`). **Save settings**, **Reset**. |
 
-### Adding members
+## Members, and why you cannot move one
 
 Membership is chosen on the wizard's **Cluster** step and cannot be changed afterwards: the
-instance's Settings tab has no cluster field, and there is no move action. To move a server between
-clusters, or from standalone into a cluster, create a new instance in the target and delete the old
-one, keeping the world; the world files under `Archive\` can then be copied into the new instance's
-`ShooterGame\Saved` by hand while it is stopped. Note that the new instance has a new slug, so the
-world directory name under `Saved\<slug>\<MapKey>\` changes too.
+instance's Settings tab has no cluster field, and there is no move action. The slug, the world
+directory, the INI ownership, and the launch line all depend on it, and changing it under a live
+world has more failure modes than recreating an instance.
 
-### Deleting a cluster
+To move a server between clusters, or from standalone into a cluster, create a new instance in the
+target and delete the old one, keeping the world; the world files under `Archive\` can then be copied
+into the new instance's `ShooterGame\Saved` by hand while it is stopped. The new instance has a new
+slug, so the world directory name under `Saved\<slug>\<MapKey>\` changes too.
 
-The delete icon is enabled only when the cluster has no members. The confirmation says exactly what
-happens: `The cluster row, its mod list, and its INI mirror rows are removed. The folder under Clusters
-stays on disk.` The transfer directory and the source INI files are left where they are.
-
-## What happens underneath
-
-Creating a cluster writes:
-
-```
-<DataRoot>\Clusters\<slug>\
-  Config\Game.ini
-  Config\GameUserSettings.ini
-```
-
-and a `Clusters` row (name, slug, cluster key = slug, empty whitelist, default launch flags) plus two
-`IniDocuments` mirror rows with the SHA-256 of each file. Cluster mods are `ClusterMods` rows in
-order.
+## What a member's start does with all this
 
 At every member's start the manager reads the cluster's two source files (not the member's; a member
 has no `Config\` folder), generates the member's files from them, unions the manager-wide, cluster,
@@ -108,26 +107,21 @@ folder itself; the game writes uploaded characters, items, and creatures under i
 that points at the same folder with the same id can download them. Transfers between servers on one
 box therefore never touch the network.
 
+`-ClusterDirOverride` is passed for you because it is the one setting the game requires for
+cross-server transfers, and getting it wrong on one member breaks transfers silently. Cluster mods
+are mandatory and locked in the member's list for the same reason: a player who uploads a creature
+from a mod to a server without that mod loses it.
+
 The cluster id is validated on save: required, at most 64 characters, no `?`, `=`, line breaks, or
 spaces, because it is written verbatim into the command line.
 
-## Why it works this way
+## Deleting a cluster
 
-The design puts everything a cluster's members must agree on in one place and generates the
-per-member files from it, instead of asking you to keep several INI files in step by hand. The
-cluster owns the raw text; the manager takes it, applies the member's typed fields and overrides, and
-writes the generated files before every launch. The price is that a member cannot have its own INI
-file, and the answer to "this one map needs a different difficulty" is an override, not a copy.
+The delete icon is enabled only when the cluster has no members. The confirmation says exactly what
+happens: `The cluster row, its mod list, and its INI mirror rows are removed. The folder under Clusters
+stays on disk.` The transfer directory and the source INI files are left where they are.
 
-The cluster directory is passed automatically because `-ClusterDirOverride` is the one setting the
-game requires for cross-server transfers and getting it wrong on one member breaks transfers silently.
-Cluster mods are mandatory and locked in the member's list for the same reason: a player who uploads a
-creature from a mod to a server without that mod loses it.
-
-Membership is fixed because the slug, the world directory, the INI ownership, and the launch line all
-depend on it, and changing it under a live world has more failure modes than recreating an instance.
-
-## When it refuses or fails
+## Messages the cluster pages give back
 
 | Message | Meaning and what to do |
 |---|---|
@@ -139,7 +133,7 @@ depend on it, and changing it under a live world has more failure modes than rec
 | `Move or delete its instances first: <names>.` | Delete asked with members. There is no move; delete or recreate them. |
 | `The cluster no longer exists.` | The page was open while the cluster was deleted elsewhere. |
 | `One of the chosen mods is no longer in the library.` | The mod list references a library entry that was removed; reload the page and save again. |
-| Notes from the INI pipeline, on a member's Launch tab | Reserved keys in the cluster's source text are replaced at start; see [configuration-files.md](configuration-files.md#when-it-refuses-or-fails). |
+| Notes from the INI pipeline, on a member's Launch tab | Reserved keys in the cluster's source text are replaced at start; see [configuration-files.md](configuration-files.md#what-the-editor-the-override-dialog-and-a-start-refuse). |
 
 Members that are running keep their old files until they restart; the notice on the cluster page
 says so. There is no "apply now".

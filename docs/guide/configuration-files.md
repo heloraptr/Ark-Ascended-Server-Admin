@@ -2,22 +2,27 @@
 
 `Game.ini` and `GameUserSettings.ini` are the two files ARK reads its rules from. The manager keeps
 them as plain text on disk, mirrors them into the database, and generates the files the game actually
-reads at every start from that source plus the instance's own fields and overrides. This page covers
-where the source lives, what the manager writes into the generated files and why it warns when your
-text contradicts it, the INI editor, edits made outside the manager, per-instance overrides, and the
-starting points the wizard offers.
+reads at every start from that source plus the instance's own fields and overrides.
 
-## What it does
+## Source files and generated files
 
-Two layers, kept apart on purpose:
+Two layers, kept apart:
 
 | Layer | Path | Who writes it | Who reads it |
 |---|---|---|---|
 | **Source** | `Clusters\<slug>\Config\*.ini` (cluster) or `Instances\<slug>\Config\*.ini` (standalone) | You, in the INI editor or with any text editor | The manager, at every start and in the launch preview |
 | **Generated** | `Instances\<slug>\ShooterGame\Saved\Config\WindowsServer\*.ini` | The manager, at every start (previous file kept as `.bak`) | The game |
 
-The manager owns six keys and writes them into the generated files from the instance's settings;
-everything else is your text, passed through untouched:
+Generating the files rather than launching the game on the source text is what lets a cluster share
+one source while every member gets its own session name, ports, and cap.
+
+Editing the generated files under `Saved\Config\WindowsServer` is pointless: they are overwritten at
+the next start, and the game itself rewrites `GameUserSettings.ini` at launch and exit. Nothing the
+game adds there is ever read back into the source.
+
+## The six keys the manager writes itself
+
+These come from the instance's settings; everything else is your text, passed through untouched:
 
 | Key | Section | Value |
 |---|---|---|
@@ -28,12 +33,15 @@ everything else is your text, passed through untouched:
 | `MaxPlayers` | `[/Script/Engine.GameSession]` | **Max players** (ASA ignores it; the same field also goes on the command line as `-WinLiveMaxPlayers`, which is what counts) |
 | `AltSaveDirectoryName` | any | Never written to the INI; it rides in the map string. Reserved so source text cannot redirect the world folder. |
 
-`ServerAdminPassword` is deliberately not owned. It is your text under `[ServerSettings]`; the
-manager only reads it, because RCON needs it, and refuses to start without it.
+The manager does not own `ServerAdminPassword`. It is your text under `[ServerSettings]`; the manager
+only reads it, because RCON needs it, and refuses to start without it.
 
-## How to use it
+These six are authoritative: the ports the manager checked for collisions are the ports the game gets,
+whatever the text said. That is why your own copy of one of them produces a warning rather than a
+silent replacement, and why the reserved list is enforced in all three places it could be smuggled in
+through: source text, overrides, and free-text launch arguments.
 
-### The INI editor
+## The INI editor
 
 For a standalone instance: the instance page, **Config** tab, sub-tabs **GameUserSettings.ini** and
 **Game.ini**. For a cluster: the cluster page, **Config** tab, the same two sub-tabs. A member's
@@ -56,10 +64,16 @@ bar as the text warrants:
 
 Saving writes the file and updates the mirror: the toast is `Saved GameUserSettings.ini`, or
 `Saved GameUserSettings.ini` with `The file was written, but the database copy could not be updated.`
-when only the mirror failed. Changes take effect at the instance's next start; a running server keeps
-the generated files it launched with.
+when only the mirror failed. Every save is temp-file-and-rename, serialized per file, and checked
+against the hash the editor loaded. The mirror row (`IniDocuments`: owner, file, text, SHA-256, time)
+is updated after the file; a mirror failure never fails the save. Changes take effect at the
+instance's next start; a running server keeps the generated files it launched with.
 
-### Edits outside the manager
+It is a raw text area rather than a set of typed forms because ARK's INI surface is enormous, changes
+with every patch, and is documented everywhere as text. A form would always be behind, and it would
+hide what the game actually reads.
+
+## Editing a source file outside the manager
 
 You can edit a source file with any editor while the service runs. The manager reads the file at
 every start and in the launch preview, so the change counts. The INI editor notices: the next
@@ -68,11 +82,7 @@ refused with the conflict notice (the editor compares the SHA-256 it loaded with
 hash), and the mirror notice appears until the file is saved from the editor or **Retry mirror** is
 clicked, because an external edit updates the file but not the database copy.
 
-Editing the *generated* files under `Saved\Config\WindowsServer` is pointless: they are overwritten
-at the next start, and the game itself rewrites `GameUserSettings.ini` at launch and exit. Nothing the
-game adds there is ever read back into the source.
-
-### Overrides
+## Overrides
 
 On any instance's **Config** tab, under **Overrides**: `Single keys written on top of the source text
 when the instance starts.` **Add override** opens a dialog with **File** (`GameUserSettings` or
@@ -85,7 +95,7 @@ Overrides are for a member that needs one value different from its cluster, such
 an override names a key the source also has, the override wins; when the section is missing, it is
 appended at the end of the file.
 
-### Restore from database
+## Restoring the source files from the database
 
 **Settings**, under *Configuration data*: **Restore INI files from database** rewrites every source
 file on disk from its mirror row. The confirmation: `Every Game.ini and GameUserSettings.ini under
@@ -94,7 +104,12 @@ are lost.` This is the only direction the database ever writes files. Use it aft
 database copy on a fresh box; the folders, junctions, and generated files are recreated at the next
 start of each instance.
 
-### Starting points
+The file on disk is the master and the database copy is a mirror, because the file is what the game
+reads and what you can inspect and back up with any tool. The mirror exists so that one copy of the
+database restores a complete configuration on another box, and the one path back from database to
+disk is this button, explicit and confirmed, never automatic.
+
+## Where a new file starts from
 
 The wizard's **Config source** step (standalone only) and the **INI files start from** field of a new
 cluster offer the same choices:
@@ -110,7 +125,7 @@ On the wizard, the **Server admin password** field sets `ServerAdminPassword` in
 `GameUserSettings.ini`, replacing whatever the copy had; left blank, a copy keeps the copied
 password. A cluster's creation form has no password field; set it on the cluster's Config tab.
 
-## What happens underneath
+## What a start does to your text
 
 At every start (and, without writing anything, in the launch preview on the **Launch** tab):
 
@@ -131,27 +146,7 @@ At every start (and, without writing anything, in the launch preview on the **La
 The warnings from steps 2 and 3 reach you twice: in the console at start, prefixed `Config:`, and on
 the **Launch** tab under `Notes from the INI pipeline`, which is the same generation run in memory.
 
-Every save from the editor is temp-file-and-rename, serialized per file, and checked against the hash
-the editor loaded. The mirror row (`IniDocuments`: owner, file, text, SHA-256, time) is updated after
-the file; a mirror failure never fails the save.
-
-## Why it works this way
-
-The design chose a raw text editor over typed forms because ARK's INI surface is enormous, changes
-with every patch, and is documented everywhere as text; a form would always be behind and would hide
-what the game actually reads. Generating the files rather than launching the game on the source text
-is what lets a cluster share one source while every member gets its own session name, ports, and cap,
-and it is what makes the manager-owned keys authoritative: the ports the manager checked for
-collisions are the ports the game gets, whatever the text said. Hence the warnings rather than
-silent replacement, and the reserved-key list enforced in all three places (source text, overrides,
-free-text launch arguments).
-
-The file is the master and the database a mirror because the file is what the game reads and what
-you can inspect and back up with any tool; the mirror exists only so that one copy of the database
-restores a complete configuration on another box. The one database-to-disk direction is explicit and
-confirmed, never automatic.
-
-## When it refuses or fails
+## What the editor, the override dialog, and a start refuse
 
 | Where | Message | Meaning and what to do |
 |---|---|---|
