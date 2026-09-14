@@ -135,7 +135,7 @@ else
                 }
 
                 var result = await Clusters.SaveAsync(id, new ClusterEdit(cluster.Cluster.Name, cluster.Cluster.ClusterKey, Append(cluster.Cluster.AdminWhitelist, player.EosId)));
-                Notifications.Report(result, "Added to", $"{cluster.Cluster.Name}'s whitelist");
+                Notifications.Report(result, ActionVerb.AddedTo, $"{cluster.Cluster.Name}'s whitelist");
             }
             else
             {
@@ -147,7 +147,7 @@ else
 
                 var i = detail.Instance;
                 var result = await Instances.SaveAsync(id, new InstanceEdit(i.Name, i.SessionName, i.MaxPlayers, i.GamePort, i.RconPort, Append(i.AdminWhitelist, player.EosId), i.BackupIntervalMinutes, i.BackupRetention));
-                Notifications.Report(result, "Added to", $"{i.Name}'s whitelist");
+                Notifications.Report(result, ActionVerb.AddedTo, $"{i.Name}'s whitelist");
             }
         });
     }
