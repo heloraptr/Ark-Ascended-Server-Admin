@@ -19,10 +19,10 @@
   </PropertyGroup>
 
   <PropertyGroup Label="Package metadata">
-    <Authors>zman88a</Authors>
+    <Authors>heloraptr</Authors>
     <Product>Ark Ascended Server Admin</Product>
     <Description>Self-hosted ARK: Survival Ascended dedicated-server manager for Windows.</Description>
-    <Copyright>Copyright © $([System.DateTime]::UtcNow.Year)</Copyright>
+    <Copyright>Copyright (c) 2026 heloraptr</Copyright>
     <RepositoryType>git</RepositoryType>
     <IsPackable>false</IsPackable>
   </PropertyGroup>

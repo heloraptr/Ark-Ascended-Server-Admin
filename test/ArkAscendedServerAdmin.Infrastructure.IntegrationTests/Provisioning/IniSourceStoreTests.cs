@@ -116,19 +116,33 @@ public class IniSourceStoreTests
     }
 
     [Fact]
-    public async Task Save_IsAtomic_NoTempFileRemains()
+    public async Task Save_WhileAReaderHoldsTheFile_KeepsTheOldTextWhole_AndLeavesNoTempFile()
     {
+        // The store writes a temp file and renames it over the target. Windows refuses to rename over a file
+        // that another handle holds open without delete sharing (ERROR_ACCESS_DENIED), so the save fails as
+        // a unit: the reader never sees a half-written file, the previous text survives, and the temp file
+        // is cleaned up. An in-place write would have truncated the file under the reader instead. The
+        // handle is held by the test, so nothing here depends on timing.
         using var root = new TempDataRoot();
         var ct = TestContext.Current.CancellationToken;
         var ids = await Seed.CreateAsync(root, ct);
         var store = CreateStore(root);
         var owner = IniOwner.ForCluster(ids.ClusterId);
-
+        var path = ClusterFile(root, IniFile.Game);
         var first = await store.SaveAsync(owner, IniFile.Game, Text, EmptyHash, ct);
-        await store.SaveAsync(owner, IniFile.Game, Text + "X=1\r\n", first.NewSha256!, ct);
 
-        var entries = Directory.GetFileSystemEntries(root.Layout.ClusterConfigSourceDirectory(Seed.ClusterSlug));
-        Assert.Equal([ClusterFile(root, IniFile.Game)], entries);
+        using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => store.SaveAsync(owner, IniFile.Game, Text + "X=1\r\n", first.NewSha256!, ct));
+        }
+
+        Assert.Equal(Text, await File.ReadAllTextAsync(path, ct));
+        Assert.Equal([path], Directory.GetFileSystemEntries(root.Layout.ClusterConfigSourceDirectory(Seed.ClusterSlug)));
+
+        // Once the reader lets go, the same save lands whole.
+        var second = await store.SaveAsync(owner, IniFile.Game, Text + "X=1\r\n", first.NewSha256!, ct);
+        Assert.True(second.Succeeded);
+        Assert.Equal(Text + "X=1\r\n", await File.ReadAllTextAsync(path, ct));
     }
 
     [Fact]

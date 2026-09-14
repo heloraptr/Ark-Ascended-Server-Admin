@@ -11,10 +11,10 @@ namespace ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Players;
 /// <summary>The tracker over a real SQLite database, fed directly and through the fake console and process manager.</summary>
 public class PlayerTrackerTests
 {
-    private const string Eos = "0002f16bad3d4330b6097fcec38c5610";
+    private const string Eos = "0002c0ffee11d00d4242beef00c0ffee";
     private const string Other = "0002aaaa0002aaaa0002aaaa0002aaaa";
-    private const string JoinLine = "[2026.09.13-18.48.40:782][696]2026.09.13_18.48.40: HeloRaptr [UniqueNetId:0002f16bad3d4330b6097fcec38c5610 Platform:None] joined this ARK!";
-    private const string LeaveLine = "[2026.09.13-18.50.08:364][320]2026.09.13_18.50.08: HeloRaptr [UniqueNetId:0002f16bad3d4330b6097fcec38c5610 Platform:None] left this ARK!";
+    private const string JoinLine = "[2026.09.13-18.48.40:782][696]2026.09.13_18.48.40: Survivor42 [UniqueNetId:0002c0ffee11d00d4242beef00c0ffee Platform:None] joined this ARK!";
+    private const string LeaveLine = "[2026.09.13-18.50.08:364][320]2026.09.13_18.50.08: Survivor42 [UniqueNetId:0002c0ffee11d00d4242beef00c0ffee Platform:None] left this ARK!";
     private static readonly DateTimeOffset JoinedAt = new(2026, 9, 13, 18, 48, 40, 782, TimeSpan.Zero);
     private static readonly DateTimeOffset LeftAt = new(2026, 9, 13, 18, 50, 8, 364, TimeSpan.Zero);
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(10);
@@ -69,7 +69,7 @@ public class PlayerTrackerTests
         Assert.True(await host.Tracker.ApplyAsync(island, Join, CommandTestHost.Now, ct));
 
         var row = await RowAsync(host, ct);
-        Assert.Equal(("HeloRaptr", Eos, "None"), (row.Name, row.EosId, row.Platform));
+        Assert.Equal(("Survivor42", Eos, "None"), (row.Name, row.EosId, row.Platform));
         Assert.True(row.IsOnline);
         Assert.Equal("Island", row.LastInstance?.Name);
         Assert.Equal((JoinedAt, JoinedAt, JoinedAt), (row.FirstSeenAt, row.LastSeenAt, row.LastJoinedAt));
@@ -132,7 +132,7 @@ public class PlayerTrackerTests
         using var host = new CommandTestHost();
         await host.InitializeAsync(ct);
         var island = await CreateAsync(host, "Island", 7777, 27020, ct);
-        var unstamped = PlayerLogLines.TryParse($"HeloRaptr [UniqueNetId:{Eos} Platform:None] joined this ARK!")!;
+        var unstamped = PlayerLogLines.TryParse($"Survivor42 [UniqueNetId:{Eos} Platform:None] joined this ARK!")!;
 
         await host.Tracker.ApplyAsync(island, unstamped, CommandTestHost.Now, ct);
 
@@ -153,11 +153,11 @@ public class PlayerTrackerTests
         await host.Tracker.RecordListedAsync(island, [new ListedPlayer("Newcomer", "0002bbbb0002bbbb0002bbbb0002bbbb")], ct);
 
         var rows = await RowsAsync(host, ct);
-        Assert.Equal(["Elsewhere", "HeloRaptr", "Newcomer"], rows.Select(r => r.Name));
+        Assert.Equal(["Elsewhere", "Newcomer", "Survivor42"], rows.Select(r => r.Name));
         Assert.True(rows[0].IsOnline, "a player on another instance is untouched");
-        Assert.False(rows[1].IsOnline, "listed on the island no more");
-        Assert.True(rows[2].IsOnline);
-        Assert.Equal(("Island", CommandTestHost.Now, CommandTestHost.Now), (rows[2].LastInstance?.Name, rows[2].FirstSeenAt, rows[2].LastSeenAt));
+        Assert.True(rows[1].IsOnline);
+        Assert.Equal(("Island", CommandTestHost.Now, CommandTestHost.Now), (rows[1].LastInstance?.Name, rows[1].FirstSeenAt, rows[1].LastSeenAt));
+        Assert.False(rows[2].IsOnline, "listed on the island no more");
     }
 
     [Fact]
