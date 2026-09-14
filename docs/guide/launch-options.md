@@ -2,13 +2,11 @@
 
 Launch options are the `-Flag` switches on the dedicated server's command line: the typed flags the
 manager knows about, a free-text field for anything else, and the options the manager builds itself
-from the instance (map, ports, mods, cluster, logging). This page covers the flags editor, how a
-cluster's base and an instance's own settings combine, the command-line preview, the always-on game
-log flags, and what the manager adds without asking.
+from the instance (map, ports, mods, cluster, logging).
 
-## What it does
+## Three kinds of command-line content
 
-Three kinds of command-line content, kept apart:
+They are kept apart, because they fail in different ways:
 
 1. **Manager-owned options**, built from the instance and never editable as text: the map string,
    `-port`, `-WinLiveMaxPlayers`, `-clusterid`, `-ClusterDirOverride`, `-mods`, `-log`,
@@ -19,11 +17,10 @@ Three kinds of command-line content, kept apart:
 
 `?Key=Value` map parameters (the `[ServerSettings]` keys some guides put after the map name) are not
 launch options here; they belong in the INI text ([configuration-files.md](configuration-files.md)),
-and a `?` anywhere in additional arguments is refused.
+and a `?` anywhere in additional arguments is refused. Those parameters are INI keys in disguise, and
+having two places to set `ServerPVE` guarantees they disagree one day.
 
-## How to use it
-
-### The flags editor
+## The flags editor
 
 On the instance page, **Launch** tab; on the cluster page, **Launch** tab. The top line reminds you:
 `Every start also passes -log -servergamelog; the console depends on the log they produce, so they
@@ -46,7 +43,9 @@ The three buttons are **On**, **Off**, and either **Default** (a cluster or a st
 **Inherit** (a cluster member). With the third one selected, a line under the flag shows what will
 happen: `Default: on · passes -NoBattlEye` or `Inherited from the cluster: off ·
 -exclusivejoin is not passed`. Every flag defaults to off except **BattlEye disabled**, which
-defaults to on: the manager passes `-NoBattlEye` unless you set that flag to **Off**.
+defaults to on: the manager passes `-NoBattlEye` unless you set that flag to **Off**. The main use
+here is a private cluster, and BattlEye adds a requirement on the client, so it starts off and is one
+click to turn on.
 
 Below the flags:
 
@@ -63,16 +62,19 @@ disabled until they are gone. **Reset** returns to the saved values. In the wiza
 appears on the **Launch options** step; there **Save launch options** keeps the values for the
 summary, and the hint says `the defaults are fine for a first server`.
 
-### Cluster base plus instance additions
+Saved flags live on the instance or cluster row as nullable values: `null` is **Inherit** on a member
+and **Default** elsewhere. Nothing is written to disk; the line is built at every start.
+
+## How a cluster member resolves each setting
 
 A cluster member resolves each flag on its own: the member's **On** or **Off** wins, **Inherit** takes
 the cluster's value, and a cluster flag left on **Default** means off (on for BattlEye disabled).
 **Server platform** and **Active event** behave the same way per field. Additional arguments are not
 overridden but concatenated: the cluster's text first, then the member's, joined by one space.
 
-A standalone instance has no base; **Default** is simply the flag's default.
+A standalone instance has no base; **Default** is the flag's own default.
 
-### The command-line preview
+## The command-line preview
 
 Under the editor on the instance page, **What a start would run** with a **Refresh** button shows the
 exact line, prefixed `ArkAscendedServer.exe`, that the next **Start** would pass. It is rebuilt after
@@ -81,7 +83,7 @@ refuse the start, and `Notes from the INI pipeline` with the reserved-key warnin
 configuration ([configuration-files.md](configuration-files.md)). The same problem is repeated in the
 header notice `Start would be refused.` on every tab except Config while the instance is stopped.
 
-## What happens underneath
+## The order the arguments come out in
 
 The argument list is built from the database row, never from a shell string, and passed to the
 process as individual arguments in this order:
@@ -113,32 +115,23 @@ What the manager adds itself, and why:
 | `-mods=` | The map's mod, then cluster mods in cluster order, then instance mods in instance order | Load order. A custom map's mod comes from the map row, not from any list. |
 | `-log -servergamelog` | Fixed | Produces `ShooterGame.log`, which the console tails and the player tracker reads. |
 
+Those last two are not optional because the console, the startup markers, and the player list all
+come from the log they produce. A server without them would be invisible to the manager.
+
+## How free text is read, and why it is fenced in
+
 Additional arguments are split on whitespace; double quotes group a token and are stripped
 (`-foo="a b"` becomes one argument `-foo=a b`). There is no escape for a literal quote. Each token's
 name (the part before `=`) is compared case-insensitively against the reserved list. The same
 validation runs when you save (the editor), when the wizard creates the instance, and when the start
 builds the line, so a value that got in by another route is still caught.
 
-Saved flags live on the instance or cluster row as nullable values: `null` is **Inherit** on a member
-and **Default** elsewhere. Nothing is written to disk; the line is built at every start.
+The field is there for the long tail, but it may not name anything the manager already emits. Two
+`-port` arguments on one line would let the text silently win over the port the manager checked for
+collisions, and a free-text `?` could break re-attach, since the `AltSaveDirectoryName` token is also
+the key the service matches a running process against.
 
-## Why it works this way
-
-The design separates the three kinds because they fail differently. `?` parameters after the map are
-INI keys in disguise, and having two places to set `ServerPVE` guarantees they disagree one day; so
-they live in the INI only. True `-Flag` options with no INI form get typed controls so the common
-ones cannot be misspelled and so a cluster can set them once. Free text stays for the long tail, but
-it may not name anything the manager already emits: two `-port` arguments on one line would let the
-text silently win over the port the manager checked for collisions. The map string is built the
-same way for the same reason, and because the `AltSaveDirectoryName` token doubles as the re-attach
-key, a free-text `?` could break re-attach.
-
-`-log -servergamelog` are not optional because the console, the startup markers, and the player list
-all come from the log those flags produce; a server without them would be invisible to the manager.
-BattlEye is off by default because the primary use is a private cluster and BattlEye adds a client
-requirement; it is one click to turn on.
-
-## When it refuses or fails
+## What stops a save or a start
 
 | Message | Meaning and what to do |
 |---|---|
