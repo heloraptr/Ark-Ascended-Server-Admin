@@ -41,7 +41,7 @@ error with **Retry** and **Skip**), and **Resume update** while the phase is sto
 
 **Start** on a row or on the instance page, **Start all**, **Start selected**, and the wizard's
 **Start the server right away** all run the same sequence. The toast `Started <name>` arrives when
-the process is up and its identity is saved; refusals arrive as `Could not started <name>` with the
+the process is up and its identity is saved; refusals arrive as `Could not start <name>` with the
 reason. The console shows the details as they happen.
 
 1. Refused unless the service is Ready, no update holds the maintenance gate, no other operation

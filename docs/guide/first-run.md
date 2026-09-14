@@ -138,7 +138,7 @@ afterwards, since an interrupted download leaves a folder behind and nothing els
 | Setup | `Install finished but could not be verified` | SteamCMD exited 0 but the manifest is not `StateFlags 4`. Retry, with *SteamCMD validate* on if it repeats. |
 | Setup | **Startup failed** | A startup step threw. `Only a service restart clears a failed pipeline step. The service log has the stack trace.` |
 | Wizard summary | `The start will be refused: no admin password is set. Go back to Config source and enter one, or untick this.` | Standalone with `Game defaults` or `Blank` and an empty password. |
-| Instance page | `Could not started <name>` with `ServerAdminPassword under [ServerSettings] is missing or empty; RCON is the only stop path, so it is required.` | Set the password in the INI editor (**Config** tab) or the cluster's, then **Start**. |
+| Instance page | `Could not start <name>` with `ServerAdminPassword under [ServerSettings] is missing or empty; RCON is the only stop path, so it is required.` | Set the password in the INI editor (**Config** tab) or the cluster's, then **Start**. |
 | Instance page | Notice **Start would be refused.** | The launch preview found a problem; the text names it. |
 
 Every other start refusal is listed in [instances.md](instances.md#refusals-and-failures).

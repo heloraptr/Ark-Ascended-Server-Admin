@@ -54,7 +54,7 @@ that repeats the feature will be closed with a link here.
   running. The installer script owns upgrades, with a journal and rollback; the app will only tell you
   that a newer release exists.
 - UPnP. Many routers disable it, leases expire or vanish on a router reboot, and it would need a
-  re-announce loop and honest failure reporting. The Connection card tells you exactly which UDP port
+  re-announce loop and honest failure reporting. Each instance shows its game port, which is the one
   to forward; Tailscale or ZeroTier are documented alternatives.
 - AsaApi plugin management. Every instance shares one `ShooterGame\Binaries` folder through a
   junction, so a hand-installed loader lands on every server at once. That layout is untested with
