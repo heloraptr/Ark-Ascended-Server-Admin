@@ -27,7 +27,7 @@ final **Standalone** section for instances without a cluster. Each row shows:
 | Map | The map name and `3 mods` or `vanilla`. |
 | Ports | `7777 game`, `27020 rcon`. |
 | State and backup | The state label ([README](README.md#instance-states)) and the last backup: `Backed up 12 min ago`, `Skipped 1 h ago`, `Failed`, or `no backup yet`. Hovering the backup shows its reason. |
-| Actions | While a process is live: **Stop**, **Restart**, **Back up now** (enabled only when **Running**). While stopping: **Stop now** (skips the countdown). Otherwise **Start** (disabled when the state is **Unknown**). Always: **Open console**. |
+| Actions | While a process is live: **Stop**, **Restart**, **Back up now** (enabled only when **Running**). While stopping: **Stop now** (skips the countdown), which turns into a disabled **Closing…** once the exit has been requested. Otherwise **Start** (disabled when the state is **Unknown**). Always: **Open console**. |
 
 **Start all**, **Stop all**, **Start selected**, and **Stop selected** submit every eligible row at
 once; the launch queue staggers the starts. The toast is `Started 3 instances`, or
@@ -224,7 +224,7 @@ restarts it.
 | `Launch cancelled before it started.` / `The service is shutting down.` | The queued launch was abandoned; try again. |
 | `The instance is not running.` | Stop asked for an instance without a live process. |
 | `Pid <n> is still alive after kill; its exit could not be verified.` | The kill did not take within 30 s. Look at the process in Task Manager; the state stays **Stopping** with this detail. |
-| `No countdown to skip` (`The stop is already past the broadcast phase.`) | **Stop now** was clicked after the countdown ended. |
+| `No countdown to skip` (`The stop is already past the broadcast phase.`) | **Stop now** was clicked in the moment after the countdown ended, before the button turned into **Closing…**. |
 | `The instance is not waiting for its identity to be persisted.` | **Retry persist** on an instance that is not in **Identity not saved**. |
 | `An operation is in progress for this instance; try again when it finishes.` | Delete asked while the instance lock is held. |
 | `The instance could not be stopped with a verified exit: ...` | Delete aborted before touching anything; the reason is the stop's. |

@@ -40,7 +40,9 @@ public enum LaunchKind
 /// Live view of one instance's process, owned by the process manager and mirrored into
 /// <see cref="Instance.State"/>. <see cref="Detail"/> carries the human-readable reason for
 /// <see cref="InstanceState.Unreachable"/>, <see cref="InstanceState.Unknown"/>, and
-/// <see cref="InstanceState.IdentityUnpersisted"/>.
+/// <see cref="InstanceState.IdentityUnpersisted"/>. <see cref="ExitRequested"/> is true once a stop job is past
+/// the countdown and has asked the server to exit (or has nothing to ask and is waiting for the graceful
+/// timeout); the UI turns "Stop now" into a disabled "Closing…" at that point.
 /// </summary>
 public sealed record InstanceRuntime(
     int InstanceId,
@@ -49,7 +51,8 @@ public sealed record InstanceRuntime(
     DateTimeOffset? ProcessStartTime,
     StartupMarker? LastMarker,
     DateTimeOffset? LastRconSuccessAt,
-    string? Detail)
+    string? Detail,
+    bool ExitRequested = false)
 {
     /// <summary>True for every state that has (or may have) a live process behind it.</summary>
     public bool HasLiveProcess => State is InstanceState.Starting

@@ -124,7 +124,11 @@ else
                             </span>
                         </div>
                         <div class="actions">
-                            @if (runtime.State == InstanceState.Stopping)
+                            @if (runtime.State == InstanceState.Stopping && runtime.ExitRequested)
+                            {
+                                <RadzenButton Text="Closing…" Icon="hourglass_top" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Warning" Disabled="true" title="Exit requested; waiting for the process to close" />
+                            }
+                            else if (runtime.State == InstanceState.Stopping)
                             {
                                 <RadzenButton Text="Stop now" Icon="skip_next" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Warning" title="Skip the countdown" Click="@(() => SkipCountdown(instance))" />
                             }

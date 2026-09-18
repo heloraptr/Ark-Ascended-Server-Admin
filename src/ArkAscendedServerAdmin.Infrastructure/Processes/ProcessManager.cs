@@ -596,11 +596,13 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
 
                 // No explicit saveworld: doexit saves the world itself ("Saving world..." twice in the log before "Closing by request", captured 2026-09-13).
                 session.StopRequested = true;
+                Update(session.InstanceId, runtime => runtime with { ExitRequested = true });
                 await TryRconAsync(session, rcon, RconCommands.DoExit, timeout, token);
             }
             else
             {
                 session.StopRequested = true;
+                Update(session.InstanceId, runtime => runtime with { ExitRequested = true });
                 Append(channel, "No RCON credentials for this process; skipping doexit and waiting for the graceful timeout before killing.", ConsoleLineKind.Warning);
             }
 
@@ -921,7 +923,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             _logger.LogWarning("Instance {InstanceId} pid {Pid} exited without a manager-initiated stop (code {Code}).", session.InstanceId, session.Pid, codeForLog);
         }
 
-        Update(session.InstanceId, runtime => runtime with { State = InstanceState.Stopped, Pid = null, ProcessStartTime = null, Detail = detail });
+        Update(session.InstanceId, runtime => runtime with { State = InstanceState.Stopped, Pid = null, ProcessStartTime = null, Detail = detail, ExitRequested = false });
         await MirrorStateAsync(session.InstanceId, InstanceState.Stopped, _lifetime, clearIdentity: true);
 
         session.Cancellation.Cancel();
