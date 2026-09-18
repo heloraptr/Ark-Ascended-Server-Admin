@@ -62,7 +62,7 @@ public sealed class FakeInstanceLocks : IInstanceLocks
 
     public ConcurrentDictionary<int, int> Holders { get; } = new();
 
-    public IDisposable? TryAcquire(int instanceId)
+    public IInstanceLease? TryAcquire(int instanceId)
     {
         var gate = _locks.GetOrAdd(instanceId, _ => new SemaphoreSlim(1, 1));
         if (!gate.Wait(0))
@@ -74,7 +74,7 @@ public sealed class FakeInstanceLocks : IInstanceLocks
         return new Lease(this, instanceId, gate);
     }
 
-    public async Task<IDisposable> AcquireAsync(int instanceId, CancellationToken cancellationToken)
+    public async Task<IInstanceLease> AcquireAsync(int instanceId, CancellationToken cancellationToken)
     {
         var gate = _locks.GetOrAdd(instanceId, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken);
@@ -82,11 +82,21 @@ public sealed class FakeInstanceLocks : IInstanceLocks
         return new Lease(this, instanceId, gate);
     }
 
-    private sealed class Lease(FakeInstanceLocks owner, int instanceId, SemaphoreSlim gate) : IDisposable
+    private sealed class Lease(FakeInstanceLocks owner, int instanceId, SemaphoreSlim gate) : IInstanceLease
     {
+        public int InstanceId { get; } = instanceId;
+
+        public bool IsReleased { get; private set; }
+
         public void Dispose()
         {
-            owner.Holders.TryRemove(instanceId, out _);
+            if (IsReleased)
+            {
+                return;
+            }
+
+            IsReleased = true;
+            owner.Holders.TryRemove(InstanceId, out _);
             gate.Release();
         }
     }
@@ -198,7 +208,13 @@ public sealed class FakeProcessManager(FakeMaintenanceGate? gate = null) : IProc
         return Task.FromResult(OperationOutcome.Success);
     }
 
+    /// <summary>Recorded in <see cref="Stops"/> like a plain stop; the lease is the caller's and is left alone.</summary>
+    public Task<OperationOutcome> StopUnderLeaseAsync(IInstanceLease lease, StopOptions options, CancellationToken cancellationToken) =>
+        StopAsync(lease.InstanceId, options, cancellationToken);
+
     public Task<OperationOutcome> RestartAsync(int instanceId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+    public Task<OperationOutcome> RestartWithCountdownAsync(int instanceId, DateTimeOffset deadline, CancellationToken cancellationToken) => throw new NotSupportedException();
 
     public bool TrySkipCountdown(int instanceId) => false;
 

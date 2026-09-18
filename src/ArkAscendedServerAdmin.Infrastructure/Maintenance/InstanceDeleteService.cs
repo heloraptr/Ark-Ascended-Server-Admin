@@ -13,8 +13,9 @@ namespace ArkAscendedServerAdmin.Infrastructure.Maintenance;
 
 /// <summary>
 /// Instance delete (plan step 30). <see cref="DeleteAsync"/> only reports acceptance: it takes the instance
-/// lock without waiting ("operation in progress" when held) and runs the job in the background — stop with
-/// verified exit (a failed verification aborts the job with the reason), firewall rules, junctions,
+/// lock without waiting ("operation in progress" when held) and runs the job in the background under that lease — stop
+/// with verified exit through <see cref="IProcessManager.StopUnderLeaseAsync"/> (the locks are not reentrant, B0; a
+/// failed verification aborts the job with the reason), firewall rules, junctions,
 /// archive or delete <c>Saved</c>, the backup archives if asked for, then the database rows. Completion is visible through the instance
 /// disappearing (and a line on its console); the lock is released in a <c>finally</c>.
 /// </summary>
@@ -78,14 +79,14 @@ public sealed class InstanceDeleteService(
         return await job.WaitAsync(cancellationToken);
     }
 
-    private async Task<OperationOutcome> RunAsync(int instanceId, string slug, InstanceDeleteOptions options, IDisposable lease, CancellationToken cancellationToken)
+    private async Task<OperationOutcome> RunAsync(int instanceId, string slug, InstanceDeleteOptions options, IInstanceLease lease, CancellationToken cancellationToken)
     {
         try
         {
             if (processManager.GetRuntime(instanceId).HasLiveProcess)
             {
                 Announce(instanceId, "Delete: stopping the instance with verified exit.");
-                var stop = await processManager.StopAsync(instanceId, new StopOptions(RequireVerifiedExit: true), cancellationToken);
+                var stop = await processManager.StopUnderLeaseAsync(lease, new StopOptions(RequireVerifiedExit: true), cancellationToken);
                 if (!stop.Succeeded)
                 {
                     Announce(instanceId, $"Delete aborted: the instance could not be stopped with a verified exit ({stop.Error}).", ConsoleLineKind.Error);

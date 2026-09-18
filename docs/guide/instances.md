@@ -84,8 +84,10 @@ its whole duration, so a start, backup, or delete asked for meanwhile is refused
 2. Countdown: once a minute for *Countdown before a stop, minutes* (Settings, 1 by default), the
    server broadcasts `Server shutting down in 2 minutes.` ... `Server shutting down in 1 minute.`,
    then `Server shutting down now.` Each command is echoed to the console as `RCON: broadcast ...`.
-   **Stop now** on the row or the page ends the countdown early (`Countdown skipped.`); zero minutes
-   in Settings skips it always.
+   The countdown targets an absolute deadline set when the stop is accepted, so a slow reply never pushes
+   `doexit` later than that deadline plus one reply; if it still goes out more than 5 s late the console
+   says so (`doexit went out 7 s after the deadline ...`). **Stop now** on the row or the page ends the
+   countdown early (`Countdown skipped.`); zero minutes in Settings skips it always.
 3. `RCON: doexit`. The server replies `Exiting...`, saves the world itself (the log shows
    `Saving world...` before `Closing by request`), and exits with code -1, which is normal. No
    separate `saveworld` is sent.
@@ -161,6 +163,7 @@ preview finds a problem while the instance is stopped.
 
 The delete icon in the header opens `Delete <name>`. If the server is running the dialog says so:
 `The server is running. It will be saved and stopped first; the delete waits for the process to exit.`
+The stop runs under the lease the delete already holds, so a running instance can be deleted in one step.
 There are two independent choices. First, the world data:
 
 - **Keep the world data**: `The Saved folder moves to Archive under DataRoot with a timestamp. The

@@ -5,17 +5,13 @@ using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Processes;
 using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Rcon;
-using ArkAscendedServerAdmin.Startup;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Processes;
 
 /// <summary>Reconciliation (plan step 21) against a stub process list, with the current test process standing in for the game.</summary>
 public class ProcessManagerReconcileTests
 {
-    private const string GeneratedIni = "[ServerSettings]\r\nServerAdminPassword=secret\r\nRCONPort=27020\r\nRCONEnabled=True\r\n";
     private static readonly TimeSpan _wait = TimeSpan.FromSeconds(15);
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -27,7 +23,7 @@ public class ProcessManagerReconcileTests
         var (alpha, beta) = await SeedAsync(root);
         var console = new RecordingConsole();
         var outputs = new FakeOutputSourceFactory();
-        using var harness = new Harness(root, [CurrentProcessAs(root.Layout, "alpha")], new FakeRconClient(RconFailure.Connect), console, outputs);
+        using var harness = new ProcessManagerHarness(root, [CurrentProcessAs(root.Layout, "alpha")], new FakeRconClient(RconFailure.Connect), console, outputs);
 
         await harness.Manager.ReconcileAsync(Ct);
 
@@ -54,7 +50,7 @@ public class ProcessManagerReconcileTests
     {
         using var root = new TempDataRoot();
         var (alpha, beta) = await SeedAsync(root, alphaLastPid: 123456);
-        using var harness = new Harness(root, [], new FakeRconClient(RconFailure.Connect), new RecordingConsole(), new FakeOutputSourceFactory());
+        using var harness = new ProcessManagerHarness(root, [], new FakeRconClient(RconFailure.Connect), new RecordingConsole(), new FakeOutputSourceFactory());
 
         await harness.Manager.ReconcileAsync(Ct);
 
@@ -73,7 +69,7 @@ public class ProcessManagerReconcileTests
         var (alpha, _) = await SeedAsync(root);
         var first = CurrentProcessAs(root.Layout, "alpha");
         var second = first with { Pid = first.Pid + 1 };
-        using var harness = new Harness(root, [first, second], new FakeRconClient(RconFailure.Connect), new RecordingConsole(), new FakeOutputSourceFactory());
+        using var harness = new ProcessManagerHarness(root, [first, second], new FakeRconClient(RconFailure.Connect), new RecordingConsole(), new FakeOutputSourceFactory());
 
         await harness.Manager.ReconcileAsync(Ct);
 
@@ -91,7 +87,7 @@ public class ProcessManagerReconcileTests
         using var root = new TempDataRoot();
         var (alpha, _) = await SeedAsync(root);
         var rcon = new FakeRconClient(failure: null);
-        using var harness = new Harness(root, [CurrentProcessAs(root.Layout, "alpha")], rcon, new RecordingConsole(), new FakeOutputSourceFactory());
+        using var harness = new ProcessManagerHarness(root, [CurrentProcessAs(root.Layout, "alpha")], rcon, new RecordingConsole(), new FakeOutputSourceFactory());
         var changes = new List<InstanceRuntime>();
         harness.Manager.RuntimeChanged += changes.Add;
 
@@ -116,7 +112,7 @@ public class ProcessManagerReconcileTests
         using var root = new TempDataRoot();
         var (alpha, _) = await SeedAsync(root);
         var rcon = new FakeRconClient(failure: null);
-        using var harness = new Harness(root, [CurrentProcessAs(root.Layout, "alpha")], rcon, new RecordingConsole(), new FakeOutputSourceFactory(), generatedIni: "[ServerSettings]\r\nRCONPort=27020\r\n");
+        using var harness = new ProcessManagerHarness(root, [CurrentProcessAs(root.Layout, "alpha")], rcon, new RecordingConsole(), new FakeOutputSourceFactory(), generatedIni: "[ServerSettings]\r\nRCONPort=27020\r\n");
 
         await harness.Manager.ReconcileAsync(Ct);
 
@@ -136,7 +132,7 @@ public class ProcessManagerReconcileTests
     {
         using var root = new TempDataRoot();
         var (alpha, _) = await SeedAsync(root);
-        using var harness = new Harness(root, [CurrentProcessAs(root.Layout, "alpha")], new FakeRconClient(RconFailure.Connect), new RecordingConsole(), new FakeOutputSourceFactory());
+        using var harness = new ProcessManagerHarness(root, [CurrentProcessAs(root.Layout, "alpha")], new FakeRconClient(RconFailure.Connect), new RecordingConsole(), new FakeOutputSourceFactory());
         await harness.Manager.ReconcileAsync(Ct);
 
         using var held = harness.Locks.TryAcquire(alpha);
@@ -151,7 +147,7 @@ public class ProcessManagerReconcileTests
     {
         using var root = new TempDataRoot();
         var (alpha, _) = await SeedAsync(root);
-        using var harness = new Harness(root, [], new FakeRconClient(RconFailure.Connect), new RecordingConsole(), new FakeOutputSourceFactory(), ready: false);
+        using var harness = new ProcessManagerHarness(root, [], new FakeRconClient(RconFailure.Connect), new RecordingConsole(), new FakeOutputSourceFactory(), ready: false);
 
         var notReady = await harness.Manager.StartAsync(alpha, LaunchKind.User, Ct);
         Assert.Contains("not ready", notReady.Error, StringComparison.Ordinal);
@@ -197,73 +193,4 @@ public class ProcessManagerReconcileTests
         }
     }
 
-    /// <summary>A process manager wired to fakes; disposing fires the host lifetime so every loop ends.</summary>
-    private sealed class Harness : IDisposable
-    {
-        private readonly CancellationTokenSource _stopping = new();
-        private readonly IReadinessMonitor _readiness = Substitute.For<IReadinessMonitor>();
-
-        public Harness(
-            TempDataRoot root,
-            IReadOnlyList<GameProcessInfo> processes,
-            FakeRconClient rcon,
-            RecordingConsole console,
-            FakeOutputSourceFactory outputs,
-            string? generatedIni = GeneratedIni,
-            bool ready = true)
-        {
-            var settings = Substitute.For<IAppSettingsStore>();
-            settings.GetAsync(Arg.Any<CancellationToken>()).Returns(new AppSettings());
-            var lifetime = Substitute.For<IHostApplicationLifetime>();
-            lifetime.ApplicationStopping.Returns(_stopping.Token);
-            if (ready)
-            {
-                SetReady();
-            }
-            else
-            {
-                _readiness.Current.Returns(new ReadinessState(ReadinessPhase.Recovering, "Recovering", null, DateTimeOffset.UtcNow));
-            }
-
-            Gate = new MaintenanceGate();
-            Locks = new InstanceLocks();
-            Queue = new LaunchQueue(Gate, settings, TimeProvider.System);
-            Manager = new ProcessManager(
-                root,
-                root.Layout,
-                settings,
-                new HostConfiguration(root.Layout.Root, ["https://localhost:5001"], [], false, true, false, "0.0.0-test"),
-                _readiness,
-                Locks,
-                Gate,
-                Queue,
-                rcon,
-                new StubEnumerator(processes),
-                new FakeFirewall(),
-                new FakeLayoutService(),
-                new FakeConfigWriter(generatedIni),
-                outputs,
-                console,
-                TimeProvider.System,
-                lifetime,
-                NullLogger<ProcessManager>.Instance);
-        }
-
-        public ProcessManager Manager { get; }
-
-        public MaintenanceGate Gate { get; }
-
-        public InstanceLocks Locks { get; }
-
-        public LaunchQueue Queue { get; }
-
-        public void SetReady() => _readiness.Current.Returns(new ReadinessState(ReadinessPhase.Ready, "Ready", null, DateTimeOffset.UtcNow));
-
-        public void Dispose()
-        {
-            _stopping.Cancel();
-            Queue.Dispose();
-            _stopping.Dispose();
-        }
-    }
 }
