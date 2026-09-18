@@ -342,5 +342,7 @@ public class LaunchQueueTests
         public Task<AppSettings> GetAsync(CancellationToken cancellationToken = default) => Task.FromResult(settings);
 
         public Task SaveAsync(AppSettings settings, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<AppSettings> UpdateAsync(Func<AppSettings, AppSettings> mutate, CancellationToken cancellationToken = default) => Task.FromResult(mutate(settings));
     }
 }

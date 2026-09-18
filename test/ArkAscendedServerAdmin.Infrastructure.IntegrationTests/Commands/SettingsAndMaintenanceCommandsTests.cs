@@ -1,5 +1,6 @@
 using System.Globalization;
 using ArkAscendedServerAdmin.Auth;
+using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Maintenance;
 using ArkAscendedServerAdmin.Processes;
@@ -34,6 +35,7 @@ public class SettingsCommandsTests
         await host.SettingsCommands.SaveAppSettingsAsync(defaults with { StaggerDelaySeconds = 5, CurseForgeApiKey = "key" }, ct);
         var saved = await host.SettingsCommands.GetAppSettingsAsync(ct);
         await Assert.ThrowsAsync<ArgumentException>(() => host.SettingsCommands.SaveAppSettingsAsync(defaults with { GamePortStart = 0 }, ct));
+        await Assert.ThrowsAsync<AppSettingsConflictException>(() => host.SettingsCommands.SaveAppSettingsAsync(defaults with { StaggerDelaySeconds = 6 }, ct));
 
         Assert.Equal(30, defaults.StaggerDelaySeconds);
         Assert.Equal((5, "key"), (saved.StaggerDelaySeconds, saved.CurseForgeApiKey));

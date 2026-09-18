@@ -179,6 +179,9 @@ else
         public int ConsoleBackfillLines { get; set; }
         public string CurseForgeApiKey { get; set; } = string.Empty;
         public string AdminWhitelist { get; set; } = string.Empty;
+
+        /// <summary>The version the page loaded; the save carries it so a save from another tab is not overwritten.</summary>
+        public long Version { get; set; }
     }
 
     private EditModel? _edit;
@@ -208,6 +211,7 @@ else
             ConsoleBackfillLines = s.ConsoleBackfillLines,
             CurseForgeApiKey = s.CurseForgeApiKey,
             AdminWhitelist = s.AdminWhitelist,
+            Version = s.Version,
         };
         _host = await SettingsCommands.GetHostConfigurationAsync();
         _problems = null;
@@ -233,6 +237,7 @@ else
             ConsoleBackfillLines = e.ConsoleBackfillLines,
             CurseForgeApiKey = e.CurseForgeApiKey?.Trim() ?? string.Empty,
             AdminWhitelist = e.AdminWhitelist,
+            Version = e.Version,
         };
 
         _problems = settings.Validate();
@@ -262,6 +267,12 @@ else
                 catch (ArgumentException ex)
                 {
                     _problems = [ex.Message];
+                }
+                catch (AppSettingsConflictException ex)
+                {
+                    // Someone else saved first (another tab, or a background change): nothing was written. Reset reloads.
+                    _problems = [ex.Message];
+                    Notifications.Warn("Settings not saved", "They changed since this page loaded. Press Reset to load the current values, then save again.");
                 }
             });
         }
