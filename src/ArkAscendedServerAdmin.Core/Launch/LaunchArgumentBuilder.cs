@@ -77,7 +77,6 @@ public static class LaunchArgumentBuilder
 
         AddIfTrue(arguments, flags.ExclusiveJoin, "-exclusivejoin");
         AddIfTrue(arguments, flags.NoWildBabies, "-NoWildBabies");
-        AddIfTrue(arguments, flags.PreventSpawnAnimations, "-PreventSpawnAnimations");
         AddIfTrue(arguments, flags.UseStore, "-UseStore");
         AddIfTrue(arguments, flags.ConvertToStore, "-ConvertToStore");
         AddIfSet(arguments, flags.ServerPlatform, "-ServerPlatform");

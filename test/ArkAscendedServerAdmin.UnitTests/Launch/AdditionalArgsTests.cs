@@ -80,7 +80,6 @@ public class AdditionalArgsTests
     [InlineData("-ServerPlatform=ALL")]
     [InlineData("-exclusivejoin")]
     [InlineData("-NoWildBabies")]
-    [InlineData("-PreventSpawnAnimations")]
     [InlineData("-UseStore")]
     [InlineData("-ConvertToStore")]
     [InlineData("-servergamelog")]

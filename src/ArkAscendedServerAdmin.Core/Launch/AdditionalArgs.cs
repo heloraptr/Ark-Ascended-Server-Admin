@@ -21,7 +21,6 @@ public static class AdditionalArgs
         "-ServerPlatform",
         "-exclusivejoin",
         "-NoWildBabies",
-        "-PreventSpawnAnimations",
         "-UseStore",
         "-ConvertToStore",
         "-servergamelog",

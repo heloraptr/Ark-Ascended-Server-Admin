@@ -19,6 +19,8 @@ They are kept apart, because they fail in different ways:
 launch options here; they belong in the INI text ([configuration-files.md](configuration-files.md)),
 and a `?` anywhere in additional arguments is refused. Those parameters are INI keys in disguise, and
 having two places to set `ServerPVE` guarantees they disagree one day.
+`PreventSpawnAnimations` is one of them: some guides write it as a switch, but the game reads it as a
+`[ServerSettings]` key, so add `PreventSpawnAnimations=True` as an override when you want it.
 
 ## The flags editor
 
@@ -35,7 +37,6 @@ Each typed flag has a label, a description, and three buttons:
 | **Tribe logs over RCON** | `-ServerRconOutputTribeLogs` | `Tribe events are also sent to RCON clients.` |
 | **Exclusive join** | `-exclusivejoin` | `Only whitelisted players can join.` |
 | **No wild babies** | `-NoWildBabies` | `Wild creatures never spawn as babies.` |
-| **Prevent spawn animations** | `-PreventSpawnAnimations` | `Players and creatures appear without the spawn-in animation.` |
 | **Use store** | `-UseStore` | `Player profiles are kept in the cluster's store rather than per server.` |
 | **Convert to store** | `-ConvertToStore` | `One-time migration of existing profiles into the store; turn it off again after one start.` |
 
@@ -97,7 +98,7 @@ process as individual arguments in this order:
 -log -servergamelog
 -ServerGameLogIncludeTribeLogs  -ServerRconOutputTribeLogs                        (when on)
 -NoBattlEye                                                                      (unless BattlEye disabled is Off)
--exclusivejoin -NoWildBabies -PreventSpawnAnimations -UseStore -ConvertToStore   (each when on)
+-exclusivejoin -NoWildBabies -UseStore -ConvertToStore                           (each when on)
 -ServerPlatform=<value> -ActiveEvent=<value>                                     (when set)
 <additional arguments, tokenized>
 ```

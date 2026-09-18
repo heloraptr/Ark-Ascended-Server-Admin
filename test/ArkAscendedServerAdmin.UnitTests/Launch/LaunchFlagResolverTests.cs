@@ -31,7 +31,6 @@ public class LaunchFlagResolverTests
         Assert.Equal("ALL", resolved.ServerPlatform);
         Assert.True(resolved.ExclusiveJoin);
         Assert.True(resolved.NoWildBabies);
-        Assert.True(resolved.PreventSpawnAnimations);
         Assert.True(resolved.UseStore);
         Assert.True(resolved.ConvertToStore);
         Assert.True(resolved.ServerGameLogIncludeTribeLogs);
@@ -51,7 +50,6 @@ public class LaunchFlagResolverTests
         Assert.Equal("PC+XSX", resolved.ServerPlatform);
         Assert.False(resolved.ExclusiveJoin);
         Assert.False(resolved.NoWildBabies);
-        Assert.False(resolved.PreventSpawnAnimations);
         Assert.False(resolved.UseStore);
         Assert.False(resolved.ConvertToStore);
         Assert.False(resolved.ServerGameLogIncludeTribeLogs);
@@ -118,7 +116,6 @@ public class LaunchFlagResolverTests
         ServerPlatform = platform,
         ExclusiveJoin = value,
         NoWildBabies = value,
-        PreventSpawnAnimations = value,
         UseStore = value,
         ConvertToStore = value,
         ServerGameLogIncludeTribeLogs = value,
