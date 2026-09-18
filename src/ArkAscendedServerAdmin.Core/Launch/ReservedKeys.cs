@@ -28,7 +28,6 @@ public static class ReservedKeys
         "-ServerPlatform",
         "-exclusivejoin",
         "-NoWildBabies",
-        "-PreventSpawnAnimations",
         "-UseStore",
         "-ConvertToStore",
         "-servergamelog",

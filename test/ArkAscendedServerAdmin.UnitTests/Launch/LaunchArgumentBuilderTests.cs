@@ -119,7 +119,6 @@ public class LaunchArgumentBuilderTests
         { "-ServerRconOutputTribeLogs", v => new LaunchFlags { ServerRconOutputTribeLogs = v } },
         { "-exclusivejoin", v => new LaunchFlags { ExclusiveJoin = v } },
         { "-NoWildBabies", v => new LaunchFlags { NoWildBabies = v } },
-        { "-PreventSpawnAnimations", v => new LaunchFlags { PreventSpawnAnimations = v } },
         { "-UseStore", v => new LaunchFlags { UseStore = v } },
         { "-ConvertToStore", v => new LaunchFlags { ConvertToStore = v } },
     };
@@ -166,7 +165,6 @@ public class LaunchArgumentBuilderTests
             ServerPlatform = "PC",
             ExclusiveJoin = true,
             NoWildBabies = true,
-            PreventSpawnAnimations = true,
             UseStore = true,
             ConvertToStore = true,
             ServerGameLogIncludeTribeLogs = true,
@@ -192,7 +190,6 @@ public class LaunchArgumentBuilderTests
                 "-NoBattlEye",
                 "-exclusivejoin",
                 "-NoWildBabies",
-                "-PreventSpawnAnimations",
                 "-UseStore",
                 "-ConvertToStore",
                 "-ServerPlatform=PC",

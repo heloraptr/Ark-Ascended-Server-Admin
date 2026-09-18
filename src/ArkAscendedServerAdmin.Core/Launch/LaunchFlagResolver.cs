@@ -23,7 +23,6 @@ public static class LaunchFlagResolver
             ServerPlatform = instanceOverride.ServerPlatform ?? clusterBase?.ServerPlatform,
             ExclusiveJoin = instanceOverride.ExclusiveJoin ?? clusterBase?.ExclusiveJoin,
             NoWildBabies = instanceOverride.NoWildBabies ?? clusterBase?.NoWildBabies,
-            PreventSpawnAnimations = instanceOverride.PreventSpawnAnimations ?? clusterBase?.PreventSpawnAnimations,
             UseStore = instanceOverride.UseStore ?? clusterBase?.UseStore,
             ConvertToStore = instanceOverride.ConvertToStore ?? clusterBase?.ConvertToStore,
             ServerGameLogIncludeTribeLogs = instanceOverride.ServerGameLogIncludeTribeLogs ?? clusterBase?.ServerGameLogIncludeTribeLogs,

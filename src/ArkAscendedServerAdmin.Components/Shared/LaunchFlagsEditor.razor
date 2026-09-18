@@ -73,7 +73,6 @@
         new("Tribe logs over RCON", "-ServerRconOutputTribeLogs", "Tribe events are also sent to RCON clients.", f => f.ServerRconOutputTribeLogs, (f, v) => f.ServerRconOutputTribeLogs = v, false),
         new("Exclusive join", "-exclusivejoin", "Only whitelisted players can join.", f => f.ExclusiveJoin, (f, v) => f.ExclusiveJoin = v, false),
         new("No wild babies", "-NoWildBabies", "Wild creatures never spawn as babies.", f => f.NoWildBabies, (f, v) => f.NoWildBabies = v, false),
-        new("Prevent spawn animations", "-PreventSpawnAnimations", "Players and creatures appear without the spawn-in animation.", f => f.PreventSpawnAnimations, (f, v) => f.PreventSpawnAnimations = v, false),
         new("Use store", "-UseStore", "Player profiles are kept in the cluster's store rather than per server.", f => f.UseStore, (f, v) => f.UseStore = v, false),
         new("Convert to store", "-ConvertToStore", "One-time migration of existing profiles into the store; turn it off again after one start.", f => f.ConvertToStore, (f, v) => f.ConvertToStore = v, false),
     ];
@@ -150,7 +149,6 @@
         to.ServerPlatform = from.ServerPlatform;
         to.ExclusiveJoin = from.ExclusiveJoin;
         to.NoWildBabies = from.NoWildBabies;
-        to.PreventSpawnAnimations = from.PreventSpawnAnimations;
         to.UseStore = from.UseStore;
         to.ConvertToStore = from.ConvertToStore;
         to.ServerGameLogIncludeTribeLogs = from.ServerGameLogIncludeTribeLogs;

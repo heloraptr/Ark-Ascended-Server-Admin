@@ -129,7 +129,6 @@ internal static class CommandSupport
         target.ServerPlatform = Trimmed(source.ServerPlatform);
         target.ExclusiveJoin = source.ExclusiveJoin;
         target.NoWildBabies = source.NoWildBabies;
-        target.PreventSpawnAnimations = source.PreventSpawnAnimations;
         target.UseStore = source.UseStore;
         target.ConvertToStore = source.ConvertToStore;
         target.ServerGameLogIncludeTribeLogs = source.ServerGameLogIncludeTribeLogs;
