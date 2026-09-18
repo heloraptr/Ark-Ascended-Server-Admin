@@ -10,17 +10,17 @@ public sealed class InstanceLocks : IInstanceLocks
 {
     private readonly ConcurrentDictionary<int, SemaphoreSlim> _semaphores = new();
 
-    public IDisposable? TryAcquire(int instanceId)
+    public IInstanceLease? TryAcquire(int instanceId)
     {
         var semaphore = Get(instanceId);
-        return semaphore.Wait(0) ? new Releaser(semaphore) : null;
+        return semaphore.Wait(0) ? new Releaser(instanceId, semaphore) : null;
     }
 
-    public async Task<IDisposable> AcquireAsync(int instanceId, CancellationToken cancellationToken)
+    public async Task<IInstanceLease> AcquireAsync(int instanceId, CancellationToken cancellationToken)
     {
         var semaphore = Get(instanceId);
         await semaphore.WaitAsync(cancellationToken);
-        return new Releaser(semaphore);
+        return new Releaser(instanceId, semaphore);
     }
 
     /// <summary>True while some operation holds the instance's lock; for diagnostics and tests only.</summary>
@@ -28,9 +28,13 @@ public sealed class InstanceLocks : IInstanceLocks
 
     private SemaphoreSlim Get(int instanceId) => _semaphores.GetOrAdd(instanceId, _ => new SemaphoreSlim(1, 1));
 
-    private sealed class Releaser(SemaphoreSlim semaphore) : IDisposable
+    private sealed class Releaser(int instanceId, SemaphoreSlim semaphore) : IInstanceLease
     {
         private int _released;
+
+        public int InstanceId { get; } = instanceId;
+
+        public bool IsReleased => Volatile.Read(ref _released) != 0;
 
         public void Dispose()
         {

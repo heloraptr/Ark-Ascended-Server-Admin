@@ -32,8 +32,16 @@ namespace ArkAscendedServerAdmin.Infrastructure.Processes;
 /// "process exited" transition (console line, Stopped state, database identity clear, loop shutdown) and
 /// completes the session's exit signal last; the stop job only waits on that signal — after <c>doexit</c>
 /// for the graceful timeout, after <c>Kill</c> for the verification bound — so both paths return a
-/// verified exit. The job marks the stop as manager-initiated before <c>doexit</c>, which is how the
-/// liveness loop tells the normal exit code -1 from a crash.
+/// verified exit. The stop intent is recorded on the session the moment a stop is accepted, under the caller's
+/// lease and before the job is dispatched, and the job marks the stop as manager-initiated again before
+/// <c>doexit</c>; either flag is how the liveness loop tells the normal exit code -1 from a crash.
+/// <para>
+/// Ownership (B0): the per-instance locks are not reentrant, so the public operations take the lease and the
+/// <c>*Core</c> methods run under one. <see cref="StopUnderLeaseAsync"/> lets delete and restore stop under the
+/// lease they already hold, and <see cref="RestartWithCountdownAsync"/> keeps one lease across the countdown, the
+/// verified stop, and the queued start. Countdowns target an absolute deadline rather than counting elapsed
+/// minutes, so tick delays never accumulate into drift.
+/// </para>
 /// </remarks>
 public sealed class ProcessManager : IProcessManager, IProcessReconciler
 {
@@ -127,9 +135,32 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
     public IReadOnlyList<InstanceRuntime> GetAllRuntimes() =>
         _runtimes.Values.OrderBy(runtime => runtime.InstanceId).ToList();
 
-    // ---- start (plan steps 19, 25) ---------------------------------------------------------------
+    // ---- start (plan steps 19, 25; B0 owned lifecycle) ---------------------------------------------
 
     public async Task<OperationOutcome> StartAsync(int instanceId, LaunchKind kind, CancellationToken cancellationToken)
+    {
+        var lease = _locks.TryAcquire(instanceId);
+        if (lease is null)
+        {
+            return OperationOutcome.Rejected(OperationInProgress);
+        }
+
+        try
+        {
+            return await StartCoreAsync(instanceId, kind, cancellationToken);
+        }
+        finally
+        {
+            lease.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// The launch under a lease the caller holds: readiness and gate checks, then the queue. Refused while any
+    /// session is registered for the instance, whatever its displayed state, so a stop that ended without a
+    /// verified exit can never be followed by a second process.
+    /// </summary>
+    private async Task<OperationOutcome> StartCoreAsync(int instanceId, LaunchKind kind, CancellationToken cancellationToken)
     {
         if (kind == LaunchKind.User && !_readiness.Current.IsReady)
         {
@@ -141,26 +172,13 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             return OperationOutcome.Rejected(MaintenanceGate.UpdateInProgress);
         }
 
-        var instanceLock = _locks.TryAcquire(instanceId);
-        if (instanceLock is null)
+        var runtime = GetRuntime(instanceId);
+        if (_sessions.ContainsKey(instanceId) || runtime.HasLiveProcess)
         {
-            return OperationOutcome.Rejected(OperationInProgress);
+            return OperationOutcome.Rejected($"The instance is already {Describe(runtime.State)}.");
         }
 
-        try
-        {
-            var runtime = GetRuntime(instanceId);
-            if (runtime.HasLiveProcess)
-            {
-                return OperationOutcome.Rejected($"The instance is already {Describe(runtime.State)}.");
-            }
-
-            return await _queue.EnqueueAsync(instanceId, kind, token => LaunchAsync(instanceId, token), cancellationToken);
-        }
-        finally
-        {
-            instanceLock.Dispose();
-        }
+        return await _queue.EnqueueAsync(instanceId, kind, token => LaunchAsync(instanceId, token), cancellationToken);
     }
 
     /// <summary>The launch callback run by the queue worker; the token is the queue's lifetime, not the caller's.</summary>
@@ -543,25 +561,28 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         StartLoops(session);
     }
 
-    // ---- stop (plan step 24) ----------------------------------------------------------------------
+    // ---- stop (plan step 24; B0 owned lifecycle) -----------------------------------------------
+
+    /// <summary>A <c>doexit</c> this far past its deadline gets a console line saying how late it was.</summary>
+    public static readonly TimeSpan LateExitTolerance = TimeSpan.FromSeconds(5);
 
     public async Task<OperationOutcome> StopAsync(int instanceId, StopOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        var instanceLock = _locks.TryAcquire(instanceId);
-        if (instanceLock is null)
+        var lease = _locks.TryAcquire(instanceId);
+        if (lease is null)
         {
             return OperationOutcome.Rejected(OperationInProgress);
         }
 
-        if (!_sessions.TryGetValue(instanceId, out var session) || !GetRuntime(instanceId).HasLiveProcess)
+        if (!TryAcceptStop(instanceId, out var session, out var rejection))
         {
-            instanceLock.Dispose();
-            return OperationOutcome.Rejected("The instance is not running.");
+            lease.Dispose();
+            return rejection;
         }
 
-        // The job owns the lock and runs to completion on the host lifetime; the caller only waits.
+        // The job owns the lease and runs to completion on the host lifetime; the caller only waits.
         var job = Task.Run(async () =>
         {
             try
@@ -570,11 +591,80 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             }
             finally
             {
-                instanceLock.Dispose();
+                lease.Dispose();
             }
         });
 
         return await job.WaitAsync(cancellationToken);
+    }
+
+    public Task<OperationOutcome> StopUnderLeaseAsync(IInstanceLease lease, StopOptions options, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        ArgumentNullException.ThrowIfNull(options);
+        if (lease.IsReleased)
+        {
+            throw new InvalidOperationException($"The lease for instance {lease.InstanceId} has already been released.");
+        }
+
+        if (!TryAcceptStop(lease.InstanceId, out var session, out var rejection))
+        {
+            return Task.FromResult(rejection);
+        }
+
+        return Task.Run(() => RunStopJobAsync(session, options)).WaitAsync(cancellationToken);
+    }
+
+    public async Task<OperationOutcome> RestartAsync(int instanceId, CancellationToken cancellationToken)
+    {
+        var settings = await _settings.GetAsync(cancellationToken);
+        var deadline = _time.GetUtcNow() + TimeSpan.FromMinutes(settings.PreStopBroadcastMinutes);
+        return await RestartWithCountdownAsync(instanceId, deadline, cancellationToken);
+    }
+
+    public async Task<OperationOutcome> RestartWithCountdownAsync(int instanceId, DateTimeOffset deadline, CancellationToken cancellationToken)
+    {
+        var lease = _locks.TryAcquire(instanceId);
+        if (lease is null)
+        {
+            return OperationOutcome.Rejected(OperationInProgress);
+        }
+
+        if (!TryAcceptStop(instanceId, out var session, out var rejection))
+        {
+            lease.Dispose();
+            return rejection;
+        }
+
+        // One lease across the countdown, the verified stop, and the queued start; the job owns it, the caller only waits.
+        var job = Task.Run(async () =>
+        {
+            try
+            {
+                var stopped = await RunStopJobAsync(session, new StopOptions(Deadline: deadline));
+                return stopped.Succeeded ? await StartCoreAsync(instanceId, LaunchKind.User, _lifetime) : stopped;
+            }
+            finally
+            {
+                lease.Dispose();
+            }
+        });
+
+        return await job.WaitAsync(cancellationToken);
+    }
+
+    /// <summary>Records the stop intent on the live session synchronously, under the caller's lease, before any job is dispatched.</summary>
+    private bool TryAcceptStop(int instanceId, out Session session, out OperationOutcome rejection)
+    {
+        if (!_sessions.TryGetValue(instanceId, out session!) || !GetRuntime(instanceId).HasLiveProcess)
+        {
+            rejection = OperationOutcome.Rejected("The instance is not running.");
+            return false;
+        }
+
+        session.StopIntent = true;
+        rejection = OperationOutcome.Success;
+        return true;
     }
 
     private async Task<OperationOutcome> RunStopJobAsync(Session session, StopOptions options)
@@ -585,19 +675,26 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         {
             var settings = await _settings.GetAsync(token);
             var timeout = TimeSpan.FromSeconds(settings.RconCommandTimeoutSeconds);
+            var deadline = options.SkipCountdown
+                ? null
+                : options.Deadline ?? (settings.PreStopBroadcastMinutes > 0 ? _time.GetUtcNow() + TimeSpan.FromMinutes(settings.PreStopBroadcastMinutes) : null);
             await SetStateAsync(session.InstanceId, InstanceState.Stopping, null, token);
 
             if (session.Rcon is { } rcon)
             {
-                if (!options.SkipCountdown && settings.PreStopBroadcastMinutes > 0)
+                if (deadline is { } countdownDeadline)
                 {
-                    await CountdownAsync(session, rcon, settings.PreStopBroadcastMinutes, timeout, token);
+                    await CountdownAsync(session, rcon, countdownDeadline, timeout, token);
                 }
 
                 // No explicit saveworld: doexit saves the world itself ("Saving world..." twice in the log before "Closing by request", captured 2026-09-13).
                 session.StopRequested = true;
                 Update(session.InstanceId, runtime => runtime with { ExitRequested = true });
                 await TryRconAsync(session, rcon, RconCommands.DoExit, timeout, token);
+                if (deadline is { } expected && _time.GetUtcNow() - expected is { } late && late > LateExitTolerance)
+                {
+                    Append(channel, $"doexit went out {late.TotalSeconds:0} s after the deadline (a slow reply or a busy transport held it up).", ConsoleLineKind.Warning);
+                }
             }
             else
             {
@@ -623,6 +720,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
 
                 if (!await WaitForExitAsync(session, ExitVerificationBound, token))
                 {
+                    // The session stays registered and supervised with the intent set: a later exit is still a requested one.
                     var detail = $"Pid {session.Pid} is still alive after kill; its exit could not be verified.";
                     Update(session.InstanceId, runtime => runtime with { Detail = detail });
                     return OperationOutcome.Rejected(detail);
@@ -643,18 +741,31 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         }
     }
 
-    private async Task CountdownAsync(Session session, RconEndpoint rcon, int minutes, TimeSpan timeout, CancellationToken token)
+    /// <summary>
+    /// Broadcasts the minutes remaining until <paramref name="deadline"/> and returns when it passes (or the countdown
+    /// is skipped). Each wait runs to the next whole-minute mark before the deadline, computed from the clock, so a
+    /// slow reply never pushes <c>doexit</c> later than the deadline plus that one reply.
+    /// </summary>
+    private async Task CountdownAsync(Session session, RconEndpoint rcon, DateTimeOffset deadline, TimeSpan timeout, CancellationToken token)
     {
         using var skip = CancellationTokenSource.CreateLinkedTokenSource(token);
         session.SkipCountdown = skip;
         try
         {
-            for (var remaining = minutes; remaining >= 1 && !skip.IsCancellationRequested; remaining--)
+            while (!skip.IsCancellationRequested)
             {
-                await TryRconAsync(session, rcon, RconCommands.Broadcast($"Server shutting down in {remaining} minute{(remaining == 1 ? string.Empty : "s")}."), timeout, token);
+                var remaining = deadline - _time.GetUtcNow();
+                if (remaining <= TimeSpan.Zero)
+                {
+                    break;
+                }
+
+                var minutes = Math.Max(1, (int)Math.Ceiling((remaining - TimeSpan.FromSeconds(1)).TotalMinutes));
+                await TryRconAsync(session, rcon, RconCommands.Broadcast($"Server shutting down in {minutes} minute{(minutes == 1 ? string.Empty : "s")}."), timeout, token);
+                var wait = remaining - TimeSpan.FromMinutes(minutes - 1);
                 try
                 {
-                    await Task.Delay(TimeSpan.FromMinutes(1), _time, skip.Token);
+                    await Task.Delay(wait > TimeSpan.Zero ? wait : TimeSpan.Zero, _time, skip.Token);
                 }
                 catch (OperationCanceledException) when (!token.IsCancellationRequested)
                 {
@@ -692,12 +803,6 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         {
             return false;
         }
-    }
-
-    public async Task<OperationOutcome> RestartAsync(int instanceId, CancellationToken cancellationToken)
-    {
-        var stopped = await StopAsync(instanceId, new StopOptions(), cancellationToken);
-        return stopped.Succeeded ? await StartAsync(instanceId, LaunchKind.User, cancellationToken) : stopped;
     }
 
     /// <summary>Sends one command, logging and reporting a failure so the stop sequence falls through to its next step.</summary>
@@ -911,7 +1016,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         _sessions.TryRemove(new KeyValuePair<int, Session>(session.InstanceId, session));
 
         string? detail = null;
-        if (session.StopRequested)
+        if (session.StopRequested || session.StopIntent)
         {
             Append(channel, $"Server exited{codeText}.", ConsoleLineKind.Info);
             _logger.LogInformation("Instance {InstanceId} pid {Pid} exited after a manager-initiated stop (code {Code}).", session.InstanceId, session.Pid, codeForLog);
@@ -1060,6 +1165,13 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
 
         /// <summary>True from just before <c>doexit</c> (or kill) so the liveness loop does not report a crash.</summary>
         public volatile bool StopRequested;
+
+        /// <summary>
+        /// Set synchronously when a stop is accepted, under the caller's lease and before the job is dispatched (B0), so an
+        /// exit observed between acceptance and the job's first line is a requested exit, never a crash. Stays set for
+        /// the life of the session, including after a stop that ended without a verified exit.
+        /// </summary>
+        public volatile bool StopIntent;
 
         public volatile bool ProbeSucceeded;
 

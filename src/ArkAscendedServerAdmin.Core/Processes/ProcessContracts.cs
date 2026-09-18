@@ -26,7 +26,12 @@ public sealed record OperationOutcome(bool Succeeded, string? Error = null)
 
 /// <param name="SkipCountdown">Skip the pre-stop broadcast countdown entirely.</param>
 /// <param name="RequireVerifiedExit">Update and Delete need <c>HasExited</c> to be observed; a stop that had to kill still verifies.</param>
-public sealed record StopOptions(bool SkipCountdown = false, bool RequireVerifiedExit = false);
+/// <param name="Deadline">
+/// The absolute instant <c>doexit</c> goes out (B0). The countdown broadcasts the minutes remaining until it, so tick
+/// delays never accumulate into drift. Null means the manager derives it from <c>PreStopBroadcastMinutes</c> when the
+/// stop is accepted; ignored when <see cref="SkipCountdown"/> is set.
+/// </param>
+public sealed record StopOptions(bool SkipCountdown = false, bool RequireVerifiedExit = false, DateTimeOffset? Deadline = null);
 
 public enum LaunchKind
 {
@@ -88,7 +93,22 @@ public interface IProcessManager
     /// <summary>Runs the stop sequence (plan step 24) and completes when the process has exited or been killed.</summary>
     Task<OperationOutcome> StopAsync(int instanceId, StopOptions options, CancellationToken cancellationToken);
 
+    /// <summary>Stop with the countdown derived from <c>PreStopBroadcastMinutes</c> now, then a queued start, all under one instance lease.</summary>
     Task<OperationOutcome> RestartAsync(int instanceId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Restart under one lease (B0): countdown to <paramref name="deadline"/>, <c>doexit</c> when it passes, a verified
+    /// stop, then a queued start. The lease is held until the start completes or the stop fails, so nothing else can
+    /// slip in between.
+    /// </summary>
+    Task<OperationOutcome> RestartWithCountdownAsync(int instanceId, DateTimeOffset deadline, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The stop sequence under a lease the caller already holds (B0): delete and restore own the lock for their whole
+    /// job, and the locks are not reentrant, so they cannot call <see cref="StopAsync"/>. The lease stays the caller's
+    /// to release. Throws when the lease is already released.
+    /// </summary>
+    Task<OperationOutcome> StopUnderLeaseAsync(IInstanceLease lease, StopOptions options, CancellationToken cancellationToken);
 
     /// <summary>"Stop now": ends a running stop job's countdown. False when no countdown is in progress.</summary>
     bool TrySkipCountdown(int instanceId);
@@ -97,14 +117,22 @@ public interface IProcessManager
     Task<OperationOutcome> RetryPersistIdentityAsync(int instanceId, CancellationToken cancellationToken);
 }
 
+/// <summary>A held instance lock; disposing releases it once. Not reentrant: the holder passes it to work that needs it (B0).</summary>
+public interface IInstanceLease : IDisposable
+{
+    int InstanceId { get; }
+
+    bool IsReleased { get; }
+}
+
 /// <summary>One lock per instance serializing Start/Stop/Restart/Backup/Delete (plan step 19).</summary>
 public interface IInstanceLocks
 {
     /// <summary>Returns the held lock, or null when another operation holds it ("operation in progress"). Never waits.</summary>
-    IDisposable? TryAcquire(int instanceId);
+    IInstanceLease? TryAcquire(int instanceId);
 
     /// <summary>Waits for the lock; used by scheduled work that may queue behind an operation.</summary>
-    Task<IDisposable> AcquireAsync(int instanceId, CancellationToken cancellationToken);
+    Task<IInstanceLease> AcquireAsync(int instanceId, CancellationToken cancellationToken);
 }
 
 /// <summary>
