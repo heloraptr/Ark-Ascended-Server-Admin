@@ -26,6 +26,7 @@ else
             <span class="faint"> · </span>@Presentation.Plural(_detail.Mods.Count, "mod")
         </LeadContent>
         <Actions>
+            <RadzenButton Text="New instance" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@(() => Navigation.NavigateTo($"instances/new?cluster={Id}"))" />
             <RadzenButton Text="Start all" Icon="play_arrow" ButtonStyle="ButtonStyle.Success" Variant="Variant.Outlined" Disabled="@(!_detail.Instances.Any(i => !Processes.GetRuntime(i.Id).HasLiveProcess))" Click="@(() => FireMany(() => InstanceCommands.StartManyAsync(_detail.Instances.Where(i => !Processes.GetRuntime(i.Id).HasLiveProcess).Select(i => i.Id).ToList()), "Started"))" />
             <RadzenButton Text="Stop all" Icon="stop" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Outlined" Disabled="@(!_detail.Instances.Any(i => Processes.GetRuntime(i.Id).HasLiveProcess))" Click="@(() => FireMany(() => InstanceCommands.StopManyAsync(_detail.Instances.Where(i => Processes.GetRuntime(i.Id).HasLiveProcess).Select(i => i.Id).ToList()), "Stopped"))" />
             <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Text" title="Delete cluster" Disabled="@(_detail.Instances.Count > 0)" Click="DeleteAsync" />
@@ -46,7 +47,7 @@ else
                 {
                     <EmptyState Title="No members yet.">
                         <ChildContent>Create an instance and choose this cluster in the wizard.</ChildContent>
-                        <Actions><RadzenButton Text="New instance" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@(() => Navigation.NavigateTo("instances/new"))" /></Actions>
+                        <Actions><RadzenButton Text="New instance" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@(() => Navigation.NavigateTo($"instances/new?cluster={Id}"))" /></Actions>
                     </EmptyState>
                 }
                 else
