@@ -54,7 +54,7 @@
 </div>
 
 <div class="form-actions" style="flex-wrap:wrap">
-    <RadzenDropDown TValue="int?" @bind-Value="_pick" Data="Available" TextProperty="Name" ValueProperty="Id" Placeholder="@(Available.Count == 0 ? "Every library mod is already listed" : "Add a mod from the library")" AllowFiltering="true" AllowClear="true" Disabled="@(Available.Count == 0)" Style="min-width:300px" />
+    <RadzenDropDown TValue="int?" @bind-Value="_pick" Data="Available" TextProperty="Name" ValueProperty="Id" FilterOperator="StringFilterOperator.Contains" FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive" Placeholder="@(Available.Count == 0 ? "Every library mod is already listed" : "Add a mod from the library")" AllowFiltering="true" AllowClear="true" Disabled="@(Available.Count == 0)" Style="min-width:300px" />
     <RadzenButton Text="Add" Icon="add" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="@(_pick is null)" Click="Add" />
     <span class="spacer" style="flex:1"></span>
     <RadzenButton Text="Save mods" Icon="save" ButtonStyle="ButtonStyle.Primary" Disabled="@(Busy || !IsDirty)" Click="SaveAsync" />
