@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net.NetworkInformation;
+using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Consoles;
 using ArkAscendedServerAdmin.Domain;
@@ -69,6 +70,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
     private readonly HostConfiguration _host;
     private readonly IReadinessMonitor _readiness;
     private readonly IInstanceLocks _locks;
+    private readonly IRestoreJournals _restoreJournals;
     private readonly IMaintenanceGate _gate;
     private readonly LaunchQueue _queue;
     private readonly RecoveryRequests _recovery;
@@ -94,6 +96,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         HostConfiguration host,
         IReadinessMonitor readiness,
         IInstanceLocks locks,
+        IRestoreJournals restoreJournals,
         IMaintenanceGate gate,
         LaunchQueue queue,
         RecoveryRequests recovery,
@@ -117,6 +120,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         _host = host;
         _readiness = readiness;
         _locks = locks;
+        _restoreJournals = restoreJournals;
         _gate = gate;
         _queue = queue;
         _recovery = recovery;
@@ -218,6 +222,11 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         if (instance.ClusterId is { } clusterId && _locks.IsClusterReserved(clusterId))
         {
             return OperationOutcome.Rejected("The cluster is reserved by a restore; try again when it finishes.");
+        }
+
+        if (_restoreJournals.FindForInstance(instanceId) is { } journal)
+        {
+            return OperationOutcome.Rejected(journal.RefusalReason("this instance"));
         }
 
         var slug = instance.Slug;

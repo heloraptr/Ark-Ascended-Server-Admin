@@ -1,3 +1,4 @@
+using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Install;
@@ -21,6 +22,7 @@ public sealed class StartupOrchestrator(
     IMaintenanceRecovery maintenanceRecovery,
     IGameInstallChecker installChecker,
     IGameInstaller installer,
+    IRestoreJournals restoreJournals,
     ReadinessMonitor monitor,
     IHostApplicationLifetime lifetime,
     ILogger<StartupOrchestrator> logger) : BackgroundService, IStartupControl
@@ -36,6 +38,14 @@ public sealed class StartupOrchestrator(
 
             monitor.Publish(ReadinessPhase.Initializing, "Migrating and seeding the database");
             await databaseInitializer.InitializeAsync(stoppingToken);
+
+            foreach (var journal in restoreJournals.List())
+            {
+                // B2: nothing automatic; the journal keeps every affected launch refused until the owner recovers or discards it.
+                logger.LogWarning(
+                    "Restore journal {OperationId} found at startup: instance {Slug} ({Phase}, safety copy {SafetyCopy}); its launches stay refused until it is recovered or discarded.",
+                    journal.OperationId, journal.InstanceSlug, journal.Phase, journal.SafetyCopyPath);
+            }
 
             monitor.Publish(ReadinessPhase.Recovering, "Reconciling instance processes");
             await processReconciler.ReconcileAsync(stoppingToken);

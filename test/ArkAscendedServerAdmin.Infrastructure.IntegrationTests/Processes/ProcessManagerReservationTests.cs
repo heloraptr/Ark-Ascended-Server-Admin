@@ -1,4 +1,6 @@
+using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Domain;
+using ArkAscendedServerAdmin.Infrastructure.Backups;
 using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Rcon;
 using Microsoft.EntityFrameworkCore;
@@ -96,6 +98,25 @@ public class ProcessManagerReservationTests
         var afterwards = await harness.Manager.StartAsync(member, LaunchKind.User, Ct);
         Assert.DoesNotContain("reserved", afterwards.Error, StringComparison.OrdinalIgnoreCase);
         Assert.False(harness.Locks.IsHeld(member));
+    }
+
+    /// <summary>B2: a restore journal keeps every affected launch refused until it is recovered or discarded.</summary>
+    [Fact]
+    public async Task Start_IsRefusedWhileARestoreJournalReferencesTheInstance()
+    {
+        using var root = new TempDataRoot();
+        var (_, member) = await SeedAsync(root);
+        using var harness = new ProcessManagerHarness(root, [], new FakeRconClient(RconFailure.Connect), new RecordingConsole(), new FakeOutputSourceFactory());
+        var journals = new RestoreJournalStore(root.Layout);
+        journals.Write(new RestoreJournal("member-op", DateTimeOffset.UnixEpoch, member, "member", "TheIsland_WP", null, null, [member], Path.Combine(root.Layout.Root, "safety"), "x.zip", RestorePhase.RollbackFailed));
+
+        var refused = await harness.Manager.StartAsync(member, LaunchKind.User, Ct);
+        Assert.Contains("incomplete restore (member-op)", refused.Error, StringComparison.Ordinal);
+        Assert.False(harness.Locks.IsHeld(member));
+
+        journals.Delete("member-op");
+        var afterwards = await harness.Manager.StartAsync(member, LaunchKind.User, Ct);
+        Assert.DoesNotContain("incomplete restore", afterwards.Error, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Seeds a standalone instance and a cluster member; returns their ids.</summary>

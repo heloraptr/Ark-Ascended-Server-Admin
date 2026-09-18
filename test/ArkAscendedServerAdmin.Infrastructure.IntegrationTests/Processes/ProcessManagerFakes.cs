@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Consoles;
+using ArkAscendedServerAdmin.Infrastructure.Backups;
 using ArkAscendedServerAdmin.Infrastructure.Processes;
 using ArkAscendedServerAdmin.Firewall;
 using ArkAscendedServerAdmin.Ini;
@@ -248,6 +249,7 @@ internal sealed class ProcessManagerHarness : IDisposable
             new HostConfiguration(root.Layout.Root, ["https://localhost:5001"], [], false, true, false, "0.0.0-test"),
             _readiness,
             Locks,
+            new RestoreJournalStore(root.Layout),
             Gate,
             Queue,
             Recovery,

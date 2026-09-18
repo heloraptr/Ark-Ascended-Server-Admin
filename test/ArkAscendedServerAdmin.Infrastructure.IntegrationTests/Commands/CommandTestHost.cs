@@ -3,6 +3,7 @@ using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.CurseForge.Models.Services;
 using ArkAscendedServerAdmin.Domain;
+using ArkAscendedServerAdmin.Infrastructure.Backups;
 using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Provisioning;
 using ArkAscendedServerAdmin.Infrastructure.Players;
@@ -40,6 +41,7 @@ internal sealed class CommandTestHost : IDisposable
         GeneratedConfig = new GeneratedConfigWriter(Root.Layout, Root, IniStore, Settings, NullLogger<GeneratedConfigWriter>.Instance);
         ProcessManager = new FakeProcessManager();
         Locks = new FakeInstanceLocks();
+        Journals = new RestoreJournalStore(Root.Layout);
         LayoutService = new FakeInstanceLayoutService(Root, Clock);
         Console = new FakeConsoleService();
         Rcon = new ScriptedRconClient();
@@ -53,9 +55,9 @@ internal sealed class CommandTestHost : IDisposable
         InstallChecker = Substitute.For<IGameInstallChecker>();
 
         Instances = new InstanceCommands(
-            Guard, Root, Root.Layout, Host, Settings, ProcessManager, Locks, Backups, DeleteService, LayoutService, IniStore,
+            Guard, Root, Root.Layout, Host, Settings, ProcessManager, Locks, Journals, Backups, DeleteService, LayoutService, IniStore,
             GeneratedConfig, Rcon, Console, Clock, NullLogger<InstanceCommands>.Instance);
-        Clusters = new ClusterCommands(Guard, Root, Root.Layout, Instances, Locks, Clock, NullLogger<ClusterCommands>.Instance);
+        Clusters = new ClusterCommands(Guard, Root, Root.Layout, Instances, Locks, Journals, Clock, NullLogger<ClusterCommands>.Instance);
         Config = new ConfigCommands(Guard, Root, IniStore, NullLogger<ConfigCommands>.Instance);
         Mods = new ModCommands(Guard, Root, Settings, CurseForge, Clock, NullLogger<ModCommands>.Instance);
         Tracker = new PlayerTracker(Root, Console, ProcessManager, Clock, NullLogger<PlayerTracker>.Instance);
@@ -82,6 +84,8 @@ internal sealed class CommandTestHost : IDisposable
     public FakeProcessManager ProcessManager { get; }
 
     public FakeInstanceLocks Locks { get; }
+
+    public RestoreJournalStore Journals { get; }
 
     public FakeInstanceLayoutService LayoutService { get; }
 

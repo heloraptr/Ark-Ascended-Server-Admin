@@ -2,6 +2,7 @@ using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Backups;
 using ArkAscendedServerAdmin.Infrastructure.Data;
+using ArkAscendedServerAdmin.Processes;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Backups;
@@ -117,6 +118,16 @@ public class BackupSchedulerTests
         private Task _completion = Task.CompletedTask;
 
         public event Action<BackupRecord>? Recorded { add { } remove { } }
+
+        public event Action<RestoreRecord>? Restored { add { } remove { } }
+
+        public Task<RestoreInspection> InspectRestoreAsync(int instanceId, string fileName, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<OperationOutcome> RestoreAsync(int instanceId, string fileName, bool includeCluster, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<OperationOutcome> RecoverAsync(string operationId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<OperationOutcome> DiscardJournalAsync(string operationId, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public List<(int InstanceId, bool IsManual)> Calls { get; } = [];
 

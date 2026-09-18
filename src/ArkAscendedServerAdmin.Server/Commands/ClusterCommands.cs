@@ -1,4 +1,5 @@
 using ArkAscendedServerAdmin.Auth;
+using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Domain;
@@ -18,6 +19,7 @@ public sealed class ClusterCommands(
     DataRootLayout layout,
     IInstanceCommands instanceCommands,
     IInstanceLocks locks,
+    IRestoreJournals restoreJournals,
     TimeProvider timeProvider,
     ILogger<ClusterCommands> logger) : IClusterCommands
 {
@@ -222,6 +224,11 @@ public sealed class ClusterCommands(
         if (locks.IsClusterReserved(clusterId))
         {
             return CommandResult.Fail("The cluster is reserved by a restore; try again when it finishes.");
+        }
+
+        if (restoreJournals.FindForCluster(clusterId) is { } journal)
+        {
+            return CommandResult.Fail(journal.RefusalReason("the cluster"));
         }
 
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);

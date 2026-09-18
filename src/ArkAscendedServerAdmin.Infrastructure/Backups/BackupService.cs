@@ -30,6 +30,7 @@ public class BackupService(
     IRconClient rconClient,
     IGeneratedConfigWriter configWriter,
     IConsoleService console,
+    RestoreService restore,
     TimeProvider timeProvider,
     ILogger<BackupService> logger) : IBackupService
 {
@@ -153,7 +154,7 @@ public class BackupService(
             return Outcome(instance, isManual, startedAt, BackupOutcome.Skipped, skipped);
         }
 
-        var manifest = new BackupManifest(instance.Slug, mapKey, timeProvider.GetUtcNow(), snapshot.Entries);
+        var manifest = new BackupManifest(instance.Slug, mapKey, timeProvider.GetUtcNow(), snapshot.Entries, instance.Cluster?.Slug, clusterDirectory is not null);
         await File.WriteAllTextAsync(Path.Combine(snapshot.Directory, BackupManifest.FileName), manifest.ToJson(), cancellationToken);
 
         var tempArchive = Path.Combine(backupDirectory, $".tmp-{Guid.NewGuid():N}.zip");
@@ -446,6 +447,26 @@ public class BackupService(
     }
 
     public event Action<BackupRecord>? Recorded;
+
+    // ---- restore (B2) is the sibling service; these forward so the module has one contract ----------
+
+    public Task<RestoreInspection> InspectRestoreAsync(int instanceId, string fileName, CancellationToken cancellationToken) =>
+        restore.InspectAsync(instanceId, fileName, cancellationToken);
+
+    public Task<OperationOutcome> RestoreAsync(int instanceId, string fileName, bool includeCluster, CancellationToken cancellationToken) =>
+        restore.RestoreAsync(instanceId, fileName, includeCluster, cancellationToken);
+
+    public Task<OperationOutcome> RecoverAsync(string operationId, CancellationToken cancellationToken) =>
+        restore.RecoverAsync(operationId, cancellationToken);
+
+    public Task<OperationOutcome> DiscardJournalAsync(string operationId, CancellationToken cancellationToken) =>
+        restore.DiscardJournalAsync(operationId, cancellationToken);
+
+    public event Action<RestoreRecord>? Restored
+    {
+        add => restore.Restored += value;
+        remove => restore.Restored -= value;
+    }
 
     private async Task PersistAsync(BackupRecord record, CancellationToken cancellationToken)
     {

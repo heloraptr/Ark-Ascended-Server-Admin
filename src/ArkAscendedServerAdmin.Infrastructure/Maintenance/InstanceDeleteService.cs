@@ -1,3 +1,4 @@
+using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Consoles;
 using ArkAscendedServerAdmin.Firewall;
@@ -23,6 +24,7 @@ public sealed class InstanceDeleteService(
     IDbContextFactory<AppDbContext> contextFactory,
     DataRootLayout layout,
     IInstanceLocks locks,
+    IRestoreJournals restoreJournals,
     DetachedJobs jobs,
     IProcessManager processManager,
     IFirewallRules firewall,
@@ -52,15 +54,29 @@ public sealed class InstanceDeleteService(
         ArgumentNullException.ThrowIfNull(options);
 
         string slug;
+        int? clusterId;
         await using (var db = await contextFactory.CreateDbContextAsync(cancellationToken))
         {
-            var found = await db.Instances.AsNoTracking().Where(i => i.Id == instanceId).Select(i => i.Slug).SingleOrDefaultAsync(cancellationToken);
+            var found = await db.Instances.AsNoTracking().Where(i => i.Id == instanceId).Select(i => new { i.Slug, i.ClusterId }).SingleOrDefaultAsync(cancellationToken);
             if (found is null)
             {
                 return OperationOutcome.Rejected($"Instance {instanceId} does not exist.");
             }
 
-            slug = found;
+            slug = found.Slug;
+            clusterId = found.ClusterId;
+        }
+
+        // B2: an unresolved restore owns the world files and the safety copy under the backup folder; a cluster restore
+        // in flight owns the shared directory. Deleting either out from under it is refused.
+        if (restoreJournals.FindForInstance(instanceId) is { } journal)
+        {
+            return OperationOutcome.Rejected(journal.RefusalReason("this instance"));
+        }
+
+        if (clusterId is { } cluster && locks.IsClusterReserved(cluster))
+        {
+            return OperationOutcome.Rejected("The cluster is reserved by a restore; try again when it finishes.");
         }
 
         var lease = locks.TryAcquire(instanceId);
@@ -146,6 +162,7 @@ public sealed class InstanceDeleteService(
         await db.ExtraOverrides.Where(o => o.InstanceId == instanceId).ExecuteDeleteAsync(cancellationToken);
         await db.IniDocuments.Where(d => d.InstanceId == instanceId).ExecuteDeleteAsync(cancellationToken);
         await db.BackupRecords.Where(b => b.InstanceId == instanceId).ExecuteDeleteAsync(cancellationToken);
+        await db.RestoreRecords.Where(r => r.InstanceId == instanceId).ExecuteDeleteAsync(cancellationToken);
         await db.KnownPlayers.Where(p => p.LastInstanceId == instanceId)
             .ExecuteUpdateAsync(set => set.SetProperty(p => p.LastInstanceId, (int?)null).SetProperty(p => p.IsOnline, false), cancellationToken);
         await db.Instances.Where(i => i.Id == instanceId).ExecuteDeleteAsync(cancellationToken);

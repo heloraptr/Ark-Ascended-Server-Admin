@@ -48,6 +48,9 @@ public sealed class DataRootLayout
 
     public string DatabasePath => Path.Combine(Data, DatabaseFileName);
 
+    /// <summary>One JSON record per restore whose destructive phase began and has not been resolved (B2); outside every directory a backup or restore touches.</summary>
+    public string RestoreJournals => Path.Combine(Data, "restore-journals");
+
     public string SteamCmdExecutable => Path.Combine(SteamCmd, "steamcmd.exe");
 
     /// <summary>The manifest that proves the install is complete (see <see cref="Install.AppManifest"/>).</summary>
@@ -57,7 +60,7 @@ public sealed class DataRootLayout
 
     /// <summary>Every directory that must exist before the service is ready.</summary>
     public IReadOnlyList<string> Directories =>
-        [Root, Server, Instances, Clusters, Backups, Archive, SteamCmd, Keys, Exports, Data];
+        [Root, Server, Instances, Clusters, Backups, Archive, SteamCmd, Keys, Exports, Data, RestoreJournals];
 
     public string InstanceDirectory(string slug) => Path.Combine(Instances, slug);
 
@@ -87,6 +90,9 @@ public sealed class DataRootLayout
         Path.Combine(InstanceDirectory(slug), "ShooterGame", "Binaries", "Win64", "ArkAscendedServer.exe");
 
     public string InstanceBackupDirectory(string slug) => Path.Combine(Backups, slug);
+
+    /// <summary>Where a restore keeps the copy of the files it replaces (B2): <c>Backups&lt;slug&gt;_restore-safety&lt;stamp&gt;-&lt;n&gt;</c>.</summary>
+    public string InstanceRestoreSafetyDirectory(string slug) => Path.Combine(InstanceBackupDirectory(slug), "_restore-safety");
 
     /// <summary>Retained world data of a deleted instance; the slug stays reserved while this exists (plan steps 18, 30).</summary>
     public string ArchiveDirectory(string slug, DateTimeOffset deletedAt) =>

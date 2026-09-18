@@ -1,4 +1,5 @@
 using ArkAscendedServerAdmin.Auth;
+using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Ini;
@@ -18,6 +19,28 @@ public class ClusterCommandsTests
 
     private static InstanceDraft Member(int mapId, int clusterId, string name, int gamePort, int rconPort) =>
         new() { Name = name, MapId = mapId, ClusterId = clusterId, SessionName = name, GamePort = gamePort, RconPort = rconPort };
+
+    /// <summary>B2: an unresolved restore journal for the cluster refuses new members and deletion like a live reservation.</summary>
+    [Fact]
+    public async Task RestoreJournal_RefusesNewMembersAndDeletion_UntilDiscarded()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (host, mapId) = await StartAsync(ct);
+        using (host)
+        {
+            var cluster = await host.Clusters.CreateAsync("Journaled", ConfigSourceKind.Blank, null, ct);
+            host.Journals.Write(new RestoreJournal("alpha-op", DateTimeOffset.UnixEpoch, 1, "alpha", "TheIsland_WP", cluster.Value, "journaled", [1], Path.Combine(host.Root.Layout.Root, "safety"), "x.zip", RestorePhase.Replacing));
+
+            var create = await host.Instances.CreateAsync(Member(mapId, cluster.Value, "Late", 7777, 27020), ct);
+            var delete = await host.Clusters.DeleteAsync(cluster.Value, ct);
+
+            Assert.Contains("incomplete restore (alpha-op)", create.Error, StringComparison.Ordinal);
+            Assert.Contains("incomplete restore (alpha-op)", delete.Error, StringComparison.Ordinal);
+
+            host.Journals.Delete("alpha-op");
+            Assert.True((await host.Clusters.DeleteAsync(cluster.Value, ct)).Succeeded);
+        }
+    }
 
     /// <summary>B0: a restore reserves a cluster; creating a member or deleting the cluster is refused for as long as it holds.</summary>
     [Fact]

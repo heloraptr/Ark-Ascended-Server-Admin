@@ -36,6 +36,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<BackupRecord> BackupRecords => Set<BackupRecord>();
 
+    public DbSet<RestoreRecord> RestoreRecords => Set<RestoreRecord>();
+
     public DbSet<MaintenanceState> MaintenanceStates => Set<MaintenanceState>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -144,6 +146,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             b.Property(x => x.FileName).HasMaxLength(260);
             b.Property(x => x.Reason).HasMaxLength(1000);
             b.HasOne(x => x.Instance).WithMany(i => i.Backups).HasForeignKey(x => x.InstanceId);
+            b.HasIndex(x => new { x.InstanceId, x.CreatedAt });
+        });
+
+        modelBuilder.Entity<RestoreRecord>(b =>
+        {
+            b.Property(x => x.Outcome).HasConversion<string>().HasMaxLength(16);
+            b.Property(x => x.SourceFileName).HasMaxLength(260).IsRequired();
+            b.Property(x => x.Reason).HasMaxLength(1000);
+            b.HasOne(x => x.Instance).WithMany(i => i.Restores).HasForeignKey(x => x.InstanceId);
             b.HasIndex(x => new { x.InstanceId, x.CreatedAt });
         });
 
