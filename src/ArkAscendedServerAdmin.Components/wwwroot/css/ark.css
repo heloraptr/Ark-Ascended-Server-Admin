@@ -1105,15 +1105,19 @@ h1:focus-visible {
   margin-top: 3px;
 }
 
+/* Every flag in a visual row shares the row height (grid stretch); align-content packs each flag's
+   own rows at the top so the names line up and the hairline sits at the same height across the row.
+   The name never wraps, so the column minimum leaves room for the longest name plus the buttons. */
 .flag-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
   gap: 8px 24px;
 }
 
 .flag {
   display: grid;
   grid-template-columns: 1fr auto;
+  align-content: start;
   align-items: center;
   gap: 12px;
   padding: 8px 0;
@@ -1123,6 +1127,7 @@ h1:focus-visible {
 .flag .flag-name {
   color: var(--ark-steel);
   font-size: 13.5px;
+  white-space: nowrap;
 }
 
 .flag .flag-desc {
