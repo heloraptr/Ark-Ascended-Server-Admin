@@ -29,7 +29,13 @@
                 <strong>@item.Mod.Name</strong>
                 <span>@item.Mod.Id · from the cluster@(item.Enabled ? null : ", disabled there")</span>
             </div>
-            <div class="actions"><RadzenIcon Icon="lock" Style="color:var(--ark-steel-3)" /></div>
+            <div class="actions">
+                @if (!item.Enabled)
+                {
+                    <RadzenIcon Icon="toggle_off" class="is-off" title="Disabled on the cluster page; not passed to any member" />
+                }
+                <RadzenIcon Icon="lock" Style="color:var(--ark-steel-3)" />
+            </div>
         </div>
     }
     @for (var i = 0; i < _rows.Count; i++)

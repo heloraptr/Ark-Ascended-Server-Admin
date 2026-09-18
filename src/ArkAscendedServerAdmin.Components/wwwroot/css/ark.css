@@ -1242,14 +1242,16 @@ h1:focus-visible {
   border-bottom: 1px solid var(--ark-hairline);
 }
 
-.mod-item.is-locked {
-  opacity: 0.6;
-}
-
-/* A disabled entry keeps its place but is left out of -mods; the row stays readable, only the mod itself fades. */
+/* Locked rows (map mod, cluster mods) are not dimmed: the lock says they cannot be changed here. A
+   disabled entry keeps its place but is left out of -mods, so the mod itself fades and the row gets a
+   second icon next to the lock (see ModListEditor). */
 .mod-item.is-disabled .thumb,
 .mod-item.is-disabled .title {
-  opacity: 0.45;
+  opacity: 0.35;
+}
+
+.mod-item .actions .is-off {
+  color: var(--ark-trace);
 }
 
 .mod-item .order {
