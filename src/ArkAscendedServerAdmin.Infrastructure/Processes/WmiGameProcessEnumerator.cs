@@ -20,9 +20,12 @@ public sealed class WmiGameProcessEnumerator(ILogger<WmiGameProcessEnumerator> l
 
     private const string Query = Columns + "Name = '" + ExecutableName + "'";
 
-    public IReadOnlyList<GameProcessInfo> Enumerate()
+    public IReadOnlyList<GameProcessInfo> Enumerate() => Snapshot().Processes;
+
+    public ProcessTableSnapshot Snapshot()
     {
         var processes = new List<GameProcessInfo>();
+        var complete = true;
         using var searcher = new ManagementObjectSearcher(Query);
         using var results = searcher.Get();
         foreach (var result in results)
@@ -34,10 +37,14 @@ public sealed class WmiGameProcessEnumerator(ILogger<WmiGameProcessEnumerator> l
                 {
                     processes.Add(info);
                 }
+                else
+                {
+                    complete = false;
+                }
             }
         }
 
-        return processes;
+        return new ProcessTableSnapshot(processes, complete);
     }
 
     public ProcessRowRead ReadRow(int pid)

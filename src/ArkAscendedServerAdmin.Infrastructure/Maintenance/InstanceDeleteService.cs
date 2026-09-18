@@ -23,6 +23,7 @@ public sealed class InstanceDeleteService(
     IDbContextFactory<AppDbContext> contextFactory,
     DataRootLayout layout,
     IInstanceLocks locks,
+    DetachedJobs jobs,
     IProcessManager processManager,
     IFirewallRules firewall,
     IInstanceLayoutService layoutService,
@@ -68,9 +69,16 @@ public sealed class InstanceDeleteService(
             return OperationOutcome.Rejected("An operation is in progress for this instance; try again when it finishes.");
         }
 
+        var registration = jobs.TryBegin($"delete {slug}");
+        if (registration is null)
+        {
+            lease.Dispose();
+            return OperationOutcome.Rejected("The service is stopping; the delete was not started.");
+        }
+
         // The job is detached from the caller (a closed browser tab must not abort a half-done delete), but the
         // caller waits for it so "Deleted" is only reported, and the instance list only reloaded, once the rows are gone.
-        var job = Task.Run(() => RunAsync(instanceId, slug, options, lease, lifetime.ApplicationStopping), CancellationToken.None);
+        var job = Task.Run(() => RunAsync(instanceId, slug, options, lease, registration, lifetime.ApplicationStopping), CancellationToken.None);
         lock (_sync)
         {
             _lastJob = job;
@@ -79,7 +87,7 @@ public sealed class InstanceDeleteService(
         return await job.WaitAsync(cancellationToken);
     }
 
-    private async Task<OperationOutcome> RunAsync(int instanceId, string slug, InstanceDeleteOptions options, IInstanceLease lease, CancellationToken cancellationToken)
+    private async Task<OperationOutcome> RunAsync(int instanceId, string slug, InstanceDeleteOptions options, IInstanceLease lease, IDisposable registration, CancellationToken cancellationToken)
     {
         try
         {
@@ -125,6 +133,7 @@ public sealed class InstanceDeleteService(
         finally
         {
             lease.Dispose();
+            registration.Dispose();
         }
     }
 

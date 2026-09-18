@@ -230,6 +230,7 @@ restarts it.
 | `No countdown to skip` (`The stop is already past the broadcast phase.`) | **Stop now** was clicked in the moment after the countdown ended, before the button turned into **Closing…**. |
 | `The instance is not waiting for its identity to be persisted.` | **Retry persist** on an instance that is not in **Identity not saved**. |
 | `An operation is in progress for this instance; try again when it finishes.` | Delete asked while the instance lock is held. |
+| `The service is stopping; the delete was not started.` | Delete asked after the service began shutting down; nothing was touched. Retry once it is back. |
 | `The instance could not be stopped with a verified exit: ...` | Delete aborted before touching anything; the reason is the stop's. |
 | `Delete failed: ...` | A file operation failed after the stop; the console has the line. Check `Instances\<slug>` by hand. |
 | `Instance name is required.` / `Instance name must be 100 characters or fewer.` / `An instance named '<name>' already exists.` | Settings tab validation. Names are compared ignoring case. |

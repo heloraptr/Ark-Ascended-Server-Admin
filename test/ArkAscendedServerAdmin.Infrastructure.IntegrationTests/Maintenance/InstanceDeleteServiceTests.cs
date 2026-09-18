@@ -158,6 +158,24 @@ public class InstanceDeleteServiceTests
         Assert.True(await db.Instances.AnyAsync(ct));
     }
 
+    /// <summary>B0: once the host is stopping, a new delete is refused before it takes anything.</summary>
+    [Fact]
+    public async Task Delete_IsRejectedOnceShutdownHasBegun()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        var f = await Fixture.CreateAsync(root, ct);
+        await f.Jobs.ShutdownAsync(ct);
+
+        var outcome = await f.Service.DeleteAsync(f.Instance.Id, new InstanceDeleteOptions(KeepWorldData: false, DeleteBackups: true), ct);
+
+        Assert.False(outcome.Succeeded);
+        Assert.Contains("stopping", outcome.Error, StringComparison.Ordinal);
+        Assert.Empty(f.Locks.Holders);
+        await using var db = root.CreateDbContext();
+        Assert.True(await db.Instances.AnyAsync(ct));
+    }
+
     [Fact]
     public async Task Delete_OfAnUnknownInstance_IsRejected()
     {
@@ -185,6 +203,8 @@ public class InstanceDeleteServiceTests
         public required IFirewallRules Firewall { get; init; }
 
         public required FakeConsoleService Console { get; init; }
+
+        public required DetachedJobs Jobs { get; init; }
 
         public static async Task<Fixture> CreateAsync(TempDataRoot root, CancellationToken ct)
         {
@@ -217,7 +237,8 @@ public class InstanceDeleteServiceTests
             var lifetime = Substitute.For<IHostApplicationLifetime>();
             lifetime.ApplicationStopping.Returns(CancellationToken.None);
 
-            var service = new InstanceDeleteService(root, root.Layout, locks, processes, firewall, layout, console, lifetime, clock, NullLogger<InstanceDeleteService>.Instance);
+            var jobs = new DetachedJobs(clock);
+            var service = new InstanceDeleteService(root, root.Layout, locks, jobs, processes, firewall, layout, console, lifetime, clock, NullLogger<InstanceDeleteService>.Instance);
 
             return new Fixture
             {
@@ -228,6 +249,7 @@ public class InstanceDeleteServiceTests
                 Layout = layout,
                 Firewall = firewall,
                 Console = console,
+                Jobs = jobs,
             };
         }
     }

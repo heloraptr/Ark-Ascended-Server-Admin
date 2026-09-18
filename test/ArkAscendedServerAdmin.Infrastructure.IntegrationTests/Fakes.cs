@@ -62,6 +62,18 @@ public sealed class FakeInstanceLocks : IInstanceLocks
 
     public ConcurrentDictionary<int, int> Holders { get; } = new();
 
+    public ConcurrentDictionary<int, int> ReservedClusters { get; } = new();
+
+    public IDisposable? TryReserveCluster(int clusterId) =>
+        ReservedClusters.TryAdd(clusterId, 1) ? new ClusterLease(this, clusterId) : null;
+
+    public bool IsClusterReserved(int clusterId) => ReservedClusters.ContainsKey(clusterId);
+
+    private sealed class ClusterLease(FakeInstanceLocks owner, int clusterId) : IDisposable
+    {
+        public void Dispose() => owner.ReservedClusters.TryRemove(clusterId, out _);
+    }
+
     public IInstanceLease? TryAcquire(int instanceId)
     {
         var gate = _locks.GetOrAdd(instanceId, _ => new SemaphoreSlim(1, 1));
@@ -168,6 +180,19 @@ public sealed class FakeProcessManager(FakeMaintenanceGate? gate = null) : IProc
 
     public Task<SessionLiveness> ProbeSessionAsync(int instanceId, CancellationToken cancellationToken) =>
         Task.FromResult(Liveness.TryGetValue(instanceId, out var liveness) ? liveness : SessionLiveness.Unknown);
+
+    /// <summary>Scripted: held with a no-op lease unless <see cref="ProjectionRefusal"/> is set.</summary>
+    public string? ProjectionRefusal { get; set; }
+
+    public Task<ProjectionReservationResult> TryReserveProjectionAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(ProjectionRefusal is { } reason ? new ProjectionReservationResult(null, reason) : new ProjectionReservationResult(new NoOpLease(), null));
+
+    private sealed class NoOpLease : IDisposable
+    {
+        public void Dispose()
+        {
+        }
+    }
 
     public void Set(int instanceId, InstanceState state)
     {

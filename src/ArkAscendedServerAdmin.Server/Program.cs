@@ -66,6 +66,8 @@ builder.Services.AddSingleton(new HostConfiguration(
 
 // ---- services ------------------------------------------------------------------------------------
 builder.Services.AddArkInfrastructure(layout);
+// B0: the detached-jobs registry waits up to 60 s for restore and delete jobs on stop; the host's budget must exceed that.
+builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(90));
 builder.Services.AddArkAuthentication(arkOptions, layout);
 builder.Services.AddArkCommands();
 

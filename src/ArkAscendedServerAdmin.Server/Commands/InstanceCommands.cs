@@ -25,6 +25,7 @@ public sealed class InstanceCommands(
     HostConfiguration host,
     IAppSettingsStore settings,
     IProcessManager processManager,
+    IInstanceLocks locks,
     IBackupService backups,
     IInstanceDeleteService deleteService,
     IInstanceLayoutService layoutService,
@@ -317,6 +318,10 @@ public sealed class InstanceCommands(
             if (cluster is null)
             {
                 problems.Add("The chosen cluster no longer exists.");
+            }
+            else if (locks.IsClusterReserved(clusterId))
+            {
+                problems.Add("The cluster is reserved by a restore; try again when it finishes.");
             }
         }
 

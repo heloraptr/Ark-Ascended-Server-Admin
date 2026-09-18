@@ -5,6 +5,7 @@ using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Rcon;
 using ArkAscendedServerAdmin.Startup;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace ArkAscendedServerAdmin.Infrastructure.Processes;
 
@@ -28,6 +29,7 @@ public static class ProcessServiceCollectionExtensions
         services.AddSingleton<IMaintenanceGate>(sp => sp.GetRequiredService<MaintenanceGate>());
         services.AddSingleton<LaunchQueue>();
         services.AddSingleton<RecoveryRequests>();
+        services.TryAddSingleton<IProjectionSynchronizer, NoProjectionSynchronizer>(); // B5 replaces it with the list synchronizer
 
         services.AddSingleton<IRconClient, CoreRconClient>();
         services.AddSingleton<IGameProcessEnumerator, WmiGameProcessEnumerator>();

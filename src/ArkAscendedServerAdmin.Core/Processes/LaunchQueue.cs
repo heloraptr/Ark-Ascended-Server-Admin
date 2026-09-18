@@ -38,6 +38,9 @@ public sealed class LaunchQueue : IDisposable
         _gate.RegisterDrain(Drain);
     }
 
+    /// <summary>The reservation every launch holds shared through registration and a file projection holds exclusively (B0).</summary>
+    public ProjectionReservation Reservation { get; } = new();
+
     /// <summary>Launches still waiting for the worker; for diagnostics and tests.</summary>
     public int PendingCount
     {

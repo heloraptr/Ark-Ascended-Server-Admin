@@ -72,6 +72,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
     private readonly IMaintenanceGate _gate;
     private readonly LaunchQueue _queue;
     private readonly RecoveryRequests _recovery;
+    private readonly IProjectionSynchronizer _synchronizer;
     private readonly IRconClient _rcon;
     private readonly IGameProcessEnumerator _enumerator;
     private readonly IFirewallRules _firewall;
@@ -96,6 +97,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         IMaintenanceGate gate,
         LaunchQueue queue,
         RecoveryRequests recovery,
+        IProjectionSynchronizer synchronizer,
         IRconClient rcon,
         IGameProcessEnumerator enumerator,
         IFirewallRules firewall,
@@ -118,6 +120,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         _gate = gate;
         _queue = queue;
         _recovery = recovery;
+        _synchronizer = synchronizer;
         _rcon = rcon;
         _enumerator = enumerator;
         _firewall = firewall;
@@ -212,8 +215,18 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
                 .ToListAsync(cancellationToken);
         }
 
+        if (instance.ClusterId is { } clusterId && _locks.IsClusterReserved(clusterId))
+        {
+            return OperationOutcome.Rejected("The cluster is reserved by a restore; try again when it finishes.");
+        }
+
         var slug = instance.Slug;
         await _layout.EnsureAsync(slug, cancellationToken);
+
+        // Handoff (B0): (1) let the synchronizer run a cycle first, holding nothing; (2) hold the projection reservation
+        // shared from here through session registration, so a projection can never race this launch.
+        await _synchronizer.RunCycleAsync(cancellationToken);
+        using var reservation = await _queue.Reservation.AcquireSharedAsync(cancellationToken);
 
         var generated = await _configWriter.WriteAsync(instanceId, cancellationToken);
         foreach (var warning in generated.Warnings)
@@ -1103,6 +1116,60 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         {
             _logger.LogWarning(ex, "A {Event} subscriber threw.", typeof(T).Name);
         }
+    }
+
+    // ---- projection reservation (B0) ---------------------------------------------------------------
+
+    public async Task<ProjectionReservationResult> TryReserveProjectionAsync(CancellationToken cancellationToken)
+    {
+        // Exclusive first: once held, no launch can enter its shared phase, so a check that finds no session and no
+        // process is guaranteed that none is being created.
+        var lease = await _queue.Reservation.AcquireExclusiveAsync(cancellationToken);
+        string reason;
+        try
+        {
+            if (!_sessions.IsEmpty)
+            {
+                var ids = string.Join(", ", _sessions.Keys.OrderBy(id => id).Select(id => id.ToString(CultureInfo.InvariantCulture)));
+                reason = $"a session is registered for instance {ids}";
+            }
+            else
+            {
+                ProcessTableSnapshot snapshot;
+                try
+                {
+                    snapshot = await Task.Run(() => _enumerator.Snapshot(), cancellationToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    snapshot = new ProcessTableSnapshot([], false);
+                    _logger.LogWarning(ex, "Process enumeration failed while reserving for a projection.");
+                }
+
+                if (!snapshot.Complete)
+                {
+                    reason = "the process table could not be read completely";
+                }
+                else if (snapshot.Processes.Count > 0)
+                {
+                    var pids = string.Join(", ", snapshot.Processes.Select(p => p.Pid.ToString(CultureInfo.InvariantCulture)));
+                    reason = $"{snapshot.Processes.Count} game process(es) running (pids {pids})";
+                }
+                else
+                {
+                    return new ProjectionReservationResult(lease, null);
+                }
+            }
+        }
+        catch
+        {
+            lease.Dispose();
+            throw;
+        }
+
+        lease.Dispose();
+        _logger.LogInformation("Projection deferred: {Reason}.", reason);
+        return new ProjectionReservationResult(null, reason);
     }
 
     // ---- runtime bookkeeping ----------------------------------------------------------------------
