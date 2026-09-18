@@ -13,7 +13,7 @@ start. An instance that is not in a cluster is standalone and carries the same t
 | Shared by a cluster | Where it comes from | How a member can differ |
 |---|---|---|
 | `Game.ini` and `GameUserSettings.ini` source text | `DataRoot\Clusters\<slug>\Config\` | Per-instance **Overrides** (single keys) on the member's Config tab. |
-| Mods | The cluster's **Mods** tab; loaded before the member's own | A member adds mods after them, never removes one. |
+| Mods | The cluster's **Mods** tab; loaded before the member's own | A member adds mods after them, never removes one; a mod disabled on the cluster is off for every member. |
 | Launch options | The cluster's **Launch** tab, the base | A member sets any flag to **On** or **Off** instead of **Inherit**; its additional arguments are appended after the cluster's. |
 | Admin whitelist | The cluster's **Settings** tab | A member has its own list; the union is written. |
 | Cluster id | `-clusterid=<id>` on every member | Cannot differ; that is the point. |
@@ -53,7 +53,7 @@ On disk that is:
 
 and in the database a `Clusters` row (name, slug, cluster key = slug, empty whitelist, default launch
 flags) plus two `IniDocuments` mirror rows with the SHA-256 of each file. Cluster mods are
-`ClusterMods` rows in order.
+`ClusterMods` rows in order, each with an `Enabled` flag.
 
 ## The cluster list
 
@@ -74,7 +74,7 @@ member at its next start.`
 |---|---|
 | **Members** | One row per member with the state triangle, name, session name, map, ports, and state label, and an arrow to the instance page. **New instance** in the header opens the wizard with this cluster already chosen. Empty: `No members yet.` with the same **New instance** button. |
 | **Config** | The `GameUserSettings.ini` and `Game.ini` editors for the cluster's source files. Same editor as a standalone instance's ([configuration-files.md](configuration-files.md)). |
-| **Mods** | `Mandatory for every member and loaded before each member's own mods. A custom map's own mod loads ahead of these on that member alone and is not listed here.` The ordered list with **Add**, move up and down, remove, **Save mods**. |
+| **Mods** | `Mandatory for every member and loaded before each member's own mods. A custom map's own mod loads ahead of these on that member alone and is not listed here.` The ordered list with **Add**, an enable/disable toggle per row, move up and down, remove, **Save mods**. A disabled mod stays listed and is left out of every member's `-mods`. |
 | **Launch** | `The base every member starts from; a member can override each flag.` The flags editor with **Default** / **On** / **Off** per flag ([launch-options.md](launch-options.md)). |
 | **Settings** | **Cluster name** (`The folder stays Clusters\<slug>.`), **Cluster id** (`Passed as -clusterid; every member must share it for transfers to work. Changing it strands existing transfers.`), **Admin whitelist** (`Merged with the Settings list and each member's own list at start.`). **Save settings**, **Reset**. |
 
@@ -99,7 +99,7 @@ line:
 
 ```
 -clusterid=<cluster id> -ClusterDirOverride=<DataRoot>\Clusters\<slug>
--mods=<map mod>,<cluster mods in cluster order>,<instance mods in instance order>
+-mods=<map mod>,<enabled cluster mods in cluster order>,<enabled instance mods in instance order>
 ```
 
 plus the resolved launch flags (cluster base, instance override). The transfer directory is the

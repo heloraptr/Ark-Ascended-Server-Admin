@@ -121,7 +121,7 @@
                 break;
 
             case 4:
-                <ModListEditor MapMod="SelectedMapMod" LockedMods="_clusterMods" Mods="_pickedMods" Library="_pickableLibrary" OnSave="@((IReadOnlyList<int> ids) => { _modIds = ids; _pickedMods = ids.Select(id => _library.First(m => m.Id == id)).ToList(); return Task.CompletedTask; })" />
+                <ModListEditor MapMod="SelectedMapMod" LockedMods="_clusterMods" Mods="_pickedMods" Library="_pickableLibrary" OnSave="@((IReadOnlyList<ModSelection> mods) => { _mods = mods; _pickedMods = mods.Select(m => new ModListItem(_library.First(x => x.Id == m.ModId), m.Enabled)).ToList(); return Task.CompletedTask; })" />
                 <p class="hint muted">Use Save mods to keep the list for the summary, or leave it empty. The library is on the <a href="mods">Mods</a> page.</p>
                 break;
 
@@ -248,9 +248,9 @@
     private int _mapId;
     private ConfigSourceKind _configSource = ConfigSourceKind.GameDefaults;
     private int? _configSourceId;
-    private IReadOnlyList<int> _modIds = [];
-    private IReadOnlyList<ModLibraryEntry> _pickedMods = [];
-    private IReadOnlyList<ModLibraryEntry> _clusterMods = [];
+    private IReadOnlyList<ModSelection> _mods = [];
+    private IReadOnlyList<ModListItem> _pickedMods = [];
+    private IReadOnlyList<ModListItem> _clusterMods = [];
     private LaunchFlags _flags = new();
     private LaunchFlags? _clusterFlags;
     private int _gamePort;
@@ -283,7 +283,7 @@
                 names.Add($"{mapMod.Name} (map mod)");
             }
 
-            names.AddRange(_pickedMods.Select(m => m.Name));
+            names.AddRange(_pickedMods.Select(m => m.Enabled ? m.Mod.Name : m.Mod.Name + " (disabled)"));
             return names.Count == 0 ? "none" : string.Join(", ", names);
         }
     }
@@ -414,7 +414,7 @@
                 RconPort = _rconPort,
                 ConfigSource = _configSource,
                 ConfigSourceId = _configSourceId,
-                ModIds = _modIds,
+                Mods = _mods,
                 LaunchFlags = _flags,
                 AdminWhitelist = _whitelist,
                 AdminPassword = _adminPassword,

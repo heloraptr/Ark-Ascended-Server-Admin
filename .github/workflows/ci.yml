@@ -32,6 +32,13 @@ jobs:
       - name: Build
         run: dotnet build ArkAscendedServerAdmin.slnx -c Release --nologo
 
+      # A migration branch that merged after another one can leave the model snapshot behind the model;
+      # dotnet ef then exits non-zero here instead of generating a bogus diff on the next migrations add.
+      - name: Migration snapshot is current
+        run: |
+          dotnet tool restore
+          dotnet ef migrations has-pending-model-changes --project src/ArkAscendedServerAdmin.Infrastructure --startup-project src/ArkAscendedServerAdmin.Server --configuration Release --no-build
+
       - name: Unit tests
         run: dotnet run --project test/ArkAscendedServerAdmin.UnitTests/ArkAscendedServerAdmin.UnitTests.csproj -c Release --no-build -- --report-trx --results-directory "${{ github.workspace }}\TestResults"
 

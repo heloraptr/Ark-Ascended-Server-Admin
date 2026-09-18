@@ -1246,6 +1246,12 @@ h1:focus-visible {
   opacity: 0.6;
 }
 
+/* A disabled entry keeps its place but is left out of -mods; the row stays readable, only the mod itself fades. */
+.mod-item.is-disabled .thumb,
+.mod-item.is-disabled .title {
+  opacity: 0.45;
+}
+
 .mod-item .order {
   color: var(--ark-steel-3);
   font-size: 12px;

@@ -563,11 +563,11 @@ else
         await RefreshPreviewAsync();
     }
 
-    private async Task SaveModsAsync(IReadOnlyList<int> ids)
+    private async Task SaveModsAsync(IReadOnlyList<ModSelection> mods)
     {
         await GuardedAsync(async () =>
         {
-            var result = await Instances.SetModsAsync(Id, ids);
+            var result = await Instances.SetModsAsync(Id, mods);
             Notifications.Report(result, ActionVerb.Saved, "mods");
             if (result.Succeeded)
             {

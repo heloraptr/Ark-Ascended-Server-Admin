@@ -198,8 +198,8 @@ public class ModCommandsTests
         var cluster = await host.Clusters.CreateAsync("Survivors", ConfigSourceKind.Blank, null, ct);
         Assert.True((await host.Clusters.SetModsAsync(cluster.Value, [1], ct)).Succeeded);
         var mapId = await host.MapIdAsync(ct);
-        Assert.True((await host.Instances.CreateAsync(new InstanceDraft { Name = "Zed", MapId = mapId, SessionName = "z", GamePort = 7777, RconPort = 27020, ModIds = [1] }, ct)).Succeeded);
-        Assert.True((await host.Instances.CreateAsync(new InstanceDraft { Name = "Able", MapId = mapId, SessionName = "a", GamePort = 7779, RconPort = 27021, ModIds = [1] }, ct)).Succeeded);
+        Assert.True((await host.Instances.CreateAsync(new InstanceDraft { Name = "Zed", MapId = mapId, SessionName = "z", GamePort = 7777, RconPort = 27020, Mods = [1] }, ct)).Succeeded);
+        Assert.True((await host.Instances.CreateAsync(new InstanceDraft { Name = "Able", MapId = mapId, SessionName = "a", GamePort = 7779, RconPort = 27021, Mods = [1] }, ct)).Succeeded);
 
         var usage = await host.Mods.GetUsageAsync(ct);
         var refused = await host.Mods.RemoveAsync(1, ct);

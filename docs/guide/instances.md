@@ -24,7 +24,7 @@ final **Standalone** section for instances without a cluster. Each row shows:
 |---|---|
 | Checkbox | Adds the row to the selection. A bar appears above the groups: `2 instances selected`, **Start selected**, **Stop selected**, **Clear**. |
 | Name | The small triangle for the state, the instance name (a link to its page), the session name under it. |
-| Map | The map name and `3 mods` or `vanilla`. |
+| Map | The map name and `3 mods` or `vanilla`. The count is what a start passes in `-mods`: the map's own mod, the cluster's enabled mods, and the instance's enabled mods. |
 | Ports | `7777 game`, `27020 rcon`. |
 | State and backup | The state label ([README](README.md#instance-states)) and the last backup: `Backed up 12 min ago`, `Skipped 1 h ago`, `Failed`, or `no backup yet`. Hovering the backup shows its reason. |
 | Actions | While a process is live: **Stop**, **Restart**, **Back up now** (enabled only when **Running**). While stopping: **Stop now** (skips the countdown), which turns into a disabled **Closing…** once the exit has been requested. Otherwise **Start** (disabled when the state is **Unknown**). Always: **Open console**. |

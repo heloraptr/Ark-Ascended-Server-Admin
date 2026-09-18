@@ -29,7 +29,7 @@ public sealed record DashboardData(IReadOnlyList<ClusterSummary> Clusters, IRead
 /// cluster's mods in cluster order (empty for a standalone instance).
 /// </summary>
 /// <summary><paramref name="MapMod"/> is a custom map's own mod, loaded ahead of every other and never part of the two lists.</summary>
-public sealed record InstanceDetail(Instance Instance, IReadOnlyList<ModLibraryEntry> ClusterMods, IReadOnlyList<ModLibraryEntry> InstanceMods, ModLibraryEntry? MapMod = null);
+public sealed record InstanceDetail(Instance Instance, IReadOnlyList<ModListItem> ClusterMods, IReadOnlyList<ModListItem> InstanceMods, ModLibraryEntry? MapMod = null);
 
 /// <summary>Where a new standalone instance's or cluster's INI source text starts from.</summary>
 public enum ConfigSourceKind
@@ -70,7 +70,7 @@ public sealed record InstanceDraft
     /// </summary>
     public string AdminPassword { get; init; } = string.Empty;
 
-    public IReadOnlyList<int> ModIds { get; init; } = [];
+    public IReadOnlyList<ModSelection> Mods { get; init; } = [];
 
     public LaunchFlags LaunchFlags { get; init; } = new();
 
@@ -150,7 +150,7 @@ public interface IInstanceCommands
 
     Task<CommandResult> SaveLaunchFlagsAsync(int instanceId, LaunchFlags flags, CancellationToken cancellationToken = default);
 
-    Task<CommandResult> SetModsAsync(int instanceId, IReadOnlyList<int> orderedModIds, CancellationToken cancellationToken = default);
+    Task<CommandResult> SetModsAsync(int instanceId, IReadOnlyList<ModSelection> orderedMods, CancellationToken cancellationToken = default);
 
     /// <summary>Builds the command line and generates the INI in memory (nothing is written) so the owner can see what a start would do.</summary>
     Task<CommandResult<LaunchPreview>> PreviewLaunchAsync(int instanceId, CancellationToken cancellationToken = default);

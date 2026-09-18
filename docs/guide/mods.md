@@ -54,20 +54,25 @@ removes its assignment rows, which frees the entry.
 ## Cluster mods and instance mods
 
 On a cluster page, the **Mods** tab: "Mandatory for every member and loaded before each member's own
-mods." Add from the library, reorder with the arrows, **Save mods**.
+mods." Add from the library, reorder with the arrows, **Save mods**. The toggle at the start of each row
+disables a mod without removing it: it keeps its place in the list, is left out of `-mods` on every
+member, and shows as "disabled there" on the members' own lists.
 
 On an instance page, the **Mods** tab shows an ordered list: the map mod first (locked, "from the
 map"), then the cluster's mods (locked, "from the cluster"), then the instance's own with move up,
-move down, and remove. "Add a mod from the library" is a filterable drop-down; it never offers a map
-mod. **Save mods** writes the list. The footer reminds you: "Order matters: mods load in this order,
-the map's own mod first, then cluster mods. New mods on the list need a restart." The wizard's
+move down, and remove, plus the same enable/disable toggle. A disabled mod keeps its place but is
+left out of the start command, which is the quick way to sort out a mod conflict without rebuilding
+the list. "Add a mod from the library" is a filterable drop-down (case does not matter); it never
+offers a map mod. **Save mods** writes the list. The footer reminds you: "Order matters: mods load in
+this order, the map's own mod first, then cluster mods. A disabled mod keeps its place but is left out
+of the start command. Changes to the list need a restart." The wizard's
 *Mods* step is the same editor ([instance-creation.md](../instance-creation.md)).
 
 ## The order they load in
 
 At every start (and in the **Launch** tab's "What a start would run" preview) the argument builder
-concatenates the map's mod id, the cluster's mods in cluster order, and the instance's mods in
-instance order, drops duplicates, and emits one `-mods=<id>,<id>,...`. No mods, no argument. The
+concatenates the map's mod id, the cluster's enabled mods in cluster order, and the instance's
+enabled mods in instance order, drops duplicates, and emits one `-mods=<id>,<id>,...`. No mods, no argument. The
 server downloads and loads them; the manager's console shows the game's own output about that in
 `ShooterGame.log` ([launch-options.md](launch-options.md)).
 
@@ -87,8 +92,8 @@ hunt through every list.
 ## Where the data lives
 
 The library is the `ModLibrary` table (id, name, summary, thumbnail URL, `DateModified`,
-`AddedAt`). Assignments are `ClusterMods` and `InstanceMods`, each with an `Order` column; saving a
-list replaces the rows. Nothing about mods is written to disk by the manager.
+`AddedAt`). Assignments are `ClusterMods` and `InstanceMods`, each with an `Order` and an `Enabled` column;
+saving a list updates the rows in place and removes the ones that left the list. Nothing about mods is written to disk by the manager.
 
 CurseForge calls go to `https://api.curseforge.com` with `gameId=83374` (ARK: Survival Ascended):
 `/v1/mods/search` for **Search** (every page of results is fetched), `/v1/mods/{id}` for **Add**

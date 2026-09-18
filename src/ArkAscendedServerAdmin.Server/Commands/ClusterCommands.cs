@@ -25,7 +25,7 @@ public sealed class ClusterCommands(
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.Clusters.AsNoTracking()
             .OrderBy(c => c.Name)
-            .Select(c => new ClusterListItem(c.Id, c.Name, c.Slug, c.ClusterKey, c.Instances.Count, c.Mods.Count))
+            .Select(c => new ClusterListItem(c.Id, c.Name, c.Slug, c.ClusterKey, c.Instances.Count, c.Mods.Count(m => m.Enabled)))
             .ToListAsync(cancellationToken);
     }
 
@@ -47,10 +47,10 @@ public sealed class ClusterCommands(
         var instances = new List<InstanceSummary>();
         foreach (var instance in cluster.Instances.OrderBy(i => i.Name))
         {
-            instances.Add(CommandSupport.ToSummary(instance, await CommandSupport.LastBackupAsync(db, instance.Id, cancellationToken)));
+            instances.Add(CommandSupport.ToSummary(instance, cluster.Mods, await CommandSupport.LastBackupAsync(db, instance.Id, cancellationToken)));
         }
 
-        return new ClusterDetail(cluster, cluster.Mods.OrderBy(m => m.Order).Select(m => m.Mod!).ToList(), instances);
+        return new ClusterDetail(cluster, cluster.Mods.OrderBy(m => m.Order).Select(m => new ModListItem(m.Mod!, m.Enabled)).ToList(), instances);
     }
 
     public async Task<CommandResult<int>> CreateAsync(string name, ConfigSourceKind source, int? sourceId, CancellationToken cancellationToken = default)
@@ -169,9 +169,9 @@ public sealed class ClusterCommands(
         return CommandResult.Ok;
     }
 
-    public async Task<CommandResult> SetModsAsync(int clusterId, IReadOnlyList<int> orderedModIds, CancellationToken cancellationToken = default)
+    public async Task<CommandResult> SetModsAsync(int clusterId, IReadOnlyList<ModSelection> orderedMods, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(orderedModIds);
+        ArgumentNullException.ThrowIfNull(orderedMods);
         await guard.EnsureAuthorizedAsync(cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -181,7 +181,8 @@ public sealed class ClusterCommands(
             return CommandResult.Fail("The cluster no longer exists.");
         }
 
-        var ids = orderedModIds.Distinct().ToList();
+        var mods = orderedMods.DistinctBy(m => m.ModId).ToList();
+        var ids = mods.Select(m => m.ModId).ToList();
         var known = await db.ModLibrary.AsNoTracking().Where(m => ids.Contains(m.Id)).Select(m => m.Id).ToListAsync(cancellationToken);
         if (known.Count != ids.Count)
         {
@@ -193,11 +194,20 @@ public sealed class ClusterCommands(
             return CommandResult.Fail(mapModProblem);
         }
 
-        db.ClusterMods.RemoveRange(cluster.Mods);
-        cluster.Mods.Clear();
-        for (var order = 0; order < ids.Count; order++)
+        // In place, not replaced: see InstanceCommands.SetModsAsync.
+        var existing = cluster.Mods.ToDictionary(m => m.ModId);
+        db.ClusterMods.RemoveRange(cluster.Mods.Where(m => !ids.Contains(m.ModId)));
+        for (var order = 0; order < mods.Count; order++)
         {
-            cluster.Mods.Add(new ClusterMod { ClusterId = clusterId, ModId = ids[order], Order = order });
+            if (existing.TryGetValue(mods[order].ModId, out var row))
+            {
+                row.Order = order;
+                row.Enabled = mods[order].Enabled;
+            }
+            else
+            {
+                cluster.Mods.Add(new ClusterMod { ClusterId = clusterId, ModId = mods[order].ModId, Enabled = mods[order].Enabled, Order = order });
+            }
         }
 
         await db.SaveChangesAsync(cancellationToken);

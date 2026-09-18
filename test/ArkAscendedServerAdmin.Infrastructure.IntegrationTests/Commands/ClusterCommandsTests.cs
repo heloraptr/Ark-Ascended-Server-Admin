@@ -150,7 +150,7 @@ public class ClusterCommandsTests
             Assert.Equal(zulu.Value, list[1].Id);
 
             Assert.NotNull(detail);
-            Assert.Equal([2, 1], detail.Mods.Select(m => m.Id));
+            Assert.Equal([2, 1], detail.Mods.Select(m => m.Mod.Id));
             Assert.Equal(["Able", "Bravo"], detail.Instances.Select(i => i.Name));
             Assert.Equal("able.zip", detail.Instances[0].LastBackup?.FileName);
             Assert.Null(detail.Instances[1].LastBackup);
