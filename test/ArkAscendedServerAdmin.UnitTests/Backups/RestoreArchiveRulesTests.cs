@@ -194,6 +194,7 @@ public class RestoreArchiveRulesTests
         Assert.Equal(journal.OperationId, back.OperationId);
         Assert.Equal([1, 2, 3], back.AffectedInstanceIds);
         Assert.Equal(RestorePhase.Replacing, back.Phase);
+        Assert.Contains("\"phase\": \"Replacing\"", journal.ToJson(), StringComparison.Ordinal);
         Assert.True(back.IncludesCluster);
         Assert.True(back.References(2));
         Assert.False(back.References(4));

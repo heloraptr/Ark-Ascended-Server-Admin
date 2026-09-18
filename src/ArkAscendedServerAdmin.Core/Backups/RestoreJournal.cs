@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace ArkAscendedServerAdmin.Backups;
 
@@ -44,7 +45,7 @@ public sealed record RestoreJournal(
     string SourceFileName,
     RestorePhase Phase)
 {
-    private static readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web) { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
 
     public bool IncludesCluster => ClusterId is not null;
 
