@@ -23,7 +23,7 @@ else
         <LeadContent>
             cluster id <span class="mono">@cluster.ClusterKey</span>
             <span class="faint"> · </span>@Presentation.Plural(_detail.Instances.Count, "member")
-            <span class="faint"> · </span>@Presentation.Plural(_detail.Mods.Count, "mod")
+            <span class="faint"> · </span>@Presentation.Plural(_detail.Mods.Count(m => m.Enabled), "mod")
         </LeadContent>
         <Actions>
             <RadzenButton Text="New instance" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@(() => Navigation.NavigateTo($"instances/new?cluster={Id}"))" />
@@ -203,11 +203,11 @@ else
         });
     }
 
-    private async Task SaveModsAsync(IReadOnlyList<int> ids)
+    private async Task SaveModsAsync(IReadOnlyList<ModSelection> mods)
     {
         await GuardedAsync(async () =>
         {
-            var result = await ClusterCommands.SetModsAsync(Id, ids);
+            var result = await ClusterCommands.SetModsAsync(Id, mods);
             Notifications.Report(result, ActionVerb.Saved, "cluster mods");
             if (result.Succeeded)
             {

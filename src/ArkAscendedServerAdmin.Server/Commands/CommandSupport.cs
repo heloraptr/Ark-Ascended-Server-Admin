@@ -152,7 +152,8 @@ internal static class CommandSupport
             .Select(i => new PortOwner(i.Name, i.GamePort, i.RconPort))
             .ToListAsync(cancellationToken);
 
-    public static InstanceSummary ToSummary(Instance instance, BackupRecord? lastBackup) =>
+    /// <summary>The dashboard row. <paramref name="clusterMods"/> is the cluster's list for a member; the caller loads it because not every query includes the cluster.</summary>
+    public static InstanceSummary ToSummary(Instance instance, IEnumerable<ClusterMod>? clusterMods, BackupRecord? lastBackup) =>
         new(
             instance.Id,
             instance.Name,
@@ -164,8 +165,22 @@ internal static class CommandSupport
             instance.GamePort,
             instance.RconPort,
             instance.MaxPlayers,
-            instance.Mods.Count,
+            ActiveModCount(instance, clusterMods),
             lastBackup);
+
+    /// <summary>
+    /// How many ids a start would put in <c>-mods</c>: the map's own mod, the enabled cluster mods, and the
+    /// enabled instance mods, without duplicates (the same union <see cref="Launch.LaunchArgumentBuilder"/> emits).
+    /// </summary>
+    public static int ActiveModCount(Instance instance, IEnumerable<ClusterMod>? clusterMods)
+    {
+        IEnumerable<int> mapMod = instance.Map?.ModId is { } mapModId ? [mapModId] : [];
+        return mapMod
+            .Concat((clusterMods ?? []).Where(m => m.Enabled).Select(m => m.ModId))
+            .Concat(instance.Mods.Where(m => m.Enabled).Select(m => m.ModId))
+            .Distinct()
+            .Count();
+    }
 
     public static Task<BackupRecord?> LastBackupAsync(AppDbContext db, int instanceId, CancellationToken cancellationToken) =>
         db.BackupRecords.AsNoTracking()

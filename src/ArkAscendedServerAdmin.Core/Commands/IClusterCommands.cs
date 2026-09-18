@@ -2,9 +2,10 @@ using ArkAscendedServerAdmin.Domain;
 
 namespace ArkAscendedServerAdmin.Commands;
 
+/// <summary>One row of the Clusters page; <paramref name="ModCount"/> counts enabled cluster mods only.</summary>
 public sealed record ClusterListItem(int Id, string Name, string Slug, string ClusterKey, int InstanceCount, int ModCount);
 
-public sealed record ClusterDetail(Cluster Cluster, IReadOnlyList<ModLibraryEntry> Mods, IReadOnlyList<InstanceSummary> Instances);
+public sealed record ClusterDetail(Cluster Cluster, IReadOnlyList<ModListItem> Mods, IReadOnlyList<InstanceSummary> Instances);
 
 public sealed record ClusterEdit(string Name, string ClusterKey, string AdminWhitelist);
 
@@ -22,7 +23,7 @@ public interface IClusterCommands
 
     Task<CommandResult> SaveLaunchFlagsAsync(int clusterId, LaunchFlags flags, CancellationToken cancellationToken = default);
 
-    Task<CommandResult> SetModsAsync(int clusterId, IReadOnlyList<int> orderedModIds, CancellationToken cancellationToken = default);
+    Task<CommandResult> SetModsAsync(int clusterId, IReadOnlyList<ModSelection> orderedMods, CancellationToken cancellationToken = default);
 
     /// <summary>Refused while any instance belongs to the cluster. The cluster directory on disk is left in place.</summary>
     Task<CommandResult> DeleteAsync(int clusterId, CancellationToken cancellationToken = default);

@@ -93,6 +93,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<ClusterMod>(b =>
         {
             b.HasKey(x => new { x.ClusterId, x.ModId });
+            b.Property(x => x.Enabled).HasDefaultValue(true);
             b.HasOne(x => x.Cluster).WithMany(c => c.Mods).HasForeignKey(x => x.ClusterId);
             b.HasOne(x => x.Mod).WithMany().HasForeignKey(x => x.ModId).OnDelete(DeleteBehavior.Restrict);
         });
@@ -100,6 +101,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<InstanceMod>(b =>
         {
             b.HasKey(x => new { x.InstanceId, x.ModId });
+            b.Property(x => x.Enabled).HasDefaultValue(true);
             b.HasOne(x => x.Instance).WithMany(i => i.Mods).HasForeignKey(x => x.InstanceId);
             b.HasOne(x => x.Mod).WithMany().HasForeignKey(x => x.ModId).OnDelete(DeleteBehavior.Restrict);
         });

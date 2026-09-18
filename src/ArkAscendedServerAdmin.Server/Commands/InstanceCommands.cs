@@ -47,6 +47,7 @@ public sealed class InstanceCommands(
 
         var instances = await db.Instances.AsNoTracking()
             .Include(i => i.Map)
+            .Include(i => i.Cluster).ThenInclude(c => c!.Mods)
             .Include(i => i.Mods)
             .OrderBy(i => i.Name)
             .ToListAsync(cancellationToken);
@@ -54,7 +55,7 @@ public sealed class InstanceCommands(
         var summaries = new List<InstanceSummary>(instances.Count);
         foreach (var instance in instances)
         {
-            summaries.Add(CommandSupport.ToSummary(instance, await CommandSupport.LastBackupAsync(db, instance.Id, cancellationToken)));
+            summaries.Add(CommandSupport.ToSummary(instance, instance.Cluster?.Mods, await CommandSupport.LastBackupAsync(db, instance.Id, cancellationToken)));
         }
 
         return new DashboardData(clusters, summaries);
@@ -80,11 +81,11 @@ public sealed class InstanceCommands(
             ? await db.ClusterMods.AsNoTracking()
                 .Where(m => m.ClusterId == clusterId)
                 .OrderBy(m => m.Order)
-                .Select(m => m.Mod!)
+                .Select(m => new ModListItem(m.Mod!, m.Enabled))
                 .ToListAsync(cancellationToken)
             : [];
 
-        var instanceMods = instance.Mods.OrderBy(m => m.Order).Select(m => m.Mod!).ToList();
+        var instanceMods = instance.Mods.OrderBy(m => m.Order).Select(m => new ModListItem(m.Mod!, m.Enabled)).ToList();
         ModLibraryEntry? mapMod = null;
         if (instance.Map?.ModId is { } mapModId)
         {
@@ -319,7 +320,8 @@ public sealed class InstanceCommands(
             }
         }
 
-        var modIds = draft.ModIds.Distinct().ToList();
+        var mods = draft.Mods.DistinctBy(m => m.ModId).ToList();
+        var modIds = mods.Select(m => m.ModId).ToList();
         var knownMods = await db.ModLibrary.AsNoTracking().Where(m => modIds.Contains(m.Id)).Select(m => m.Id).ToListAsync(cancellationToken);
         if (knownMods.Count != modIds.Count)
         {
@@ -356,7 +358,7 @@ public sealed class InstanceCommands(
         CommandSupport.CopyLaunchFlags(draft.LaunchFlags, instance.LaunchFlags);
         for (var order = 0; order < modIds.Count; order++)
         {
-            instance.Mods.Add(new InstanceMod { ModId = modIds[order], Order = order });
+            instance.Mods.Add(new InstanceMod { ModId = mods[order].ModId, Enabled = mods[order].Enabled, Order = order });
         }
 
         db.Instances.Add(instance);
@@ -479,9 +481,9 @@ public sealed class InstanceCommands(
         return CommandResult.Ok;
     }
 
-    public async Task<CommandResult> SetModsAsync(int instanceId, IReadOnlyList<int> orderedModIds, CancellationToken cancellationToken = default)
+    public async Task<CommandResult> SetModsAsync(int instanceId, IReadOnlyList<ModSelection> orderedMods, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(orderedModIds);
+        ArgumentNullException.ThrowIfNull(orderedMods);
         await guard.EnsureAuthorizedAsync(cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -491,7 +493,8 @@ public sealed class InstanceCommands(
             return CommandResult.Fail("The instance no longer exists.");
         }
 
-        var ids = orderedModIds.Distinct().ToList();
+        var mods = orderedMods.DistinctBy(m => m.ModId).ToList();
+        var ids = mods.Select(m => m.ModId).ToList();
         var known = await db.ModLibrary.AsNoTracking().Where(m => ids.Contains(m.Id)).Select(m => m.Id).ToListAsync(cancellationToken);
         if (known.Count != ids.Count)
         {
@@ -503,11 +506,21 @@ public sealed class InstanceCommands(
             return CommandResult.Fail(mapModProblem);
         }
 
-        db.InstanceMods.RemoveRange(instance.Mods);
-        instance.Mods.Clear();
-        for (var order = 0; order < ids.Count; order++)
+        // Rows are updated in place rather than replaced: EF folds a delete and an insert of the same key into one
+        // update and loses the enabled flag on the way (seen in the integration test), and the rows never need to move.
+        var existing = instance.Mods.ToDictionary(m => m.ModId);
+        db.InstanceMods.RemoveRange(instance.Mods.Where(m => !ids.Contains(m.ModId)));
+        for (var order = 0; order < mods.Count; order++)
         {
-            instance.Mods.Add(new InstanceMod { InstanceId = instanceId, ModId = ids[order], Order = order });
+            if (existing.TryGetValue(mods[order].ModId, out var row))
+            {
+                row.Order = order;
+                row.Enabled = mods[order].Enabled;
+            }
+            else
+            {
+                instance.Mods.Add(new InstanceMod { InstanceId = instanceId, ModId = mods[order].ModId, Enabled = mods[order].Enabled, Order = order });
+            }
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -541,8 +554,8 @@ public sealed class InstanceCommands(
             instance.MaxPlayers,
             instance.Cluster?.ClusterKey,
             instance.Cluster is { } c ? layout.ClusterDirectory(c.Slug) : null,
-            instance.Cluster?.Mods.OrderBy(m => m.Order).Select(m => m.ModId).ToList() ?? [],
-            instance.Mods.OrderBy(m => m.Order).Select(m => m.ModId).ToList(),
+            instance.Cluster?.Mods.Where(m => m.Enabled).OrderBy(m => m.Order).Select(m => m.ModId).ToList() ?? [],
+            instance.Mods.Where(m => m.Enabled).OrderBy(m => m.Order).Select(m => m.ModId).ToList(),
             LaunchFlagResolver.Resolve(instance.Cluster?.LaunchFlags, instance.LaunchFlags),
             instance.Map.ModId);
         try

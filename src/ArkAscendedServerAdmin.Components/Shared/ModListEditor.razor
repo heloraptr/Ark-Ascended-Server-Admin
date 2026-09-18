@@ -1,4 +1,4 @@
-@* Ordered mod list: the map's own mod first (locked), locked cluster mods next (greyed), then the editable list with move up/down and add-from-library. *@
+@* Ordered mod list: the map's own mod first (locked), locked cluster mods next (greyed), then the editable list with enable/disable, move up/down, remove, and add-from-library. Disabled entries keep their place and are left out of -mods. *@
 
 <div class="mod-list">
     @{ var position = 0; }
@@ -15,39 +15,48 @@
             <div class="actions"><RadzenIcon Icon="lock" Style="color:var(--ark-steel-3)" /></div>
         </div>
     }
-    @foreach (var mod in LockedMods)
+    @foreach (var item in LockedMods)
     {
-        position++;
-        <div class="mod-item is-locked" title="Cluster mod: change it on the cluster page.">
-            <span class="order num">@position</span>
-            <ModThumb Url="@mod.ThumbnailUrl" />
+        if (item.Enabled)
+        {
+            position++;
+        }
+
+        <div class="mod-item is-locked @(item.Enabled ? null : "is-disabled")" title="@(item.Enabled ? "Cluster mod: change it on the cluster page." : "Disabled on the cluster page; not passed to any member.")">
+            <span class="order num">@(item.Enabled ? position.ToString() : "–")</span>
+            <ModThumb Url="@item.Mod.ThumbnailUrl" />
             <div class="title">
-                <strong>@mod.Name</strong>
-                <span>@mod.Id · from the cluster</span>
+                <strong>@item.Mod.Name</strong>
+                <span>@item.Mod.Id · from the cluster@(item.Enabled ? null : ", disabled there")</span>
             </div>
             <div class="actions"><RadzenIcon Icon="lock" Style="color:var(--ark-steel-3)" /></div>
         </div>
     }
-    @for (var i = 0; i < _mods.Count; i++)
+    @for (var i = 0; i < _rows.Count; i++)
     {
         var index = i;
-        var mod = _mods[i];
-        position++;
-        <div class="mod-item">
-            <span class="order num">@position</span>
-            <ModThumb Url="@mod.ThumbnailUrl" />
+        var row = _rows[i];
+        if (row.Enabled)
+        {
+            position++;
+        }
+
+        <div class="mod-item @(row.Enabled ? null : "is-disabled")">
+            <span class="order num">@(row.Enabled ? position.ToString() : "–")</span>
+            <ModThumb Url="@row.Mod.ThumbnailUrl" />
             <div class="title">
-                <strong>@mod.Name</strong>
-                <span>@mod.Id@(string.IsNullOrWhiteSpace(mod.Summary) ? null : " · " + mod.Summary)</span>
+                <strong>@row.Mod.Name</strong>
+                <span>@row.Mod.Id@(row.Enabled ? (string.IsNullOrWhiteSpace(row.Mod.Summary) ? null : " · " + row.Mod.Summary) : " · disabled, not passed to the server")</span>
             </div>
             <div class="actions">
+                <RadzenButton Icon="@(row.Enabled ? "toggle_on" : "toggle_off")" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="@(row.Enabled ? ButtonStyle.Primary : ButtonStyle.Base)" title="@(row.Enabled ? "Disable: keep it listed but leave it out of the start command" : "Enable")" Click="() => row.Enabled = !row.Enabled" />
                 <RadzenButton Icon="arrow_upward" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Move up" Disabled="@(index == 0)" Click="() => Move(index, -1)" />
-                <RadzenButton Icon="arrow_downward" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Move down" Disabled="@(index == _mods.Count - 1)" Click="() => Move(index, 1)" />
-                <RadzenButton Icon="close" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Remove" Click="() => _mods.RemoveAt(index)" />
+                <RadzenButton Icon="arrow_downward" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Move down" Disabled="@(index == _rows.Count - 1)" Click="() => Move(index, 1)" />
+                <RadzenButton Icon="close" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Remove" Click="() => _rows.RemoveAt(index)" />
             </div>
         </div>
     }
-    @if (MapMod is null && LockedMods.Count == 0 && _mods.Count == 0)
+    @if (MapMod is null && LockedMods.Count == 0 && _rows.Count == 0)
     {
         <p class="muted" style="padding:12px 0">No mods. The server starts vanilla.</p>
     }
@@ -60,22 +69,30 @@
     <RadzenButton Text="Save mods" Icon="save" ButtonStyle="ButtonStyle.Primary" Disabled="@(Busy || !IsDirty)" Click="SaveAsync" />
     <RadzenButton Text="Reset" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="@(Busy || !IsDirty)" Click="Reset" />
 </div>
-<p class="hint muted" style="margin-top:8px">Order matters: mods load in this order, the map's own mod first, then cluster mods. New mods on the list need a restart.</p>
+<p class="hint muted" style="margin-top:8px">Order matters: mods load in this order, the map's own mod first, then cluster mods. A disabled mod keeps its place but is left out of the start command. Changes to the list need a restart.</p>
 
 @code {
-    private List<ModLibraryEntry> _mods = [];
+    /// <summary>One editable row; the enabled flag is toggled in place, so this is a class rather than a record.</summary>
+    private sealed class Row(ModLibraryEntry mod, bool enabled)
+    {
+        public ModLibraryEntry Mod { get; } = mod;
+
+        public bool Enabled { get; set; } = enabled;
+    }
+
+    private List<Row> _rows = [];
     private int? _pick;
-    private IReadOnlyList<ModLibraryEntry>? _source;
+    private IReadOnlyList<ModListItem>? _source;
 
     /// <summary>A custom map's own mod; shown locked at position 1 and never part of the saved list.</summary>
     [Parameter]
     public ModLibraryEntry? MapMod { get; set; }
 
     [Parameter]
-    public IReadOnlyList<ModLibraryEntry> LockedMods { get; set; } = [];
+    public IReadOnlyList<ModListItem> LockedMods { get; set; } = [];
 
     [Parameter, EditorRequired]
-    public IReadOnlyList<ModLibraryEntry> Mods { get; set; } = [];
+    public IReadOnlyList<ModListItem> Mods { get; set; } = [];
 
     [Parameter, EditorRequired]
     public IReadOnlyList<ModLibraryEntry> Library { get; set; } = [];
@@ -84,12 +101,12 @@
     public bool Busy { get; set; }
 
     [Parameter]
-    public EventCallback<IReadOnlyList<int>> OnSave { get; set; }
+    public EventCallback<IReadOnlyList<ModSelection>> OnSave { get; set; }
 
     private IReadOnlyList<ModLibraryEntry> Available =>
-        Library.Where(m => m.Id != MapMod?.Id && _mods.All(x => x.Id != m.Id) && LockedMods.All(x => x.Id != m.Id)).OrderBy(m => m.Name).ToList();
+        Library.Where(m => m.Id != MapMod?.Id && _rows.All(x => x.Mod.Id != m.Id) && LockedMods.All(x => x.Mod.Id != m.Id)).OrderBy(m => m.Name).ToList();
 
-    private bool IsDirty => !_mods.Select(m => m.Id).SequenceEqual(Mods.Select(m => m.Id));
+    private bool IsDirty => !_rows.Select(r => (r.Mod.Id, r.Enabled)).SequenceEqual(Mods.Select(m => (m.Mod.Id, m.Enabled)));
 
     protected override void OnParametersSet()
     {
@@ -100,13 +117,13 @@
         }
     }
 
-    private void Reset() => _mods = Mods.ToList();
+    private void Reset() => _rows = Mods.Select(m => new Row(m.Mod, m.Enabled)).ToList();
 
     private void Add()
     {
         if (_pick is { } id && Library.FirstOrDefault(m => m.Id == id) is { } entry)
         {
-            _mods.Add(entry);
+            _rows.Add(new Row(entry, enabled: true));
         }
 
         _pick = null;
@@ -115,13 +132,13 @@
     private void Move(int index, int delta)
     {
         var target = index + delta;
-        if (target < 0 || target >= _mods.Count)
+        if (target < 0 || target >= _rows.Count)
         {
             return;
         }
 
-        (_mods[index], _mods[target]) = (_mods[target], _mods[index]);
+        (_rows[index], _rows[target]) = (_rows[target], _rows[index]);
     }
 
-    private Task SaveAsync() => OnSave.InvokeAsync(_mods.Select(m => m.Id).ToList());
+    private Task SaveAsync() => OnSave.InvokeAsync(_rows.Select(r => new ModSelection(r.Mod.Id, r.Enabled)).ToList());
 }

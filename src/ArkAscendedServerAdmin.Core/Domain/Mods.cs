@@ -27,6 +27,8 @@ public sealed class ClusterMod
 
     public int ModId { get; set; }
 
+    /// <summary>False keeps the row in the list but leaves the mod out of <c>-mods</c> (issue #24).</summary>
+    public bool Enabled { get; set; } = true;
     public ModLibraryEntry? Mod { get; set; }
 
     public int Order { get; set; }
@@ -41,6 +43,8 @@ public sealed class InstanceMod
 
     public int ModId { get; set; }
 
+    /// <summary>False keeps the row in the list but leaves the mod out of <c>-mods</c> (issue #24).</summary>
+    public bool Enabled { get; set; } = true;
     public ModLibraryEntry? Mod { get; set; }
 
     public int Order { get; set; }

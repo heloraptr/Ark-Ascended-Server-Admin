@@ -72,7 +72,7 @@ public class InstanceCommandsTests
             {
                 AdminWhitelist = "  0002abc \r\n\r\n0002def\n",
                 LaunchFlags = new LaunchFlags { ServerPlatform = " PC ", AdditionalArgs = " -NoTransferFromFiltering " },
-                ModIds = [5, 3, 5],
+                Mods = [5, 3, 5],
             };
             await host.AddLibraryModAsync(3, "Three", ct);
             await host.AddLibraryModAsync(5, "Five", ct);
@@ -225,7 +225,7 @@ public class InstanceCommandsTests
                 MaxPlayers = 0,
                 GamePort = 7779,
                 RconPort = 27021,
-                ModIds = [404],
+                Mods = [404],
                 LaunchFlags = new LaunchFlags { ServerPlatform = "a=b", ActiveEvent = "x?y", AdditionalArgs = "-port=1" },
                 BackupIntervalMinutes = 0,
                 BackupRetention = 5000,
@@ -373,16 +373,53 @@ public class InstanceCommandsTests
 
             var cluster = await host.Clusters.CreateAsync("Survivors", ConfigSourceKind.Blank, null, ct);
             Assert.True((await host.Clusters.SetModsAsync(cluster.Value, [4, 1], ct)).Succeeded);
-            var created = await host.Instances.CreateAsync(Draft(mapId) with { ClusterId = cluster.Value, ModIds = [3, 2] }, ct);
+            var created = await host.Instances.CreateAsync(Draft(mapId) with { ClusterId = cluster.Value, Mods = [3, 2] }, ct);
 
             var detail = await host.Instances.GetAsync(created.Value, ct);
 
             Assert.NotNull(detail);
-            Assert.Equal([4, 1], detail.ClusterMods.Select(m => m.Id));
-            Assert.Equal([3, 2], detail.InstanceMods.Select(m => m.Id));
+            Assert.Equal([4, 1], detail.ClusterMods.Select(m => m.Mod.Id));
+            Assert.Equal([3, 2], detail.InstanceMods.Select(m => m.Mod.Id));
             Assert.Equal("Survivors", detail.Instance.Cluster?.Name);
             Assert.Equal("TheIsland_WP", detail.Instance.Map?.Key);
             Assert.Null(await host.Instances.GetAsync(999, ct));
+        }
+    }
+
+    [Fact]
+    public async Task DisabledMods_StayListed_ButLeaveTheCommandLineAndTheCounts()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (host, mapId) = await StartAsync(ct);
+        using (host)
+        {
+            foreach (var id in new[] { 1, 2, 3, 4 })
+            {
+                await host.AddLibraryModAsync(id, $"Mod {id}", ct);
+            }
+
+            var cluster = await host.Clusters.CreateAsync("Survivors", ConfigSourceKind.Blank, null, ct);
+            Assert.True((await host.Clusters.SetModsAsync(cluster.Value, [new ModSelection(4, Enabled: false), 1], ct)).Succeeded);
+            var created = await host.Instances.CreateAsync(Draft(mapId) with { ClusterId = cluster.Value, Mods = [3, new ModSelection(2, Enabled: false)] }, ct);
+            Assert.True(created.Succeeded, created.Error);
+
+            var detail = await host.Instances.GetAsync(created.Value, ct);
+            var preview = await host.Instances.PreviewLaunchAsync(created.Value, ct);
+            var dashboard = await host.Instances.GetDashboardAsync(ct);
+            var clusters = await host.Clusters.ListAsync(ct);
+
+            Assert.Equal([(4, false), (1, true)], detail!.ClusterMods.Select(m => (m.Mod.Id, m.Enabled)));
+            Assert.Equal([(3, true), (2, false)], detail.InstanceMods.Select(m => (m.Mod.Id, m.Enabled)));
+            Assert.Contains("-mods=1,3", preview.Value!.CommandLine);
+            Assert.DoesNotContain("4", preview.Value.CommandLine.Split(' ').Single(a => a.StartsWith("-mods=", StringComparison.Ordinal)));
+            Assert.Equal(2, dashboard.Instances.Single().ModCount);
+            Assert.Equal(1, clusters.Single().ModCount);
+
+            // Re-enabling is a plain save of the same list; the row keeps its place.
+            Assert.True((await host.Instances.SetModsAsync(created.Value, [3, 2], ct)).Succeeded);
+            Assert.Equal([(3, true), (2, true)], (await host.Instances.GetAsync(created.Value, ct))!.InstanceMods.Select(m => (m.Mod.Id, m.Enabled)));
+            Assert.Equal(3, (await host.Instances.GetDashboardAsync(ct)).Instances.Single().ModCount);
+            Assert.Contains("-mods=1,3,2", (await host.Instances.PreviewLaunchAsync(created.Value, ct)).Value!.CommandLine);
         }
     }
 
@@ -736,7 +773,7 @@ public class InstanceCommandsTests
                 await host.AddLibraryModAsync(id, $"Mod {id}", ct);
             }
 
-            var created = await host.Instances.CreateAsync(Draft(mapId) with { ModIds = [1] }, ct);
+            var created = await host.Instances.CreateAsync(Draft(mapId) with { Mods = [1] }, ct);
 
             var replaced = await host.Instances.SetModsAsync(created.Value, [3, 2, 3], ct);
             var unknown = await host.Instances.SetModsAsync(created.Value, [2, 404], ct);
@@ -760,8 +797,8 @@ public class InstanceCommandsTests
         var map = await host.Maps.SaveAsync(new Map { Key = "Custom_WP", Name = "Custom", ModId = 777 }, ct);
         Assert.True(map.Succeeded, map.Error);
 
-        var withMapMod = await host.Instances.CreateAsync(new InstanceDraft { Name = "Bad", MapId = map.Value!.Id, SessionName = "b", GamePort = 7777, RconPort = 27020, ModIds = [777] }, ct);
-        var created = await host.Instances.CreateAsync(new InstanceDraft { Name = "One", MapId = map.Value.Id, SessionName = "1", GamePort = 7777, RconPort = 27020, ModIds = [2] }, ct);
+        var withMapMod = await host.Instances.CreateAsync(new InstanceDraft { Name = "Bad", MapId = map.Value!.Id, SessionName = "b", GamePort = 7777, RconPort = 27020, Mods = [777] }, ct);
+        var created = await host.Instances.CreateAsync(new InstanceDraft { Name = "One", MapId = map.Value.Id, SessionName = "1", GamePort = 7777, RconPort = 27020, Mods = [2] }, ct);
         Assert.True(created.Succeeded, created.Error);
         var refused = await host.Instances.SetModsAsync(created.Value, [777, 2], ct);
         var cluster = await host.Clusters.CreateAsync("Main", ConfigSourceKind.GameDefaults, null, ct);
@@ -773,7 +810,7 @@ public class InstanceCommandsTests
         Assert.Equal("Map mods load automatically with their map and cannot be listed here: 777 (Custom).", refused.Error);
         Assert.Equal("Map mods load automatically with their map and cannot be listed here: 777 (Custom).", clusterRefused.Error);
         Assert.Equal(777, detail!.MapMod?.Id);
-        Assert.Equal([2], detail.InstanceMods.Select(m => m.Id));
+        Assert.Equal([2], detail.InstanceMods.Select(m => m.Mod.Id));
         Assert.Contains("-mods=777,2", preview.Value!.CommandLine);
     }
 
@@ -808,7 +845,7 @@ public class InstanceCommandsTests
         using (host)
         {
             await host.AddLibraryModAsync(7, "Seven", ct);
-            var created = await host.Instances.CreateAsync(Draft(mapId) with { ModIds = [7], LaunchFlags = new LaunchFlags { AdditionalArgs = "-crossplay" } }, ct);
+            var created = await host.Instances.CreateAsync(Draft(mapId) with { Mods = [7], LaunchFlags = new LaunchFlags { AdditionalArgs = "-crossplay" } }, ct);
 
             var before = await host.Instances.PreviewLaunchAsync(created.Value, ct);
             var owner = IniOwner.ForInstance(created.Value);
@@ -843,7 +880,7 @@ public class InstanceCommandsTests
             var owner = IniOwner.ForCluster(cluster.Value);
             var current = await host.IniStore.LoadAsync(owner, IniFile.GameUserSettings, ct);
             Assert.True((await host.IniStore.SaveAsync(owner, IniFile.GameUserSettings, "[ServerSettings]\r\nServerAdminPassword=secret\r\n", current.Sha256, ct)).Succeeded);
-            var created = await host.Instances.CreateAsync(Draft(mapId) with { ClusterId = cluster.Value, ModIds = [2] }, ct);
+            var created = await host.Instances.CreateAsync(Draft(mapId) with { ClusterId = cluster.Value, Mods = [2] }, ct);
 
             var preview = await host.Instances.PreviewLaunchAsync(created.Value, ct);
             var gone = await host.Instances.PreviewLaunchAsync(999, ct);

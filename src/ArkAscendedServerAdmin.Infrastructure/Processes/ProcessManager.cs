@@ -303,8 +303,8 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             instance.MaxPlayers,
             cluster?.ClusterKey,
             cluster is null ? null : _paths.ClusterDirectory(cluster.Slug),
-            cluster is null ? [] : cluster.Mods.OrderBy(mod => mod.Order).Select(mod => mod.ModId).ToList(),
-            instance.Mods.OrderBy(mod => mod.Order).Select(mod => mod.ModId).ToList(),
+            cluster is null ? [] : cluster.Mods.Where(mod => mod.Enabled).OrderBy(mod => mod.Order).Select(mod => mod.ModId).ToList(),
+            instance.Mods.Where(mod => mod.Enabled).OrderBy(mod => mod.Order).Select(mod => mod.ModId).ToList(),
             LaunchFlagResolver.Resolve(cluster?.LaunchFlags, instance.LaunchFlags),
             map.ModId);
     }

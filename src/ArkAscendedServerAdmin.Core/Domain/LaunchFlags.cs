@@ -21,13 +21,6 @@ public sealed class LaunchFlags
 
     public bool? NoWildBabies { get; set; }
 
-    /// <summary>
-    /// No longer edited or emitted (issue #21): <c>PreventSpawnAnimations</c> is a <c>[ServerSettings]</c> INI key,
-    /// not a switch, so it belongs in an override like any other setting. The column stays mapped until the
-    /// next migration collapse so the schema does not change; the resolver leaves it null.
-    /// </summary>
-    public bool? PreventSpawnAnimations { get; set; }
-
     public bool? UseStore { get; set; }
 
     public bool? ConvertToStore { get; set; }
