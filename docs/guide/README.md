@@ -117,7 +117,7 @@ changing, hollow means stopped, red means it wants you.
 | **Running** | RCON answered. | Keeps checking; the backup scheduler picks the instance up. |
 | **Starting, unconfirmed** | `Alive for over 10 minutes without answering RCON.` | Keeps trying. Check `ServerAdminPassword` and `RCONPort`. |
 | **Unreachable** | A re-attached process whose RCON has not answered in 10 minutes, or one whose generated `GameUserSettings.ini` has gone missing. | Watches for the process to exit. A stop skips `doexit` and waits out the graceful timeout before killing it. |
-| **Stopping** | The stop is running: countdown, `doexit`, wait, kill if it has to. | **Stop now** skips the countdown. |
+| **Stopping** | The stop is running: countdown, `doexit`, wait, kill if it has to. | **Stop now** skips the countdown; once the exit has been requested it reads **Closing…** and is disabled until the process is gone. |
 | **Identity not saved** | `The process runs but its PID could not be saved.` | The server is fine. Click **Retry persist** on the instance page. |
 | **Unknown** | `More than one process matched; nothing is done automatically.` Two or more `ArkAscendedServer.exe` under `Instances\` carry this instance's slug. | Nothing. **Start** is disabled. Stop the extra processes by hand and restart the service. |
 

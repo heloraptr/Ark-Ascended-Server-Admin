@@ -45,6 +45,7 @@ public static class Presentation
             Consoles.StartupMarker.Advertising => "Advertising, waiting for RCON.",
             _ => "Loading the world.",
         },
+        InstanceState.Stopping => runtime.ExitRequested ? "Exit requested, waiting for the process to close." : null,
         _ => null,
     };
 
