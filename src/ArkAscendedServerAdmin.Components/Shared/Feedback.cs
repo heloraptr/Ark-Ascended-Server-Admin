@@ -23,6 +23,8 @@ public sealed record ActionVerb(string Past, string Plain)
     public static ActionVerb Saved { get; } = new("Saved", "save");
     public static ActionVerb Removed { get; } = new("Removed", "remove");
     public static ActionVerb Restored { get; } = new("Restored", "restore");
+    public static ActionVerb Recovered { get; } = new("Recovered", "recover");
+    public static ActionVerb Discarded { get; } = new("Discarded", "discard");
     public static ActionVerb Resumed { get; } = new("Resumed", "resume");
     public static ActionVerb Skipped { get; } = new("Skipped", "skip");
     public static ActionVerb Requeued { get; } = new("Re-queued", "re-queue");

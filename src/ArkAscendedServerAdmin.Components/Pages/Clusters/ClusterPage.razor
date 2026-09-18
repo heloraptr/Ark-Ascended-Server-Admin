@@ -4,6 +4,7 @@
 @inject IClusterCommands ClusterCommands
 @inject IModCommands ModCommands
 @inject IProcessManager Processes
+@inject IBackupService BackupService
 
 @if (_detail is null)
 {
@@ -37,6 +38,19 @@ else
     {
         <Notice Tone="is-info">
             <p>Members are running. INI, mod, and launch changes apply to each member at its next start.</p>
+        </Notice>
+    }
+    @if (_journal is { } journal)
+    {
+        var target = _detail.Instances.FirstOrDefault(i => i.Id == journal.InstanceId)?.Name ?? journal.InstanceSlug;
+        <Notice Tone="is-bad" Title="Incomplete restore.">
+            <ChildContent>
+                <p>A restore of <a href="instances/@journal.InstanceId">@target</a> from <span class="mono">@journal.SourceFileName</span> that included the cluster directory stopped while @Presentation.Label(journal.Phase). Starting any member, adding one, and deleting the cluster are refused until it is resolved. <strong>Recover from safety copy</strong> puts the files from before the restore back from <span class="mono">@journal.SafetyCopyPath</span>; <strong>Discard journal</strong> only removes the record.</p>
+            </ChildContent>
+            <Actions>
+                <RadzenButton Text="Recover from safety copy" Icon="settings_backup_restore" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Click="@(() => Fire(() => InstanceCommands.RecoverRestoreAsync(journal.OperationId), ActionVerb.Recovered, target, () => _ = LoadAsync()))" />
+                <RadzenButton Text="Discard journal" Icon="delete_sweep" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Danger" Click="@(() => DiscardJournalAsync(journal))" />
+            </Actions>
         </Notice>
     }
 
@@ -127,6 +141,7 @@ else
     private IInstanceCommands InstanceCommands { get; set; } = default!;
 
     private ClusterDetail? _detail;
+    private RestoreJournal? _journal;
     private IReadOnlyList<ModLibraryEntry> _library = [];
     private string? _name;
     private string? _key;
@@ -138,7 +153,18 @@ else
     [Parameter]
     public int Id { get; set; }
 
-    protected override void OnInitialized() => Processes.RuntimeChanged += OnRuntimeChanged;
+    protected override void OnInitialized()
+    {
+        Processes.RuntimeChanged += OnRuntimeChanged;
+        BackupService.Restored += OnRestored;
+    }
+
+    /// <summary>A member restore or recovery resolves or leaves a journal; the banner follows without a reload.</summary>
+    private void OnRestored(RestoreRecord record) => _ = InvokeAsync(async () =>
+    {
+        await GuardedAsync(async () => _journal = await ClusterCommands.GetRestoreJournalAsync(Id));
+        StateHasChanged();
+    });
 
     protected override async Task OnParametersSetAsync()
     {
@@ -155,6 +181,7 @@ else
     {
         _detail = await ClusterCommands.GetAsync(Id);
         _missing = _detail is null;
+        _journal = await ClusterCommands.GetRestoreJournalAsync(Id);
         if (_detail is null)
         {
             return;
@@ -216,6 +243,20 @@ else
         });
     }
 
+    private async Task DiscardJournalAsync(RestoreJournal journal)
+    {
+        var confirmed = await ConfirmAsync(
+            "Discard the restore journal",
+            $"The record of restore {journal.OperationId} is removed and the files are left exactly as they are; the safety copy at {journal.SafetyCopyPath} stays until it is pruned. Do this only after checking the world and cluster folders by hand.",
+            "Discard journal",
+            danger: true,
+            icon: "delete_sweep");
+        if (confirmed)
+        {
+            Fire(() => InstanceCommands.DiscardRestoreJournalAsync(journal.OperationId), ActionVerb.Discarded, "the restore journal", () => _ = LoadAsync());
+        }
+    }
+
     private async Task DeleteAsync()
     {
         var name = _detail!.Cluster.Name;
@@ -235,5 +276,9 @@ else
         });
     }
 
-    public void Dispose() => Processes.RuntimeChanged -= OnRuntimeChanged;
+    public void Dispose()
+    {
+        Processes.RuntimeChanged -= OnRuntimeChanged;
+        BackupService.Restored -= OnRestored;
+    }
 }

@@ -1,3 +1,4 @@
+using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Maintenance;
 using ArkAscendedServerAdmin.Ports;
@@ -114,6 +115,24 @@ public interface IInstanceCommands
 
     /// <summary>Newest first.</summary>
     Task<IReadOnlyList<BackupRecord>> GetBackupsAsync(int instanceId, CancellationToken cancellationToken = default);
+
+    /// <summary>Restore attempts and recoveries, newest first (B2).</summary>
+    Task<IReadOnlyList<RestoreRecord>> GetRestoresAsync(int instanceId, CancellationToken cancellationToken = default);
+
+    /// <summary>The unresolved restore journal that references the instance, if any (B2).</summary>
+    Task<RestoreJournal?> GetRestoreJournalAsync(int instanceId, CancellationToken cancellationToken = default);
+
+    /// <summary>What the restore dialog shows before it asks (B2).</summary>
+    Task<RestoreInspection> InspectRestoreAsync(int instanceId, string fileName, CancellationToken cancellationToken = default);
+
+    /// <summary>Runs the restore to completion (B2); the dialog is finished and the instance stopped before this is called.</summary>
+    Task<OperationOutcome> RestoreAsync(int instanceId, string fileName, bool includeCluster, CancellationToken cancellationToken = default);
+
+    /// <summary>Copies the safety copy of an interrupted restore back and removes its journal (B2).</summary>
+    Task<OperationOutcome> RecoverRestoreAsync(string operationId, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes an interrupted restore's journal and leaves the files as they are (B2).</summary>
+    Task<OperationOutcome> DiscardRestoreJournalAsync(string operationId, CancellationToken cancellationToken = default);
 
     Task<OperationOutcome> StartAsync(int instanceId, CancellationToken cancellationToken = default);
 

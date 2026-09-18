@@ -72,6 +72,18 @@ else
             </Actions>
         </Notice>
     }
+    @if (_journal is { } journal)
+    {
+        <Notice Tone="is-bad" Title="Incomplete restore.">
+            <ChildContent>
+                <p>Restore <span class="mono">@journal.OperationId</span> from <span class="mono">@journal.SourceFileName</span> stopped while @Presentation.Label(journal.Phase)@(journal.IncludesCluster ? ", cluster data included" : string.Empty). Starting, restoring, and deleting @(journal.AffectedInstanceIds.Count > 1 ? "the affected instances" : "this instance") are refused until it is resolved. <strong>Recover from safety copy</strong> puts the files from before the restore back from <span class="mono">@journal.SafetyCopyPath</span>. <strong>Discard journal</strong> only removes the record; use it once you have sorted the files out by hand.</p>
+            </ChildContent>
+            <Actions>
+                <RadzenButton Text="Recover from safety copy" Icon="settings_backup_restore" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Click="@(() => Fire(() => Instances.RecoverRestoreAsync(journal.OperationId), ActionVerb.Recovered, instance.Name, RefreshRestores))" />
+                <RadzenButton Text="Discard journal" Icon="delete_sweep" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Danger" Click="@(() => DiscardJournalAsync(journal))" />
+            </Actions>
+        </Notice>
+    }
     @if (_preview?.Problem is { } problem && !_runtime.HasLiveProcess && _tab != ConfigTab)
     {
         <Notice Tone="is-warn" Title="Start would be refused.">
@@ -304,9 +316,36 @@ else
                             <RadzenDataGridColumn TItem="BackupRecord" Property="IsManual" Title="Trigger" Width="100px">
                                 <Template Context="b">@(b.IsManual ? "manual" : "scheduled")</Template>
                             </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="BackupRecord" Width="56px" Sortable="false">
+                                <Template Context="b">
+                                    @if (b.Outcome == BackupOutcome.Success)
+                                    {
+                                        <RadzenButton Icon="restore" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Restore this backup" Disabled="@(_journal is not null)" Click="@(() => RestoreAsync(b))" />
+                                    }
+                                </Template>
+                            </RadzenDataGridColumn>
                         </Columns>
                     </RadzenDataGrid>
-                    <p class="hint muted" style="margin-top:10px">Archives live under DataRoot\Backups\@instance.Slug. Restoring is manual: stop the instance, unzip the archive somewhere, then copy the files under World\ into ShooterGame\Saved\@instance.Slug\@(instance.Map!.Key)\, and for a cluster member the files under Cluster\ into the cluster's folder.</p>
+                    <p class="hint muted" style="margin-top:10px">Archives live under DataRoot\Backups\@instance.Slug. The restore icon on a successful row replaces the world file, profiles, and tribes with the archive's copies while the instance is stopped; the current files go to Backups\@instance.Slug\_restore-safety first, and a cluster member can include the shared cluster directory.</p>
+                }
+                @if (_restores is { Count: > 0 })
+                {
+                    <div style="margin-top:18px">
+                        <SectionHead Title="Restores" />
+                        <RadzenDataGrid Data="_restores" TItem="RestoreRecord" Density="Density.Compact" AllowSorting="true" AllowPaging="true" PageSize="10">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="RestoreRecord" Property="CreatedAt" Title="When" Width="170px">
+                                    <Template Context="r">@Presentation.Stamp(r.CreatedAt)</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="RestoreRecord" Property="Outcome" Title="Outcome" Width="120px">
+                                    <Template Context="r"><span class="@Presentation.Tone(r.Outcome)">@Presentation.Label(r.Outcome)</span></Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="RestoreRecord" Property="SourceFileName" Title="Archive">
+                                    <Template Context="r"><span class="mono">@r.SourceFileName</span>@(r.IncludedCluster ? " + cluster" : string.Empty) <span class="muted">@r.Reason</span></Template>
+                                </RadzenDataGridColumn>
+                            </Columns>
+                        </RadzenDataGrid>
+                    </div>
                 }
             </RadzenTabsItem>
         </Tabs>
@@ -331,6 +370,8 @@ else
     private IReadOnlyList<ModLibraryEntry> _library = [];
     private IReadOnlyList<ExtraOverride> _overrides = [];
     private IReadOnlyList<BackupRecord>? _backups;
+    private IReadOnlyList<RestoreRecord>? _restores;
+    private RestoreJournal? _journal;
     private LaunchPreview? _preview;
     private EditModel _edit = new();
     private IReadOnlyList<string>? _settingsProblems;
@@ -354,6 +395,7 @@ else
     {
         Processes.RuntimeChanged += OnRuntimeChanged;
         BackupService.Recorded += OnBackupRecorded;
+        BackupService.Restored += OnRestored;
     }
 
     /// <summary>Scheduled backups finish on their own timer; the Backups tab follows them without a reload.</summary>
@@ -406,6 +448,8 @@ else
             _library = (await ModCommands.ListLibraryAsync()).Where(m => !mapMods.ContainsKey(m.Id)).ToList();
             _overrides = await Config.GetOverridesAsync(Id);
             _backups = await Instances.GetBackupsAsync(Id);
+            _restores = await Instances.GetRestoresAsync(Id);
+            _journal = await Instances.GetRestoreJournalAsync(Id);
         });
         await RefreshPreviewAsync();
     }
@@ -516,6 +560,91 @@ else
         });
         StateHasChanged();
     });
+
+    /// <summary>Restores and journals change on the service's own thread; the tab and the banner follow without a reload.</summary>
+    private void OnRestored(RestoreRecord record)
+    {
+        if (record.InstanceId == Id)
+        {
+            RefreshRestores();
+        }
+    }
+
+    private void RefreshRestores() => _ = InvokeAsync(async () =>
+    {
+        await GuardedAsync(async () =>
+        {
+            _backups = await Instances.GetBackupsAsync(Id);
+            _restores = await Instances.GetRestoresAsync(Id);
+            _journal = await Instances.GetRestoreJournalAsync(Id);
+        });
+        StateHasChanged();
+    });
+
+    /// <summary>B2: the dialog inspects the archive and collects the choices; a live server is stopped first, then the restore runs to completion.</summary>
+    private async Task RestoreAsync(BackupRecord backup)
+    {
+        var instance = _detail!.Instance;
+        var live = _runtime.HasLiveProcess;
+        var answer = await Dialogs.OpenAsync<RestoreDialog>(
+            $"Restore {backup.FileName}",
+            new Dictionary<string, object?> { ["InstanceId"] = Id, ["Slug"] = instance.Slug, ["MapKey"] = instance.Map!.Key, ["FileName"] = backup.FileName!, ["ClusterSlug"] = instance.Cluster?.Slug, ["IsLive"] = live },
+            new DialogOptions { Width = "560px" });
+        if (answer is not RestoreDialog.RestoreChoice choice)
+        {
+            return;
+        }
+
+        Notifications.Info($"Restoring {instance.Name}", live ? "Stopping the server first." : $"From {backup.FileName}.");
+        Fire(
+            async () =>
+            {
+                if (live)
+                {
+                    var stop = await Instances.StopAsync(Id, false);
+                    if (!stop.Succeeded)
+                    {
+                        return OperationOutcome.Rejected($"the stop failed: {stop.Error}");
+                    }
+
+                    await WaitForStoppedAsync();
+                }
+
+                var outcome = await Instances.RestoreAsync(Id, backup.FileName!, choice.IncludeCluster);
+                if (outcome.Succeeded && choice.StartAfter)
+                {
+                    Fire(() => Instances.StartAsync(Id), ActionVerb.Started, instance.Name);
+                }
+
+                return outcome;
+            },
+            ActionVerb.Restored,
+            instance.Name,
+            RefreshRestores);
+    }
+
+    /// <summary>The stop completes when the process is gone; the runtime mirror follows a moment later, and the restore checks it.</summary>
+    private async Task WaitForStoppedAsync()
+    {
+        for (var i = 0; i < 50 && Processes.GetRuntime(Id).State != InstanceState.Stopped; i++)
+        {
+            await Task.Delay(100);
+        }
+    }
+
+    private async Task DiscardJournalAsync(RestoreJournal journal)
+    {
+        var confirmed = await ConfirmAsync(
+            "Discard the restore journal",
+            $"The record of restore {journal.OperationId} is removed and the files are left exactly as they are; the safety copy at {journal.SafetyCopyPath} stays until it is pruned. Do this only after checking the world folder by hand.",
+            "Discard journal",
+            danger: true,
+            icon: "delete_sweep");
+        if (confirmed)
+        {
+            Fire(() => Instances.DiscardRestoreJournalAsync(journal.OperationId), ActionVerb.Discarded, "the restore journal", RefreshRestores);
+        }
+    }
 
     private async Task DeleteAsync()
     {
@@ -650,5 +779,6 @@ else
     {
         Processes.RuntimeChanged -= OnRuntimeChanged;
         BackupService.Recorded -= OnBackupRecorded;
+        BackupService.Restored -= OnRestored;
     }
 }

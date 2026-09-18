@@ -1,4 +1,5 @@
 using ArkAscendedServerAdmin.Auth;
+using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Consoles;
 using ArkAscendedServerAdmin.Domain;
@@ -32,6 +33,45 @@ public class InstanceCommandsTests
     }
 
     // ---- authorization ------------------------------------------------------------------------------
+
+    /// <summary>B2: the restore members forward to the backup service under the guard, and the journal getter reads the folder.</summary>
+    [Fact]
+    public async Task Restore_ForwardsToTheBackupService_AndTheJournalGetterReadsTheFolder()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (host, mapId) = await StartAsync(ct);
+        using (host)
+        {
+            var created = await host.Instances.CreateAsync(Draft(mapId), ct);
+            var id = created.Value;
+            host.Backups.InspectRestoreAsync(id, "a.zip", Arg.Any<CancellationToken>()).Returns(new RestoreInspection(null, false, "the instance is not in a cluster", []));
+            host.Backups.RestoreAsync(id, "a.zip", false, Arg.Any<CancellationToken>()).Returns(OperationOutcome.Success);
+            host.Backups.RecoverAsync("op", Arg.Any<CancellationToken>()).Returns(OperationOutcome.Rejected("no"));
+            host.Backups.DiscardJournalAsync("op", Arg.Any<CancellationToken>()).Returns(OperationOutcome.Success);
+            await using (var db = host.Db())
+            {
+                db.RestoreRecords.Add(new RestoreRecord { InstanceId = id, CreatedAt = CommandTestHost.Now, SourceFileName = "a.zip", Outcome = RestoreOutcome.Failed, Reason = "first" });
+                db.RestoreRecords.Add(new RestoreRecord { InstanceId = id, CreatedAt = CommandTestHost.Now.AddMinutes(1), SourceFileName = "a.zip", Outcome = RestoreOutcome.Success });
+                await db.SaveChangesAsync(ct);
+            }
+
+            Assert.Null(await host.Instances.GetRestoreJournalAsync(id, ct));
+            host.Journals.Write(new RestoreJournal("op", CommandTestHost.Now, id, "my-island", "TheIsland_WP", null, null, [id], Path.Combine(host.Root.Layout.Root, "safety"), "a.zip", RestorePhase.Replacing));
+
+            var journal = await host.Instances.GetRestoreJournalAsync(id, ct);
+            Assert.Equal("op", journal?.OperationId);
+            Assert.False((await host.Instances.InspectRestoreAsync(id, "a.zip", ct)).ClusterAvailable);
+            Assert.True((await host.Instances.RestoreAsync(id, "a.zip", false, ct)).Succeeded);
+            Assert.Equal("no", (await host.Instances.RecoverRestoreAsync("op", ct)).Error);
+            Assert.True((await host.Instances.DiscardRestoreJournalAsync("op", ct)).Succeeded);
+            Assert.Equal([RestoreOutcome.Success, RestoreOutcome.Failed], (await host.Instances.GetRestoresAsync(id, ct)).Select(r => r.Outcome));
+
+            host.Guard.Deny = true;
+            await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.RestoreAsync(id, "a.zip", false, ct));
+            await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.RecoverRestoreAsync("op", ct));
+            await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.GetRestoreJournalAsync(id, ct));
+        }
+    }
 
     [Fact]
     public async Task EveryMethod_RefusesWhenTheGuardDenies()
