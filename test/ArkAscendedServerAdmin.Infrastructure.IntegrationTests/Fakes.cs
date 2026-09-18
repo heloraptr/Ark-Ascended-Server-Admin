@@ -159,6 +159,16 @@ public sealed class FakeProcessManager(FakeMaintenanceGate? gate = null) : IProc
 
     public event Action<InstanceRuntime>? RuntimeChanged;
 
+    public event Action<ProbeObservation>? ProbeObserved;
+
+    /// <summary>Scripted answers for <see cref="ProbeSessionAsync"/>; Unknown when absent.</summary>
+    public ConcurrentDictionary<int, SessionLiveness> Liveness { get; } = new();
+
+    public void Observe(ProbeObservation observation) => ProbeObserved?.Invoke(observation);
+
+    public Task<SessionLiveness> ProbeSessionAsync(int instanceId, CancellationToken cancellationToken) =>
+        Task.FromResult(Liveness.TryGetValue(instanceId, out var liveness) ? liveness : SessionLiveness.Unknown);
+
     public void Set(int instanceId, InstanceState state)
     {
         var runtime = new InstanceRuntime(instanceId, state, state == InstanceState.Stopped ? null : 1000 + instanceId, null, null, null, null);

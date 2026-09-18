@@ -71,6 +71,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
     private readonly IInstanceLocks _locks;
     private readonly IMaintenanceGate _gate;
     private readonly LaunchQueue _queue;
+    private readonly RecoveryRequests _recovery;
     private readonly IRconClient _rcon;
     private readonly IGameProcessEnumerator _enumerator;
     private readonly IFirewallRules _firewall;
@@ -94,6 +95,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         IInstanceLocks locks,
         IMaintenanceGate gate,
         LaunchQueue queue,
+        RecoveryRequests recovery,
         IRconClient rcon,
         IGameProcessEnumerator enumerator,
         IFirewallRules firewall,
@@ -115,6 +117,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         _locks = locks;
         _gate = gate;
         _queue = queue;
+        _recovery = recovery;
         _rcon = rcon;
         _enumerator = enumerator;
         _firewall = firewall;
@@ -128,6 +131,8 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
     }
 
     public event Action<InstanceRuntime>? RuntimeChanged;
+
+    public event Action<ProbeObservation>? ProbeObserved;
 
     public InstanceRuntime GetRuntime(int instanceId) =>
         _runtimes.TryGetValue(instanceId, out var runtime) ? runtime : Default(instanceId);
@@ -912,8 +917,10 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             {
                 var settings = await _settings.GetAsync(token);
                 var timeout = TimeSpan.FromSeconds(settings.RconCommandTimeoutSeconds);
-                await _rcon.ExecuteAsync(endpoint, RconCommands.ListPlayers, timeout, token);
+                var sentAt = _time.GetUtcNow();
+                var reply = await _rcon.ExecuteAsync(endpoint, RconCommands.ListPlayers, timeout, token);
                 await OnProbeSucceededAsync(session, token);
+                Raise(ProbeObserved, new ProbeObservation(session.InstanceId, session.Pid, session.StartTime, sentAt, reply));
             }
             catch (RconException ex)
             {
@@ -986,8 +993,15 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             }
             catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
             {
-                _logger.LogWarning(ex, "HasExited failed for pid {Pid}; treating the process as gone.", session.Pid);
-                exited = true;
+                // HasExited itself is inconclusive; ask the process table. Dead is a confirmed exit, Alive keeps
+                // supervising, Unknown keeps the session registered and supervised and is logged once (B0).
+                var liveness = await ProbeSessionCoreAsync(session);
+                exited = liveness == SessionLiveness.Dead;
+                if (liveness == SessionLiveness.Unknown && !session.ProbeUnknownLogged)
+                {
+                    session.ProbeUnknownLogged = true;
+                    _logger.LogWarning(ex, "HasExited failed for pid {Pid} and the process table could not settle it; still supervising.", session.Pid);
+                }
             }
 
             if (exited)
@@ -1034,6 +1048,61 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         session.Cancellation.Cancel();
         session.Process.Dispose();
         session.Exited.TrySetResult();
+
+        // After the cleanup and the exit signal, never before: nothing in this path waits on recovery.
+        _recovery.TryPost(new RecoveryRequest(session.InstanceId, session.Pid, session.StartTime, exitCode, session.StopIntent, _time.GetUtcNow()));
+    }
+
+    // ---- session probe (B0) -----------------------------------------------------------------------
+
+    public Task<SessionLiveness> ProbeSessionAsync(int instanceId, CancellationToken cancellationToken)
+    {
+        if (!_sessions.TryGetValue(instanceId, out var session))
+        {
+            return Task.FromResult(SessionLiveness.Unknown);
+        }
+
+        return Task.Run(() => ProbeSessionCoreAsync(session), cancellationToken);
+    }
+
+    /// <summary>
+    /// One targeted process-table read. Alive needs a complete row whose creation date matches the session's start
+    /// time within <see cref="ProcessMatcher.StartTimeTolerance"/>; Dead is a completed read with no such row, or a
+    /// complete row that belongs to a reused pid; everything else is Unknown.
+    /// </summary>
+    private async Task<SessionLiveness> ProbeSessionCoreAsync(Session session)
+    {
+        ProcessRowRead read;
+        try
+        {
+            read = await Task.Run(() => _enumerator.ReadRow(session.Pid));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "The process-table read for pid {Pid} failed.", session.Pid);
+            return SessionLiveness.Unknown;
+        }
+
+        return read.Status switch
+        {
+            ProcessRowStatus.Missing => SessionLiveness.Dead,
+            ProcessRowStatus.Complete when (read.Row!.CreationTime - session.StartTime).Duration() <= ProcessMatcher.StartTimeTolerance => SessionLiveness.Alive,
+            ProcessRowStatus.Complete => SessionLiveness.Dead,
+            _ => SessionLiveness.Unknown,
+        };
+    }
+
+    /// <summary>Subscriber exceptions are logged, never propagated into the loop that raised the event.</summary>
+    private void Raise<T>(Action<T>? handlers, T payload)
+    {
+        try
+        {
+            handlers?.Invoke(payload);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "A {Event} subscriber threw.", typeof(T).Name);
+        }
     }
 
     // ---- runtime bookkeeping ----------------------------------------------------------------------
@@ -1174,6 +1243,9 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         public volatile bool StopIntent;
 
         public volatile bool ProbeSucceeded;
+
+        /// <summary>The one-time warning for a HasExited failure the process table could not settle.</summary>
+        public volatile bool ProbeUnknownLogged;
 
         /// <summary>Drops Sentry SDK chatter before it reaches the console; one per log tail.</summary>
         public ConsoleNoiseFilter Noise { get; } = new();

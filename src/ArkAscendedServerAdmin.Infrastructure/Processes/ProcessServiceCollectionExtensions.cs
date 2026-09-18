@@ -27,6 +27,7 @@ public static class ProcessServiceCollectionExtensions
         services.AddSingleton<MaintenanceGate>();
         services.AddSingleton<IMaintenanceGate>(sp => sp.GetRequiredService<MaintenanceGate>());
         services.AddSingleton<LaunchQueue>();
+        services.AddSingleton<RecoveryRequests>();
 
         services.AddSingleton<IRconClient, CoreRconClient>();
         services.AddSingleton<IGameProcessEnumerator, WmiGameProcessEnumerator>();

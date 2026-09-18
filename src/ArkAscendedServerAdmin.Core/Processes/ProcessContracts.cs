@@ -14,7 +14,54 @@ public sealed record GameProcessInfo(int Pid, string? ExecutablePath, string? Co
 public interface IGameProcessEnumerator
 {
     IReadOnlyList<GameProcessInfo> Enumerate();
+
+    /// <summary>
+    /// Reads one process row by pid (B0), any executable. Throws when the enumeration itself fails; the caller
+    /// treats that as Unknown. A row whose identity fields WMI withheld comes back <see cref="ProcessRowStatus.Incomplete"/>.
+    /// </summary>
+    ProcessRowRead ReadRow(int pid);
 }
+
+/// <summary>Outcome of <see cref="IGameProcessEnumerator.ReadRow"/>: the row when one was found, and whether pid, path, and creation date were all readable.</summary>
+public sealed record ProcessRowRead(ProcessRowStatus Status, GameProcessInfo? Row)
+{
+    public static readonly ProcessRowRead Missing = new(ProcessRowStatus.Missing, null);
+}
+
+public enum ProcessRowStatus
+{
+    /// <summary>Pid, executable path, and creation date were all present.</summary>
+    Complete,
+    /// <summary>A row exists but an identity field could not be read; nothing can be concluded from it.</summary>
+    Incomplete,
+    /// <summary>The enumeration completed and no row has this pid.</summary>
+    Missing,
+}
+
+/// <summary>What <see cref="IProcessManager.ProbeSessionAsync"/> could establish about a session's process (B0).</summary>
+public enum SessionLiveness
+{
+    /// <summary>A complete row with this pid whose creation date matches the session's start time.</summary>
+    Alive,
+    /// <summary>No row with this pid, or a complete row whose creation date belongs to another process.</summary>
+    Dead,
+    /// <summary>The enumeration threw, the row was incomplete, or no session is registered; never a reason to launch.</summary>
+    Unknown,
+}
+
+/// <summary>
+/// One reply from the 15-second <c>ListPlayers</c> health probe, tagged with the session it came from (B0; the player
+/// tracker consumes it). <paramref name="SentAt"/> is taken before the command is sent, so a slow reply cannot look
+/// newer than evidence that arrived while it was in flight.
+/// </summary>
+public sealed record ProbeObservation(int InstanceId, int Pid, DateTimeOffset ProcessStartTime, DateTimeOffset SentAt, string Reply);
+
+/// <summary>
+/// Posted once per confirmed process exit after the manager's own cleanup (B0); the crash policy decides whether to
+/// relaunch. <paramref name="StopIntent"/> is true when the manager had accepted a stop for this session, and such an
+/// exit is never a crash.
+/// </summary>
+public sealed record RecoveryRequest(int InstanceId, int Pid, DateTimeOffset ProcessStartTime, int? ExitCode, bool StopIntent, DateTimeOffset ExitedAt);
 
 /// <summary>Result of a management request; a rejection carries the reason the UI shows verbatim.</summary>
 public sealed record OperationOutcome(bool Succeeded, string? Error = null)
@@ -82,6 +129,15 @@ public interface IProcessManager
 
     /// <summary>Raised on a background thread whenever an instance's runtime changes.</summary>
     event Action<InstanceRuntime>? RuntimeChanged;
+
+    /// <summary>Raised on a background thread after every successful health probe; see <see cref="ProbeObservation"/>.</summary>
+    event Action<ProbeObservation>? ProbeObserved;
+
+    /// <summary>
+    /// One targeted process-table read for the instance's registered session (B0). Alive and Dead are conclusions;
+    /// Unknown (no session, enumeration failure, incomplete row) is not, and never justifies a launch.
+    /// </summary>
+    Task<SessionLiveness> ProbeSessionAsync(int instanceId, CancellationToken cancellationToken);
 
     /// <summary>
     /// Enqueues a launch and completes when the process has started and its identity is persisted, or

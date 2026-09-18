@@ -16,7 +16,21 @@ namespace ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Processes;
 
 internal sealed class StubEnumerator(IReadOnlyList<GameProcessInfo> processes) : IGameProcessEnumerator
 {
+    /// <summary>When set, answers every targeted read instead of the list (throw from it to simulate a WMI failure).</summary>
+    public Func<int, ProcessRowRead>? ReadRowOverride { get; set; }
+
     public IReadOnlyList<GameProcessInfo> Enumerate() => processes;
+
+    public ProcessRowRead ReadRow(int pid)
+    {
+        if (ReadRowOverride is { } custom)
+        {
+            return custom(pid);
+        }
+
+        var row = processes.FirstOrDefault(p => p.Pid == pid);
+        return row is null ? ProcessRowRead.Missing : new ProcessRowRead(ProcessRowStatus.Complete, row);
+    }
 }
 
 /// <summary>Succeeds or throws the configured failure; every call is recorded.</summary>
@@ -218,6 +232,8 @@ internal sealed class ProcessManagerHarness : IDisposable
         Gate = new MaintenanceGate();
         Locks = new InstanceLocks();
         Queue = new LaunchQueue(Gate, store, TimeProvider.System);
+        Recovery = new RecoveryRequests();
+        Enumerator = new StubEnumerator(processes);
         Manager = new ProcessManager(
             root,
             root.Layout,
@@ -227,8 +243,9 @@ internal sealed class ProcessManagerHarness : IDisposable
             Locks,
             Gate,
             Queue,
+            Recovery,
             rcon,
-            new StubEnumerator(processes),
+            Enumerator,
             new FakeFirewall(),
             new FakeLayoutService(),
             new FakeConfigWriter(generatedIni),
@@ -246,6 +263,10 @@ internal sealed class ProcessManagerHarness : IDisposable
     public InstanceLocks Locks { get; }
 
     public LaunchQueue Queue { get; }
+
+    public RecoveryRequests Recovery { get; }
+
+    public StubEnumerator Enumerator { get; }
 
     public void SetReady() => _readiness.Current.Returns(new ReadinessState(ReadinessPhase.Ready, "Ready", null, DateTimeOffset.UtcNow));
 
