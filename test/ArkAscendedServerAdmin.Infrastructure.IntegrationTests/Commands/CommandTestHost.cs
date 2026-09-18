@@ -39,6 +39,7 @@ internal sealed class CommandTestHost : IDisposable
         IniStore = new IniSourceStore(Root.Layout, Root, Clock, NullLogger<IniSourceStore>.Instance);
         GeneratedConfig = new GeneratedConfigWriter(Root.Layout, Root, IniStore, Settings, NullLogger<GeneratedConfigWriter>.Instance);
         ProcessManager = new FakeProcessManager();
+        Locks = new FakeInstanceLocks();
         LayoutService = new FakeInstanceLayoutService(Root, Clock);
         Console = new FakeConsoleService();
         Rcon = new ScriptedRconClient();
@@ -52,9 +53,9 @@ internal sealed class CommandTestHost : IDisposable
         InstallChecker = Substitute.For<IGameInstallChecker>();
 
         Instances = new InstanceCommands(
-            Guard, Root, Root.Layout, Host, Settings, ProcessManager, Backups, DeleteService, LayoutService, IniStore,
+            Guard, Root, Root.Layout, Host, Settings, ProcessManager, Locks, Backups, DeleteService, LayoutService, IniStore,
             GeneratedConfig, Rcon, Console, Clock, NullLogger<InstanceCommands>.Instance);
-        Clusters = new ClusterCommands(Guard, Root, Root.Layout, Instances, Clock, NullLogger<ClusterCommands>.Instance);
+        Clusters = new ClusterCommands(Guard, Root, Root.Layout, Instances, Locks, Clock, NullLogger<ClusterCommands>.Instance);
         Config = new ConfigCommands(Guard, Root, IniStore, NullLogger<ConfigCommands>.Instance);
         Mods = new ModCommands(Guard, Root, Settings, CurseForge, Clock, NullLogger<ModCommands>.Instance);
         Tracker = new PlayerTracker(Root, Console, ProcessManager, Clock, NullLogger<PlayerTracker>.Instance);
@@ -79,6 +80,8 @@ internal sealed class CommandTestHost : IDisposable
     public GeneratedConfigWriter GeneratedConfig { get; }
 
     public FakeProcessManager ProcessManager { get; }
+
+    public FakeInstanceLocks Locks { get; }
 
     public FakeInstanceLayoutService LayoutService { get; }
 

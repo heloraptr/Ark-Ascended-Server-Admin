@@ -19,6 +19,29 @@ public class ClusterCommandsTests
     private static InstanceDraft Member(int mapId, int clusterId, string name, int gamePort, int rconPort) =>
         new() { Name = name, MapId = mapId, ClusterId = clusterId, SessionName = name, GamePort = gamePort, RconPort = rconPort };
 
+    /// <summary>B0: a restore reserves a cluster; creating a member or deleting the cluster is refused for as long as it holds.</summary>
+    [Fact]
+    public async Task ReservedCluster_RefusesNewMembersAndDeletion_UntilReleased()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (host, mapId) = await StartAsync(ct);
+        using (host)
+        {
+            var cluster = await host.Clusters.CreateAsync("Held", ConfigSourceKind.Blank, null, ct);
+
+            using (host.Locks.TryReserveCluster(cluster.Value))
+            {
+                var create = await host.Instances.CreateAsync(Member(mapId, cluster.Value, "Late", 7777, 27020), ct);
+                var delete = await host.Clusters.DeleteAsync(cluster.Value, ct);
+
+                Assert.Contains("reserved by a restore", create.Error, StringComparison.Ordinal);
+                Assert.Contains("reserved by a restore", delete.Error, StringComparison.Ordinal);
+            }
+
+            Assert.True((await host.Instances.CreateAsync(Member(mapId, cluster.Value, "Late", 7777, 27020), ct)).Succeeded);
+        }
+    }
+
     [Fact]
     public async Task EveryMethod_RefusesWhenTheGuardDenies()
     {

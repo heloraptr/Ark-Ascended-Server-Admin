@@ -9,6 +9,7 @@ namespace ArkAscendedServerAdmin.Processes;
 public sealed class InstanceLocks : IInstanceLocks
 {
     private readonly ConcurrentDictionary<int, SemaphoreSlim> _semaphores = new();
+    private readonly ConcurrentDictionary<int, SemaphoreSlim> _clusters = new();
 
     public IInstanceLease? TryAcquire(int instanceId)
     {
@@ -22,6 +23,14 @@ public sealed class InstanceLocks : IInstanceLocks
         await semaphore.WaitAsync(cancellationToken);
         return new Releaser(instanceId, semaphore);
     }
+
+    public IDisposable? TryReserveCluster(int clusterId)
+    {
+        var semaphore = _clusters.GetOrAdd(clusterId, _ => new SemaphoreSlim(1, 1));
+        return semaphore.Wait(0) ? new Releaser(clusterId, semaphore) : null;
+    }
+
+    public bool IsClusterReserved(int clusterId) => _clusters.TryGetValue(clusterId, out var semaphore) && semaphore.CurrentCount == 0;
 
     /// <summary>True while some operation holds the instance's lock; for diagnostics and tests only.</summary>
     public bool IsHeld(int instanceId) => _semaphores.TryGetValue(instanceId, out var semaphore) && semaphore.CurrentCount == 0;

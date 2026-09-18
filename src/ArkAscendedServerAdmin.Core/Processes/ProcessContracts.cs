@@ -20,7 +20,13 @@ public interface IGameProcessEnumerator
     /// treats that as Unknown. A row whose identity fields WMI withheld comes back <see cref="ProcessRowStatus.Incomplete"/>.
     /// </summary>
     ProcessRowRead ReadRow(int pid);
+
+    /// <summary>Every game process plus whether every row was read completely (B0); a projection may only run on a complete, empty snapshot.</summary>
+    ProcessTableSnapshot Snapshot();
 }
+
+/// <summary>One enumeration of <c>ArkAscendedServer.exe</c> rows; <paramref name="Complete"/> is false when any row could not be read.</summary>
+public sealed record ProcessTableSnapshot(IReadOnlyList<GameProcessInfo> Processes, bool Complete);
 
 /// <summary>Outcome of <see cref="IGameProcessEnumerator.ReadRow"/>: the row when one was found, and whether pid, path, and creation date were all readable.</summary>
 public sealed record ProcessRowRead(ProcessRowStatus Status, GameProcessInfo? Row)
@@ -140,6 +146,13 @@ public interface IProcessManager
     Task<SessionLiveness> ProbeSessionAsync(int instanceId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Takes the launch queue's projection reservation exclusively (B0): waits for in-flight launches, blocks new ones,
+    /// then refuses unless no session is registered and a complete process-table snapshot shows no game process at
+    /// all. The lease in a held result is the caller's to release; a refusal carries the reason and holds nothing.
+    /// </summary>
+    Task<ProjectionReservationResult> TryReserveProjectionAsync(CancellationToken cancellationToken);
+
+    /// <summary>
     /// Enqueues a launch and completes when the process has started and its identity is persisted, or
     /// with the rejection reason (not Ready, update in progress, operation in progress, port conflict,
     /// missing ServerAdminPassword, drained queue, Process.Start failure).
@@ -189,6 +202,14 @@ public interface IInstanceLocks
 
     /// <summary>Waits for the lock; used by scheduled work that may queue behind an operation.</summary>
     Task<IInstanceLease> AcquireAsync(int instanceId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reserves a whole cluster (B0, used by restore): while held, creating a member, deleting the cluster, and launching
+    /// any member are refused. Returns null when the cluster is already reserved. Independent of the per-instance locks.
+    /// </summary>
+    IDisposable? TryReserveCluster(int clusterId);
+
+    bool IsClusterReserved(int clusterId);
 }
 
 /// <summary>
@@ -205,4 +226,25 @@ public interface IMaintenanceGate
     IDisposable? TryAcquireShared();
 
     bool IsHeldExclusively { get; }
+}
+
+/// <summary>Outcome of <see cref="IProcessManager.TryReserveProjectionAsync"/>: the exclusive lease, or why it was refused.</summary>
+public sealed record ProjectionReservationResult(IDisposable? Lease, string? RefusalReason)
+{
+    public bool Held => Lease is not null;
+}
+
+/// <summary>
+/// Step one of every launch (B0 handoff): before a launch takes the projection reservation shared, it asks the
+/// synchronizer to run one cycle and waits for it, holding nothing. The manager-wide list synchronizer (B5)
+/// implements it; until then <see cref="NoProjectionSynchronizer"/> returns at once.
+/// </summary>
+public interface IProjectionSynchronizer
+{
+    Task RunCycleAsync(CancellationToken cancellationToken);
+}
+
+public sealed class NoProjectionSynchronizer : IProjectionSynchronizer
+{
+    public Task RunCycleAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

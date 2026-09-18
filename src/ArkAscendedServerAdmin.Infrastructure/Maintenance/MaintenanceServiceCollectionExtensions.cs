@@ -19,6 +19,8 @@ public static class MaintenanceServiceCollectionExtensions
         services.AddSingleton<UpdateService>();
         services.AddSingleton<IUpdateService>(sp => sp.GetRequiredService<UpdateService>());
         services.AddSingleton<IMaintenanceRecovery>(sp => sp.GetRequiredService<UpdateService>());
+        services.AddSingleton<DetachedJobs>();
+        services.AddHostedService<DetachedJobsHost>();
         services.AddSingleton<IInstanceDeleteService, InstanceDeleteService>();
         return services;
     }

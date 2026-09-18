@@ -2,6 +2,7 @@ using ArkAscendedServerAdmin.Auth;
 using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Domain;
+using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Launch;
 using ArkAscendedServerAdmin.Naming;
@@ -16,6 +17,7 @@ public sealed class ClusterCommands(
     IDbContextFactory<AppDbContext> contextFactory,
     DataRootLayout layout,
     IInstanceCommands instanceCommands,
+    IInstanceLocks locks,
     TimeProvider timeProvider,
     ILogger<ClusterCommands> logger) : IClusterCommands
 {
@@ -217,6 +219,11 @@ public sealed class ClusterCommands(
     public async Task<CommandResult> DeleteAsync(int clusterId, CancellationToken cancellationToken = default)
     {
         await guard.EnsureAuthorizedAsync(cancellationToken);
+        if (locks.IsClusterReserved(clusterId))
+        {
+            return CommandResult.Fail("The cluster is reserved by a restore; try again when it finishes.");
+        }
+
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var cluster = await db.Clusters.Include(c => c.Mods).Include(c => c.IniDocuments).SingleOrDefaultAsync(c => c.Id == clusterId, cancellationToken);

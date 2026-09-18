@@ -19,6 +19,11 @@ internal sealed class StubEnumerator(IReadOnlyList<GameProcessInfo> processes) :
     /// <summary>When set, answers every targeted read instead of the list (throw from it to simulate a WMI failure).</summary>
     public Func<int, ProcessRowRead>? ReadRowOverride { get; set; }
 
+    /// <summary>When set, answers every snapshot instead of the list (throw from it to simulate a WMI failure).</summary>
+    public Func<ProcessTableSnapshot>? SnapshotOverride { get; set; }
+
+    public ProcessTableSnapshot Snapshot() => SnapshotOverride is { } custom ? custom() : new ProcessTableSnapshot(processes, true);
+
     public IReadOnlyList<GameProcessInfo> Enumerate() => processes;
 
     public ProcessRowRead ReadRow(int pid)
@@ -214,7 +219,8 @@ internal sealed class ProcessManagerHarness : IDisposable
         FakeOutputSourceFactory outputs,
         string? generatedIni = GeneratedIni,
         bool ready = true,
-        AppSettings? settings = null)
+        AppSettings? settings = null,
+        IProjectionSynchronizer? synchronizer = null)
     {
         var store = Substitute.For<IAppSettingsStore>();
         store.GetAsync(Arg.Any<CancellationToken>()).Returns(settings ?? new AppSettings());
@@ -234,6 +240,7 @@ internal sealed class ProcessManagerHarness : IDisposable
         Queue = new LaunchQueue(Gate, store, TimeProvider.System);
         Recovery = new RecoveryRequests();
         Enumerator = new StubEnumerator(processes);
+        Synchronizer = synchronizer ?? new NoProjectionSynchronizer();
         Manager = new ProcessManager(
             root,
             root.Layout,
@@ -244,6 +251,7 @@ internal sealed class ProcessManagerHarness : IDisposable
             Gate,
             Queue,
             Recovery,
+            Synchronizer,
             rcon,
             Enumerator,
             new FakeFirewall(),
@@ -267,6 +275,8 @@ internal sealed class ProcessManagerHarness : IDisposable
     public RecoveryRequests Recovery { get; }
 
     public StubEnumerator Enumerator { get; }
+
+    public IProjectionSynchronizer Synchronizer { get; }
 
     public void SetReady() => _readiness.Current.Returns(new ReadinessState(ReadinessPhase.Ready, "Ready", null, DateTimeOffset.UtcNow));
 
