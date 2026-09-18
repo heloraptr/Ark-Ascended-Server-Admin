@@ -72,7 +72,7 @@ member at its next start.`
 
 | Tab | Content |
 |---|---|
-| **Members** | One row per member with the state triangle, name, session name, map, ports, and state label, and an arrow to the instance page. Empty: `No members yet.` with **New instance**. |
+| **Members** | One row per member with the state triangle, name, session name, map, ports, and state label, and an arrow to the instance page. **New instance** in the header opens the wizard with this cluster already chosen. Empty: `No members yet.` with the same **New instance** button. |
 | **Config** | The `GameUserSettings.ini` and `Game.ini` editors for the cluster's source files. Same editor as a standalone instance's ([configuration-files.md](configuration-files.md)). |
 | **Mods** | `Mandatory for every member and loaded before each member's own mods. A custom map's own mod loads ahead of these on that member alone and is not listed here.` The ordered list with **Add**, move up and down, remove, **Save mods**. |
 | **Launch** | `The base every member starts from; a member can override each flag.` The flags editor with **Default** / **On** / **Off** per flag ([launch-options.md](launch-options.md)). |

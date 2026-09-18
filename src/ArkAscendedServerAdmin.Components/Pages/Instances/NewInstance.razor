@@ -289,6 +289,10 @@
     }
     private int? _loadedClusterId = -1;
 
+    /// <summary>Cluster id from the query string; the cluster page passes its own id so the wizard starts on it (issue #22).</summary>
+    [SupplyParameterFromQuery(Name = "cluster")]
+    public int? ClusterQuery { get; set; }
+
     private string Slug => ArkAscendedServerAdmin.Naming.Slug.Generate(_name.Length == 0 ? "instance" : _name, []);
 
     private bool HasAdminPassword => !string.IsNullOrWhiteSpace(_adminPassword);
@@ -314,6 +318,11 @@
         await GuardedAsync(async () =>
         {
             _clusters = await Clusters.ListAsync();
+            if (ClusterQuery is { } presetCluster && _clusters.Any(c => c.Id == presetCluster))
+            {
+                _clusterId = presetCluster;
+            }
+
             _maps = await Maps.ListAsync();
             _library = await Mods.ListLibraryAsync();
             var mapMods = await Mods.GetMapModsAsync();
