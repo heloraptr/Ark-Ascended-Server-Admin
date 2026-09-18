@@ -31,6 +31,7 @@ public class AppSettingsCodecTests
             RconCommandTimeoutSeconds = 5,
             ConsoleBackfillLines = 500,
             CurseForgeApiKey = "$2a$10$abc",
+            Version = 7,
         };
 
         var decoded = AppSettingsCodec.Decode(AppSettingsCodec.Encode(original));

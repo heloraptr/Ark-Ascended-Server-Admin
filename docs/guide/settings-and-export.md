@@ -42,10 +42,14 @@ Each field's hint on the page says what it feeds; the pages that use them are
 **Save settings** validates every value and writes; if anything fails, the problems appear under the
 form and nothing at all is written. The button shows "Saving…" for about two seconds so the click
 visibly did something, then a toast says "Saved settings". **Reset** reloads the stored values and
-discards edits.
+discards edits. Every save carries the version the page loaded; if another save landed first (a second
+tab, or a background change), the page keeps your edits, shows "The settings changed since they were
+loaded ... reload the page and try again", and writes nothing. Press **Reset** to load the current values
+and save again.
 
 The values are rows in the `AppSettings` table, one per key, decoded into one settings object that
-is cached in memory after the first read and replaced on save. A save updates or inserts every row
+is cached in memory after the first read and replaced on save. A `Version` row counts the writes; a save
+that changes nothing does not count. A save updates or inserts every changed row
 in one `SaveChanges`, then swaps the cached object. Because the cache is replaced, every
 consumer (the launch queue, the port allocator, the backup scheduler, the CurseForge handler that
 adds the `x-api-key` header) sees the new value on its next call, with no restart.
@@ -126,6 +130,7 @@ once.
 | Save settings | `<Name> must be between <min> and <max> (was <n>).` for any numeric field, for example `StaggerDelaySeconds must be between 0 and 3600 (was 5000).` | Fix the field. Nothing was saved. |
 | Save settings | `CurseForgeApiKey must not contain whitespace or control characters.` | Re-paste the key without spaces or line breaks. |
 | Save settings | `AdminWhitelist must hold one id per line with no spaces.` | Fix the offending line in the whitelist editor. |
+| Save settings | `The settings changed since they were loaded (version <n> is behind <m>); reload the page and try again.` | Another save landed after this page loaded. Press **Reset**, re-apply the edit, save again. Nothing was written. |
 | Export | The toast is missing and an error page or notification appears | `DataRoot\Exports` could not be written (disk full, or the folder ACL changed). Check the service log ([troubleshooting.md](troubleshooting.md#where-every-log-lives)). |
 | Restore | `Restore failed: <error>` | A source file could not be written, typically a folder that no longer exists because the instance was deleted outside the manager, or a permission problem. The message is the OS error. |
 | Host | **Password configured** shows `no: every login is refused` | Neither `ArkAdmin:Password` nor a well-formed `ArkAdmin:PasswordHash` is set. Run `install.ps1 -SetPassword` ([hosting.md](../hosting.md#changing-the-password)). |

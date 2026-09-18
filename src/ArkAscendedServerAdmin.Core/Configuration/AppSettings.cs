@@ -50,6 +50,13 @@ public sealed record AppSettings
     /// </summary>
     public string AdminWhitelist { get; init; } = string.Empty;
 
+    /// <summary>
+    /// How many times the row set has been written (B0). A loaded snapshot carries it and <c>SaveAsync</c> refuses a
+    /// snapshot whose version is behind the store's, so two editors cannot overwrite each other; <c>UpdateAsync</c>
+    /// mutations bump it on every actual write. Not user-editable and never validated.
+    /// </summary>
+    public long Version { get; init; }
+
     /// <summary>Returns the validation problems, or an empty list when the settings are usable.</summary>
     public IReadOnlyList<string> Validate()
     {
