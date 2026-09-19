@@ -1854,7 +1854,7 @@ h1:focus-visible {
 
 .sched-row {
   display: grid;
-  grid-template-columns: 118px 180px minmax(200px, 1fr) auto 32px;
+  grid-template-columns: minmax(220px, 1.4fr) 180px minmax(200px, 1fr) auto 32px;
   align-items: center;
   gap: 12px;
   min-height: 46px;
@@ -1882,8 +1882,18 @@ h1:focus-visible {
   width: 100%;
 }
 
-.sched-row .sched-clock {
+.sched-when {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
   padding-left: 8px;
+}
+
+.sched-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sched-time::-webkit-calendar-picker-indicator {
@@ -1903,4 +1913,45 @@ h1:focus-visible {
 
 .sched-add {
   margin: 10px 0 12px;
+}
+
+.sched-history {
+  height: 280px;
+}
+
+.cron-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cron-inline .rz-numeric {
+  width: 80px;
+}
+
+.cron-dialog input.mono {
+  font-family: var(--ark-mono);
+}
+
+.cron-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+
+.cron-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--ark-hairline);
+  border-radius: var(--ark-radius);
+  font-size: 13px;
+}
+
+.cron-next {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
 }

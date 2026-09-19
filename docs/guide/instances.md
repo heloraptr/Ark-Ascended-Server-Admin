@@ -156,47 +156,59 @@ preview finds a problem while the instance is stopped.
 | **Config** | Standalone: the `GameUserSettings.ini` and `Game.ini` editors. Member: `INI files come from the <cluster> cluster.` Both: the **Overrides** table with **Add override**. [configuration-files.md](configuration-files.md). |
 | **Mods** | The ordered mod list: the map's mod and cluster mods locked, the instance's own below. [mods.md](mods.md). |
 | **Launch** | The flags editor and `What a start would run`, the exact command line. [launch-options.md](launch-options.md). |
-| **Settings** | **Instance name**, **Session name**, **Max players**, **Game port**, **RCON port**, **Backup interval, minutes**, **Backups to keep**, **Ignore the cluster's schedule** (members only), **Admin whitelist**; **Save settings**, **Reset**. While the process is live: `Port and player changes apply at the next start.` The slug and the map cannot change. Under the form, **Schedule**: the daily actions and their last runs ([below](#scheduled-actions)). |
+| **Settings** | **Instance name**, **Session name**, **Max players**, **Game port**, **RCON port**, **Backup interval, minutes**, **Backups to keep**, **Ignore the cluster's schedule** (members only), **Admin whitelist**; **Save settings**, **Reset**. While the process is live: `Port and player changes apply at the next start.` The slug and the map cannot change. |
 | **Backups** | The backup list with outcome, archive name, size, and trigger, a restore icon on each successful row, and the list of restores. [backups.md](backups.md). |
+| **Schedule** | The scheduled actions and their history ([below](#scheduled-actions)). |
 
 ## Scheduled actions
 
-The **Schedule** section at the bottom of the Settings tab runs an action at the same time every
-day. A row is a time, an action, and an **Enabled** box; **Add action** adds one at `03:00`,
-**Save schedule** writes the whole list, and a row that is not enabled stays listed but never runs.
+The **Schedule** tab runs actions on a schedule. A row is a schedule, an action, and an **Enabled**
+box; **Save schedule** writes the whole list, and a row that is not enabled stays listed but never
+runs.
 
 - **Restart** counts down, then stops the server the normal way and starts it again.
 - **RCON command** sends the command on the row, exactly as you would type it into the console;
   the command and the reply show there too. `SaveWorld` is the usual one.
 - **Wipe wild dinos** counts down, then sends `DestroyWildDinos`.
 
-The time is the server's local time and is the moment of the action itself. A restart or a wipe
-also has a warning of 0 to 60 minutes (the **min warning** box after the action): the countdown starts that
+A schedule is a standard cron expression: five fields for minute, hour, day of month, month, and
+day of week, read in the server's local time. `0 4 * * *` is 04:00 every day, `30 3 * * 1-5` is
+03:30 Monday to Friday, and `0 */6 * * *` is every six hours from midnight. The list shows each row
+in plain words (`At 04:00`, `Every 6 hours`); hovering the words shows the expression and the next
+time it runs. The pencil next to them opens the builder, which is also what **Add action** opens
+first: pick **Every day at**, **Every N hours**, or **On these days** and fill in the boxes, or pick
+**Custom expression** and type one. The builder shows the expression it will save, the same plain
+words, and the next three times it would run. An expression it cannot read says so and **OK** stays
+disabled until it can.
+
+The time in the expression is the moment of the action itself. A restart or a wipe also has a
+warning of 0 to 60 minutes (the **min warning** box after the action): the countdown starts that
 many minutes early and players see a broadcast each minute until the action, so a restart at
 `04:00` with a 10 minute warning starts talking at `03:50` and restarts at `04:00`. An RCON command
-has no warning. On the day the clocks go forward, a time inside the missing hour does not exist and
-the row is skipped for that day; on the day they go back, an ambiguous time runs at its first
-occurrence.
+has no warning. A schedule that repeats faster than its own warning is refused. When the clocks go
+forward, a time inside the missing hour runs right after the change (a `02:30` job runs at
+`03:00`); when they go back, a fixed time in the repeated hour runs once, the first time it comes
+round, while an expression that repeats within the hour runs in both.
 
 A cluster member runs its cluster's rows as well as its own. They appear in the member's list
 locked, with `Comes from the cluster; change it on the cluster page.` on hover. Tick
-**Ignore the cluster's schedule** on the settings form and save it to run only the instance's own
+**Ignore the cluster's schedule** on the Settings tab and save it to run only the instance's own
 rows; the locked rows disappear from the list ([clusters.md](clusters.md#the-cluster-page)).
 
-Each row runs at most once a day, and one action runs on an instance at a time. The **Runs** list
-under the editor keeps the last ten across the rows: when it started, the action, the outcome, and
-a reason.
+One action runs on an instance at a time. The **History** box under the editor holds the last 200
+runs across the rows, newest first, and scrolls once it is full: when the run was scheduled for,
+when it started and ended, the action, the outcome, and a reason.
 
 | Outcome | Meaning |
 |---|---|
 | **Done** | The action finished. |
 | **In progress** | It is running now. |
 | **Failed** | The server refused it or the command returned an error; the reason says which. |
-| **Skipped** | The row's time passed without the action: `The server is not running.`, `An update is in progress.`, `Another action is in progress.`, the instance was busy with an operation, or the time did not exist that day. |
-| **Interrupted** | The service stopped while the action was in flight (`The service was restarted before the action finished.`). Nothing is retried; the next day's run is normal. |
+| **Skipped** | The time passed without the action: `The server is not running.`, `An update is in progress.`, `Another action is in progress.`, or the instance was busy with an operation. |
+| **Interrupted** | The service stopped while the action was in flight (`The service was restarted before the action finished.`). Nothing is retried; the next occurrence is normal. |
 
-A skipped row is recorded so a missed action is visible rather than silent, and the row waits for
-the next day. Runs older than 30 days are removed.
+A skipped occurrence is recorded so a missed action is visible rather than silent. Runs older than
+30 days are removed.
 
 ## Deleting an instance
 

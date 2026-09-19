@@ -276,7 +276,7 @@ else
                                 <RadzenCheckBox TValue="bool" @bind-Value="_edit.OverridesClusterSchedule" Name="s-own-schedule" />
                                 <label for="s-own-schedule">Ignore the cluster's schedule</label>
                             </div>
-                            <span class="hint">Only the rows in this instance's own schedule run; the cluster's rows are left out of the list below.</span>
+                            <span class="hint">Only the rows in this instance's own schedule run; the cluster's rows are left off the Schedule tab.</span>
                         </div>
                     }
                     <div class="field span-2">
@@ -294,17 +294,6 @@ else
                         <span class="status">Port and player changes apply at the next start.</span>
                     }
                 </div>
-                <section class="ark-section" style="margin-top:28px">
-                    <SectionHead Title="Schedule" />
-                    @if (_schedule is null)
-                    {
-                        <p class="muted">Loading…</p>
-                    }
-                    else
-                    {
-                        <ScheduleEditor Rows="_schedule" Runs="_scheduleRuns" Busy="Busy" OnSave="SaveScheduleAsync" />
-                    }
-                </section>
             </RadzenTabsItem>
 
             <RadzenTabsItem Text="Backups">
@@ -370,6 +359,17 @@ else
                     </div>
                 }
             </RadzenTabsItem>
+
+            <RadzenTabsItem Text="Schedule">
+                @if (_schedule is null)
+                {
+                    <p class="muted">Loading…</p>
+                }
+                else
+                {
+                    <ScheduleEditor Rows="_schedule" Runs="_scheduleRuns" Busy="Busy" OnSave="SaveScheduleAsync" />
+                }
+            </RadzenTabsItem>
         </Tabs>
     </RadzenTabs>
 }
@@ -404,7 +404,8 @@ else
     private int _tab;
     private const int PlayersTab = 1;
     private const int ConfigTab = 2;
-    private const int SettingsTab = 5;
+    private const int ScheduleTab = 7;
+    private const int HistoryRuns = 200;
     private OnlinePlayers? _online;
     private string? _onlineError;
     private bool _listing;
@@ -727,7 +728,7 @@ else
     private async Task LoadScheduleAsync()
     {
         var rows = await Instances.ListScheduledActionsAsync(Id);
-        var runs = await Instances.ListScheduledActionRunsAsync(Id);
+        var runs = await Instances.ListScheduledActionRunsAsync(Id, HistoryRuns);
         _schedule = rows.Value ?? [];
         _scheduleRuns = runs.Value ?? [];
     }
@@ -793,14 +794,14 @@ else
         await RefreshPreviewAsync();
     }
 
-    /// <summary>The Players tab asks the server every time it is opened; nothing is cached across visits. The Settings tab reloads the schedule and its runs each time it opens.</summary>
+    /// <summary>The Players tab asks the server every time it is opened; nothing is cached across visits. The Schedule tab reloads its rows and history each time it opens.</summary>
     private async Task OnTabChanged(int index)
     {
         if (index == PlayersTab && _runtime.State == InstanceState.Running)
         {
             await ListPlayersAsync();
         }
-        else if (index == SettingsTab)
+        else if (index == ScheduleTab)
         {
             await GuardedAsync(LoadScheduleAsync);
             StateHasChanged();

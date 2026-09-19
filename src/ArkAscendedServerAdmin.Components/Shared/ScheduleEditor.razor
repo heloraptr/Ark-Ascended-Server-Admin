@@ -1,12 +1,15 @@
-@* Scheduled actions editor over the whole list (B3). Rows inherited from the cluster are shown locked on an instance; the owner's own rows are edited on a copy and saved together, existing ids kept so their runs stay attached. Under it, the last runs across the rows. *@
+@* Scheduled actions editor over the whole list (B3). Rows inherited from the cluster are shown locked on an instance; the owner's own rows are edited on a copy and saved together, existing ids kept so their runs stay attached. Each row's schedule is a cron expression, shown as friendly text and changed through the CronDialog builder. Under the rows, the run history in a scrollable box. *@
 @using ArkAscendedServerAdmin.Commands
 @using ArkAscendedServerAdmin.Domain
+@using ArkAscendedServerAdmin.Scheduling
+@inject DialogService Dialogs
+@inject TimeProvider Clock
 
 <div class="sched-list">
     @foreach (var locked in Rows.Where(r => r.Inherited))
     {
         <div class="sched-row is-locked" title="Comes from the cluster; change it on the cluster page.">
-            <span class="num sched-clock">@Clock(locked.TimeOfDay)</span>
+            <span class="sched-when"><span class="sched-desc" title="@When(locked.Cron, locked.NextDeadline)">@locked.Description</span></span>
             <span>@Presentation.Label(locked.Kind)</span>
             <span class="detail">
                 @if (locked.Kind == ScheduledActionKind.RconCommand)
@@ -25,7 +28,10 @@
     @foreach (var row in _rows)
     {
         <div class="sched-row">
-            <input type="time" class="rz-textbox sched-time" @bind="row.Time" @bind:format="HH:mm" aria-label="Time of day" />
+            <span class="sched-when">
+                <span class="sched-desc" title="@When(row.Cron, row.NextDeadline)">@row.Description</span>
+                <RadzenButton Icon="edit" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Change the schedule" Disabled="Busy" Click="() => EditAsync(row)" />
+            </span>
             <RadzenDropDown TValue="ScheduledActionKind" @bind-Value="row.Kind" Data="_kinds" TextProperty="Text" ValueProperty="Value" aria-label="Action" />
             @if (row.Kind == ScheduledActionKind.RconCommand)
             {
@@ -47,13 +53,13 @@
     }
     @if (_rows.Count == 0 && !Rows.Any(r => r.Inherited))
     {
-        <p class="muted" style="padding:10px 0">Nothing scheduled. Add an action to restart the server, send an RCON command, or wipe wild dinos at the same time every day.</p>
+        <p class="muted" style="padding:10px 0">Nothing scheduled. Add an action to restart the server, send an RCON command, or wipe wild dinos on a schedule.</p>
     }
 </div>
 <div class="sched-add">
-    <RadzenButton Text="Add action" Icon="add" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="Busy" Click="Add" />
+    <RadzenButton Text="Add action" Icon="add" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="Busy" Click="AddAsync" />
 </div>
-<p class="hint muted">Times are the server's local time and mark the action itself: a restart or a wipe counts its warning down to that time, broadcasting to players each minute, and an RCON command is sent right at it. Each row runs once a day; a time that does not exist on a clock-change day is skipped that day.</p>
+<p class="hint muted">Schedules run in the server's local time and mark the action itself: a restart or a wipe counts its warning down to that moment, broadcasting to players each minute, and an RCON command is sent right at it. When the clocks go forward, an occurrence in the missing hour runs right after the change; when they go back, a fixed time in the repeated hour runs once.</p>
 <Problems Items="_problems" />
 <div class="form-actions">
     <RadzenButton Text="Save schedule" Icon="save" ButtonStyle="ButtonStyle.Primary" Disabled="Busy" Click="SaveAsync" />
@@ -61,26 +67,32 @@
 </div>
 
 <div style="margin-top:22px">
-    <SectionHead Title="Runs" />
+    <SectionHead Title="History" />
     @if (Runs.Count == 0)
     {
-        <p class="muted">No runs yet. A row is recorded here each day its time passes, whether it ran or was skipped.</p>
+        <p class="muted">No runs yet. A row is recorded here each time an occurrence passes, whether the action ran or was skipped.</p>
     }
     else
     {
-        <RadzenDataGrid Data="Runs" TItem="ScheduledActionRunView" Density="Density.Compact">
+        <RadzenDataGrid Data="Runs" TItem="ScheduledActionRunView" Density="Density.Compact" AllowVirtualization="true" class="sched-history">
             <Columns>
-                <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="StartedAt" Title="When" Width="170px">
-                    <Template Context="r">@Presentation.Stamp(r.StartedAt)</Template>
+                <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="ScheduledFor" Title="Scheduled for" Width="150px">
+                    <Template Context="r"><span class="num">@Presentation.Stamp(r.ScheduledFor)</span></Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="StartedAt" Title="Started" Width="150px">
+                    <Template Context="r"><span class="num">@Presentation.Stamp(r.StartedAt)</span></Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="CompletedAt" Title="Ended" Width="150px">
+                    <Template Context="r">@if (r.CompletedAt is { } ended) { <span class="num">@Presentation.Stamp(ended)</span> }</Template>
                 </RadzenDataGridColumn>
                 @if (ShowInstanceColumn)
                 {
-                    <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="InstanceName" Title="Instance" Width="160px" />
+                    <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="InstanceName" Title="Instance" Width="140px" />
                 }
-                <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="Kind" Title="Action" Width="150px">
+                <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="Kind" Title="Action" Width="140px">
                     <Template Context="r">@Presentation.Label(r.Kind)</Template>
                 </RadzenDataGridColumn>
-                <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="Outcome" Title="Outcome" Width="120px">
+                <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="Outcome" Title="Outcome" Width="110px">
                     <Template Context="r"><span class="@Presentation.Tone(r.Outcome)">@Presentation.Label(r.Outcome)</span></Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="Reason" Title="Reason">
@@ -94,17 +106,21 @@
 @code {
     private sealed record KindOption(string Text, ScheduledActionKind Value);
 
-    // One editable row. Id stays 0 for a row added here until the save assigns it.
+    // One editable row. Id stays 0 for a row added here until the save assigns it; Description and NextDeadline follow Cron.
     private sealed class Row
     {
         public string Key { get; init; } = string.Empty;
         public int Id { get; init; }
-        public TimeOnly Time { get; set; }
+        public string Cron { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public DateTimeOffset? NextDeadline { get; set; }
         public ScheduledActionKind Kind { get; set; }
         public string Command { get; set; } = string.Empty;
         public int WarningMinutes { get; set; }
         public bool Enabled { get; set; }
     }
+
+    private const string DefaultCron = "0 3 * * *";
 
     private static readonly KindOption[] _kinds =
     [
@@ -122,7 +138,7 @@
     [Parameter, EditorRequired]
     public IReadOnlyList<ScheduledActionView> Rows { get; set; } = [];
 
-    /// <summary>The last runs, newest first.</summary>
+    /// <summary>The run history, newest first.</summary>
     [Parameter]
     public IReadOnlyList<ScheduledActionRunView> Runs { get; set; } = [];
 
@@ -155,7 +171,9 @@
             {
                 Key = NextKey(),
                 Id = row.Id,
-                Time = TimeOnly.FromTimeSpan(TimeSpan.FromMinutes(row.TimeOfDay)),
+                Cron = row.Cron,
+                Description = row.Description,
+                NextDeadline = row.NextDeadline,
                 Kind = row.Kind,
                 Command = row.Command,
                 WarningMinutes = row.WarningMinutes,
@@ -166,7 +184,35 @@
         _problems = null;
     }
 
-    private void Add() => _rows.Add(new Row { Key = NextKey(), Time = new TimeOnly(3, 0), Kind = ScheduledActionKind.Restart, WarningMinutes = 10, Enabled = true });
+    // The builder comes first; a cancelled dialog adds nothing.
+    private async Task AddAsync()
+    {
+        if (await PickAsync("Add action", DefaultCron) is { } cron)
+        {
+            var row = new Row { Key = NextKey(), Kind = ScheduledActionKind.Restart, WarningMinutes = 10, Enabled = true };
+            Apply(row, cron);
+            _rows.Add(row);
+        }
+    }
+
+    private async Task EditAsync(Row row)
+    {
+        if (await PickAsync("Change the schedule", row.Cron) is { } cron)
+        {
+            Apply(row, cron);
+        }
+    }
+
+    private async Task<string?> PickAsync(string title, string cron) =>
+        await Dialogs.OpenAsync<CronDialog>(title, new Dictionary<string, object?> { ["Cron"] = cron }, new DialogOptions { Width = "560px" }) as string;
+
+    private void Apply(Row row, string cron)
+    {
+        row.Cron = cron;
+        row.Description = ScheduleDescriptions.Describe(cron);
+        var next = ScheduleOccurrences.TryParse(cron, out var expression) ? ScheduleOccurrences.NextDeadlines(expression, Clock.GetUtcNow(), Clock.LocalTimeZone, 1) : [];
+        row.NextDeadline = next.Count > 0 ? next[0] : null;
+    }
 
     private string NextKey() => $"sched-on-{++_next}";
 
@@ -175,7 +221,7 @@
         var edits = _rows
             .Select(r => new ScheduledActionEdit(
                 r.Id,
-                r.Time.Hour * 60 + r.Time.Minute,
+                r.Cron,
                 r.Kind,
                 r.Kind == ScheduledActionKind.RconCommand ? r.Command.Trim() : string.Empty,
                 r.WarningMinutes,
@@ -185,5 +231,5 @@
         _problems = result.Succeeded ? null : result.Errors;
     }
 
-    private static string Clock(int minutesSinceMidnight) => $"{minutesSinceMidnight / 60:00}:{minutesSinceMidnight % 60:00}";
+    private static string When(string cron, DateTimeOffset? next) => next is { } at ? $"{cron} · next {Presentation.Stamp(at)}" : $"{cron} · never runs again";
 }

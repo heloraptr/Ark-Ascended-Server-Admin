@@ -54,7 +54,7 @@ else
         </Notice>
     }
 
-    <RadzenTabs RenderMode="TabRenderMode.Client">
+    <RadzenTabs @bind-SelectedIndex="_tab" Change="OnTabChanged" RenderMode="TabRenderMode.Client">
         <Tabs>
             <RadzenTabsItem Text="Members">
                 @if (_detail.Instances.Count == 0)
@@ -137,18 +137,18 @@ else
                     <RadzenButton Text="Save settings" Icon="save" ButtonStyle="ButtonStyle.Primary" Disabled="Busy" Click="SaveAsync" />
                     <RadzenButton Text="Reset" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="Busy" Click="ResetEdit" />
                 </div>
-                <section class="ark-section" style="margin-top:28px">
-                    <SectionHead Title="Schedule" />
-                    <p class="muted">Every member runs these unless it ignores the cluster's schedule on its Settings tab.</p>
-                    @if (_schedule is null)
-                    {
-                        <p class="muted">Loading…</p>
-                    }
-                    else
-                    {
-                        <ScheduleEditor Rows="_schedule" Runs="_scheduleRuns" ShowInstanceColumn="true" Busy="Busy" OnSave="SaveScheduleAsync" />
-                    }
-                </section>
+            </RadzenTabsItem>
+
+            <RadzenTabsItem Text="Schedule">
+                <p class="muted">Every member runs these unless it ignores the cluster's schedule on its Settings tab.</p>
+                @if (_schedule is null)
+                {
+                    <p class="muted">Loading…</p>
+                }
+                else
+                {
+                    <ScheduleEditor Rows="_schedule" Runs="_scheduleRuns" ShowInstanceColumn="true" Busy="Busy" OnSave="SaveScheduleAsync" />
+                }
             </RadzenTabsItem>
         </Tabs>
     </RadzenTabs>
@@ -170,6 +170,9 @@ else
     private IReadOnlyList<string>? _problems;
     private bool _missing;
     private int _loadedId;
+    private int _tab;
+    private const int ScheduleTab = 5;
+    private const int HistoryRuns = 200;
 
     [Parameter]
     public int Id { get; set; }
@@ -256,9 +259,20 @@ else
     private async Task LoadScheduleAsync()
     {
         var rows = await ClusterCommands.ListScheduledActionsAsync(Id);
-        var runs = await ClusterCommands.ListScheduledActionRunsAsync(Id);
+        var runs = await ClusterCommands.ListScheduledActionRunsAsync(Id, HistoryRuns);
         _schedule = rows.Value ?? [];
         _scheduleRuns = runs.Value ?? [];
+    }
+
+
+    /// <summary>The Schedule tab reloads its rows and history each time it opens.</summary>
+    private async Task OnTabChanged(int index)
+    {
+        if (index == ScheduleTab)
+        {
+            await GuardedAsync(LoadScheduleAsync);
+            StateHasChanged();
+        }
     }
 
     /// <summary>The editor shows a refused save's problems itself; a successful save reloads the rows so the new ids and the runs follow.</summary>
