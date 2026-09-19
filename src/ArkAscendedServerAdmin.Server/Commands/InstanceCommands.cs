@@ -47,14 +47,20 @@ public sealed class InstanceCommands(
         var instances = await db.Instances.AsNoTracking()
             .Include(i => i.Map)
             .Include(i => i.Cluster).ThenInclude(c => c!.Mods)
+            .Include(i => i.Cluster).ThenInclude(c => c!.ScheduledActions)
             .Include(i => i.Mods)
+            .Include(i => i.ScheduledActions)
             .OrderBy(i => i.Name)
             .ToListAsync(cancellationToken);
 
         var summaries = new List<InstanceSummary>(instances.Count);
         foreach (var instance in instances)
         {
-            summaries.Add(CommandSupport.ToSummary(instance, instance.Cluster?.Mods, await CommandSupport.LastBackupAsync(db, instance.Id, cancellationToken)));
+            summaries.Add(CommandSupport.ToSummary(
+                instance,
+                instance.Cluster?.Mods,
+                await CommandSupport.LastBackupAsync(db, instance.Id, cancellationToken),
+                CommandSupport.NextDeadline(instance, instance.Cluster?.ScheduledActions, timeProvider)));
         }
 
         return new DashboardData(clusters, summaries);
@@ -453,6 +459,7 @@ public sealed class InstanceCommands(
         instance.AdminWhitelist = CommandSupport.NormalizeWhitelist(edit.AdminWhitelist);
         instance.BackupIntervalMinutes = edit.BackupIntervalMinutes;
         instance.BackupRetention = edit.BackupRetention;
+        instance.OverridesClusterSchedule = edit.OverridesClusterSchedule;
         await db.SaveChangesAsync(cancellationToken);
         return CommandResult.Ok;
     }
@@ -594,5 +601,76 @@ public sealed class InstanceCommands(
         }
 
         return CommandResult<LaunchPreview>.Ok(new LaunchPreview(commandLine, warnings, problems.Count == 0 ? null : string.Join(" ", problems)));
+    }
+
+    // ---- scheduled actions (B3) ---------------------------------------------------------------------
+
+    public async Task<CommandResult<IReadOnlyList<ScheduledActionView>>> ListScheduledActionsAsync(int instanceId, CancellationToken cancellationToken = default)
+    {
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var instance = await db.Instances.AsNoTracking().SingleOrDefaultAsync(i => i.Id == instanceId, cancellationToken);
+        if (instance is null)
+        {
+            return CommandResult<IReadOnlyList<ScheduledActionView>>.Fail("The instance no longer exists.");
+        }
+
+        // Inherited rows come first, the way the whitelist editor lists the cluster's locked ids ahead of the instance's own.
+        var rows = new List<ScheduledActionView>();
+        if (!instance.OverridesClusterSchedule && instance.ClusterId is { } clusterId)
+        {
+            rows.AddRange(await CommandSupport.ScheduledActionsAsync(db, a => a.ClusterId == clusterId, inherited: true, cancellationToken));
+        }
+
+        rows.AddRange(await CommandSupport.ScheduledActionsAsync(db, a => a.InstanceId == instanceId, inherited: false, cancellationToken));
+        return CommandResult<IReadOnlyList<ScheduledActionView>>.Ok(rows);
+    }
+
+    public async Task<CommandResult> SaveScheduledActionsAsync(int instanceId, IReadOnlyList<ScheduledActionEdit> rows, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var instance = await db.Instances.AsNoTracking().SingleOrDefaultAsync(i => i.Id == instanceId, cancellationToken);
+        if (instance is null)
+        {
+            return CommandResult.Fail("The instance no longer exists.");
+        }
+
+        var own = await db.ScheduledActions.Where(a => a.InstanceId == instanceId).ToListAsync(cancellationToken);
+        HashSet<int> inherited = [];
+        if (instance.ClusterId is { } clusterId)
+        {
+            inherited = await db.ScheduledActions.Where(a => a.ClusterId == clusterId).Select(a => a.Id).ToHashSetAsync(cancellationToken);
+        }
+
+        var problems = new List<string>();
+        problems.AddRange(CommandSupport.ValidateScheduledActions(rows));
+        problems.AddRange(CommandSupport.ValidateScheduledActionOwnership(rows, own, "instance", inherited));
+        if (problems.Count > 0)
+        {
+            return CommandResult.Fail(problems);
+        }
+
+        CommandSupport.ApplyScheduledActions(db, own, rows, a => a.InstanceId = instanceId);
+        await db.SaveChangesAsync(cancellationToken);
+        return CommandResult.Ok;
+    }
+
+    public async Task<CommandResult<IReadOnlyList<ScheduledActionRunView>>> ListScheduledActionRunsAsync(int instanceId, int take = 10, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(take);
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        if (!await db.Instances.AnyAsync(i => i.Id == instanceId, cancellationToken))
+        {
+            return CommandResult<IReadOnlyList<ScheduledActionRunView>>.Fail("The instance no longer exists.");
+        }
+
+        var runs = await CommandSupport.ScheduledActionRunsAsync(db, r => r.InstanceId == instanceId, take, cancellationToken);
+        return CommandResult<IReadOnlyList<ScheduledActionRunView>>.Ok(runs);
     }
 }

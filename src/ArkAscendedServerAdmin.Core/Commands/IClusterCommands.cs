@@ -31,4 +31,13 @@ public interface IClusterCommands
 
     /// <summary>Refused while any instance belongs to the cluster. The cluster directory on disk is left in place.</summary>
     Task<CommandResult> DeleteAsync(int clusterId, CancellationToken cancellationToken = default);
+
+    /// <summary>The cluster's schedule rows (B3); they apply to every member that does not override the cluster schedule.</summary>
+    Task<CommandResult<IReadOnlyList<ScheduledActionView>>> ListScheduledActionsAsync(int clusterId, CancellationToken cancellationToken = default);
+
+    /// <summary>Whole-list save of the cluster's rows (B3): a known id updates in place, id zero inserts, rows left out are deleted.</summary>
+    Task<CommandResult> SaveScheduledActionsAsync(int clusterId, IReadOnlyList<ScheduledActionEdit> rows, CancellationToken cancellationToken = default);
+
+    /// <summary>Scheduled action runs across the cluster's member instances, newest first (B3).</summary>
+    Task<CommandResult<IReadOnlyList<ScheduledActionRunView>>> ListScheduledActionRunsAsync(int clusterId, int take = 10, CancellationToken cancellationToken = default);
 }
