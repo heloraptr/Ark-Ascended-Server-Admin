@@ -1,6 +1,7 @@
 using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Scheduling;
+using ArkAscendedServerAdmin.Infrastructure.Startup;
 using ArkAscendedServerAdmin.Rcon;
 using ArkAscendedServerAdmin.Scheduling;
 using Microsoft.EntityFrameworkCore;
@@ -346,7 +347,7 @@ public class ScheduledActionRunnerTests
             var processes = new FakeProcessManager(gate);
             var locks = new FakeInstanceLocks();
             var rcon = new RecordingRconOperations();
-            var runner = new ScheduledActionRunner(root, processes, locks, gate, rcon, clock, NullLogger<ScheduledActionRunner>.Instance);
+            var runner = new ScheduledActionRunner(root, processes, locks, gate, rcon, new ReadinessMonitor(clock, NullLogger<ReadinessMonitor>.Instance), clock, NullLogger<ScheduledActionRunner>.Instance);
             return new Fixture { Root = root, Runner = runner, Processes = processes, Locks = locks, Gate = gate, Rcon = rcon, Clock = clock };
         }
     }

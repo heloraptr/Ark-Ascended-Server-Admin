@@ -1,10 +1,12 @@
 using System.Collections.Concurrent;
+using System.Data.Common;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Infrastructure.Processes;
 using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Rcon;
 using ArkAscendedServerAdmin.Scheduling;
+using ArkAscendedServerAdmin.Startup;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
@@ -21,7 +23,8 @@ namespace ArkAscendedServerAdmin.Infrastructure.Scheduling;
 /// can is executed detached from the tick, one per instance at a time, and its run is completed when the
 /// operation returns. At service start every run still <see cref="ScheduledActionOutcome.Started"/> becomes
 /// <see cref="ScheduledActionOutcome.Interrupted"/> and runs older than <see cref="RetainRunsFor"/> are pruned;
-/// a tick the service missed is never caught up.
+/// a tick the service missed is never caught up. The runner waits for the readiness pipeline to reach Ready
+/// before touching the database, so the migrations have applied.
 /// </summary>
 public sealed class ScheduledActionRunner(
     IDbContextFactory<AppDbContext> contextFactory,
@@ -29,6 +32,7 @@ public sealed class ScheduledActionRunner(
     IInstanceLocks locks,
     IMaintenanceGate gate,
     IRconOperations rconOperations,
+    IReadinessMonitor readiness,
     TimeProvider timeProvider,
     ILogger<ScheduledActionRunner> logger) : BackgroundService
 {
@@ -61,13 +65,14 @@ public sealed class ScheduledActionRunner(
     {
         try
         {
+            await WaitUntilReadyAsync(stoppingToken);
             await RecoverAsync(stoppingToken);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             return;
         }
-        catch (Exception ex) when (ex is DbUpdateException or InvalidOperationException)
+        catch (Exception ex) when (ex is DbUpdateException or DbException or InvalidOperationException)
         {
             logger.LogError(ex, "Scheduled action recovery failed; interrupted runs stay Started and old runs are kept until the next start.");
         }
@@ -83,10 +88,46 @@ public sealed class ScheduledActionRunner(
             {
                 return;
             }
-            catch (Exception ex) when (ex is DbUpdateException or InvalidOperationException or IOException)
+            catch (Exception ex) when (ex is DbUpdateException or DbException or InvalidOperationException or IOException)
             {
                 logger.LogError(ex, "Scheduled action tick failed; it will try again next minute.");
             }
+        }
+    }
+
+    /// <summary>
+    /// Blocks until the readiness pipeline reports Ready. The orchestrator migrates the database on its own
+    /// schedule after the host starts, so a recovery pass that ran at once could find the tables missing.
+    /// </summary>
+    private async Task WaitUntilReadyAsync(CancellationToken cancellationToken)
+    {
+        if (readiness.Current.IsReady)
+        {
+            return;
+        }
+
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnChanged(ReadinessState state)
+        {
+            if (state.IsReady)
+            {
+                ready.TrySetResult();
+            }
+        }
+
+        readiness.Changed += OnChanged;
+        try
+        {
+            if (readiness.Current.IsReady)
+            {
+                return;
+            }
+
+            await ready.Task.WaitAsync(cancellationToken);
+        }
+        finally
+        {
+            readiness.Changed -= OnChanged;
         }
     }
 
