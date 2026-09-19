@@ -1,4 +1,5 @@
 using System.Globalization;
+using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Startup;
@@ -90,6 +91,30 @@ public static class Presentation
         BackupOutcome.Success => "tone-ok",
         BackupOutcome.Skipped => "tone-warn",
         _ => "tone-bad",
+    };
+
+    public static string Label(RestoreOutcome outcome) => outcome switch
+    {
+        RestoreOutcome.Success => "Restored",
+        RestoreOutcome.RolledBack => "Rolled back",
+        RestoreOutcome.Failed => "Failed",
+        _ => outcome.ToString(),
+    };
+
+    public static string Tone(RestoreOutcome outcome) => outcome switch
+    {
+        RestoreOutcome.Success => "tone-ok",
+        RestoreOutcome.RolledBack => "tone-warn",
+        _ => "tone-bad",
+    };
+
+    /// <summary>The journal phase as a clause: "stopped while replacing the files".</summary>
+    public static string Label(RestorePhase phase) => phase switch
+    {
+        RestorePhase.Replacing => "replacing the files",
+        RestorePhase.RollingBack => "putting the previous files back",
+        RestorePhase.RollbackFailed => "putting the previous files back, which failed",
+        _ => phase.ToString(),
     };
 
     /// <summary>"just now", "4 min ago", "2 h ago", "3 d ago", or the date.</summary>

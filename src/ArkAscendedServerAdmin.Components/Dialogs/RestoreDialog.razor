@@ -1,0 +1,103 @@
+@* B2: the archive is inspected when the dialog opens; the two choices are collected here, before anything is locked. *@
+@inject DialogService Dialogs
+@inject IInstanceCommands Instances
+
+<div style="display:flex;flex-direction:column;gap:14px">
+    @if (_inspection is null)
+    {
+        <p class="muted">Checking the archive…</p>
+    }
+    else if (!_inspection.CanRestore)
+    {
+        <Notice Tone="is-bad" Title="This backup cannot be restored.">
+            <p>@Sentence(_inspection.Problem!)</p>
+        </Notice>
+    }
+    else
+    {
+        @if (IsLive)
+        {
+            <Notice Tone="is-warn">
+                <p>The server is running. It is stopped first, with the usual countdown, and the restore begins once the process has exited.</p>
+            </Notice>
+        }
+        <p>The world file, player profiles, and tribes under <span class="mono">Saved\@Slug\@MapKey</span> are replaced with the copies in <span class="mono">@FileName</span>; files of those kinds that are not in the archive are deleted. The current files are copied to <span class="mono">Backups\@Slug\_restore-safety</span> first and put back if anything fails.</p>
+        <div class="field">
+            <div class="check-row">
+                <RadzenCheckBox TValue="bool" @bind-Value="_includeCluster" Name="rs-cluster" Disabled="@(!_inspection.ClusterAvailable)" />
+                <label for="rs-cluster">Also restore the cluster data</label>
+            </div>
+            <span class="hint">
+                @if (!_inspection.ClusterAvailable)
+                {
+                    <text>Not available: @Sentence(_inspection.ClusterUnavailableReason!)</text>
+                }
+                else if (_includeCluster)
+                {
+                    <text>Everything under Clusters\@ClusterSlug is replaced with the archive's copy. @SiblingsSentence</text>
+                }
+                else
+                {
+                    <text>The cluster directory (transfers and uploads) is left as it is.</text>
+                }
+            </span>
+        </div>
+        <div class="field">
+            <div class="check-row">
+                <RadzenCheckBox TValue="bool" @bind-Value="_startAfter" Name="rs-start" />
+                <label for="rs-start">Start after restore</label>
+            </div>
+        </div>
+    }
+    <div class="form-actions" style="justify-content:flex-end;margin-top:4px">
+        <RadzenButton Text="Cancel" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => Dialogs.Close(null))" />
+        <RadzenButton Text="@(IsLive ? "Stop and restore" : "Restore")" Icon="restore" ButtonStyle="ButtonStyle.Danger" Disabled="@(_inspection is not { CanRestore: true })" Click="@(() => Dialogs.Close(new RestoreChoice(_includeCluster, _startAfter)))" />
+    </div>
+</div>
+
+@code {
+    private RestoreInspection? _inspection;
+    private bool _includeCluster;
+    private bool _startAfter;
+
+    [Parameter]
+    public int InstanceId { get; set; }
+
+    [Parameter]
+    public string Slug { get; set; } = string.Empty;
+
+    [Parameter]
+    public string MapKey { get; set; } = string.Empty;
+
+    [Parameter]
+    public string FileName { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? ClusterSlug { get; set; }
+
+    [Parameter]
+    public bool IsLive { get; set; }
+
+    private string SiblingsSentence => _inspection!.SiblingNames.Count == 0
+        ? "No other instance is in the cluster."
+        : $"The directory is shared with {string.Join(", ", _inspection.SiblingNames)}: every member must be stopped, and all of them stay locked until the restore finishes.";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _inspection = await Instances.InspectRestoreAsync(InstanceId, FileName);
+        }
+        catch (NotAuthorizedException)
+        {
+            Dialogs.Close(null);
+        }
+    }
+
+    /// <summary>The service reports reasons as clauses; the dialog shows them as sentences.</summary>
+    private static string Sentence(string reason) =>
+        reason.Length == 0 ? reason : char.ToUpperInvariant(reason[0]) + reason[1..] + (reason.EndsWith('.') ? string.Empty : ".");
+
+    /// <summary>What the page runs once the owner confirms.</summary>
+    public sealed record RestoreChoice(bool IncludeCluster, bool StartAfter);
+}

@@ -1,3 +1,4 @@
+using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Domain;
 
 namespace ArkAscendedServerAdmin.Commands;
@@ -15,6 +16,9 @@ public interface IClusterCommands
     Task<IReadOnlyList<ClusterListItem>> ListAsync(CancellationToken cancellationToken = default);
 
     Task<ClusterDetail?> GetAsync(int clusterId, CancellationToken cancellationToken = default);
+
+    /// <summary>The unresolved restore journal that replaces the cluster directory, if any (B2).</summary>
+    Task<RestoreJournal?> GetRestoreJournalAsync(int clusterId, CancellationToken cancellationToken = default);
 
     /// <summary>Creates the row and the cluster directory and seeds the INI source from <paramref name="source"/>; returns the new id.</summary>
     Task<CommandResult<int>> CreateAsync(string name, ConfigSourceKind source, int? sourceId, CancellationToken cancellationToken = default);

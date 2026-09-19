@@ -5,8 +5,8 @@ save over RCON, waits for the world file to settle, copies the world, profile, t
 files to a snapshot folder, zips them with a manifest, verifies every entry of the zip against the
 manifest, and only then gives the archive its final name. Backups run on a per-instance interval
 while the instance is running, or on demand. Every attempt is recorded, including the ones that
-were skipped or failed, so a missed schedule is never silent. There is no restore button; restoring
-is a manual unzip described below.
+were skipped or failed, so a missed schedule is never silent. A successful archive can be restored from the same tab while the
+instance is stopped; the files it replaces are kept aside and put back if the restore fails.
 
 ## What ends up in the zip
 
@@ -56,7 +56,9 @@ instance is left alone. Two backups of the same instance never overlap.
 
 The tab on the instance page lists every attempt, newest first, 20 per page, with the columns
 **When**, **Outcome**, **Archive** (the file name, or the reason for a skip or failure), **Size**,
-and **Trigger** (`manual` or `scheduled`). It updates on its own when a scheduled backup finishes.
+and **Trigger** (`manual` or `scheduled`). It updates on its own when a scheduled backup finishes. Each **Backed up** row has a restore
+icon ([Restoring a backup](#restoring-a-backup)); below the list, **Restores** shows every restore
+and recovery with its outcome and reason.
 Before the first attempt it reads "No backups yet. They run every *N* minutes while the instance is
 running, or on demand with Back up now."
 
@@ -95,8 +97,8 @@ instance and vice versa.
    means the snapshot cannot be trusted: the copy is discarded and the inventory is retried once
    ("Files changed during the snapshot (...); retrying the inventory once."). A second difference
    is a skip.
-8. **Manifest.** `manifest.json` (instance slug, map key, creation time, every file with length and
-   hash) is written into the snapshot folder.
+8. **Manifest.** `manifest.json` (instance slug, map key, cluster slug and whether the cluster folder
+   was captured, creation time, every file with length and hash) is written into the snapshot folder.
 9. **Zip.** The snapshot folder is zipped to `Backups\<slug>\.tmp-<guid>.zip` and the snapshot
    folder is deleted.
 10. **Verify.** The zip is reopened and every manifest entry is read back and hashed; lengths and
@@ -120,18 +122,67 @@ Rather than pretend otherwise, the backup inventories the files before and after
 a **Skipped** attempt when they moved; the next interval tries again. Verifying the zip against a
 manifest closes the other gap, a zip that is written but not readable.
 
-## Restoring a world by hand
+## Restoring a backup
 
-There is no restore UI. To restore an archive:
+The restore icon on a **Backed up** row opens `Restore <file>`. The dialog reads the archive first
+and stops there if it cannot be restored: the manifest must name this instance and its current
+map, every entry must be listed in the manifest with a matching hash, and the archive must hold
+exactly one `World\<MapKey>.ark`. Then two choices:
 
-1. Stop the instance (the **Stop** button; wait for **Stopped**).
-2. Unzip the archive somewhere. Copy the files under `World\` into
-   `DataRoot\Instances\<slug>\ShooterGame\Saved\<slug>\<MapKey>\`, replacing what is there. For a
-   cluster member, copy the contents of `Cluster\` into `DataRoot\Clusters\<cluster slug>\`.
-3. Start the instance.
+- **Also restore the cluster data**, off by default. Available only for a cluster member whose
+  backup was taken in the same cluster with the cluster directory present; otherwise the box is
+  disabled with the reason. When ticked, everything under `DataRoot\Clusters\<slug>` is replaced
+  with the archive's copy, every member of the cluster must be stopped, and all of them stay
+  locked until the restore finishes.
+- **Start after restore**, off by default.
 
-The archive holds only the files listed above; anything else under `Saved` (logs, generated
-config, the game's own rolling copies) is left as it is.
+The button reads **Restore**, or **Stop and restore** while the server is running: the normal stop
+runs first, countdown included, and the restore begins once the process has exited.
+
+What a restore does, in order:
+
+1. Takes the instance lock (with cluster data: reserves the cluster, then takes every member's
+   lock) and checks that every affected instance is **Stopped**. A running sibling or an operation
+   in progress refuses the restore before anything is touched.
+2. Copies the current world folder (and the cluster folder) whole to
+   `DataRoot\Backups\<slug>\_restore-safety\<timestamp>-<n>\`. The last three safety copies per
+   instance are kept.
+3. Writes a journal under `DataRoot\Data\restore-journals\`, so an interruption is never silent.
+4. Deletes the world file, every `.arkprofile` and `.arktribe`, and the game's own rolling copies
+   (`*.arkrbf`, `*_AntiCorruptionBackup.bak`) from the world folder, and everything from the cluster
+   folder when included, then extracts the archive. Other files in the world folder are not touched.
+5. Removes the journal and records the outcome under **Restores** on the Backups tab. The console
+   shows `Restored <file>; the previous files are at <safety copy>.`
+
+If anything fails during step 4, the folders are cleared and the safety copy is copied back, so the
+exact previous file set returns; the record says **Rolled back** with the reason.
+
+### An interrupted restore
+
+If the service stops during step 4, or the rollback itself fails, the journal stays. The instance
+page (and the cluster page, for a restore that included cluster data) shows **Incomplete restore**
+with the journal id. Starting, restoring, or deleting any affected instance, adding a member, and
+deleting the cluster are refused with `An incomplete restore (<id>) references ...` until you choose:
+
+- **Recover from safety copy**: takes the same locks, checks that the instances are stopped, and
+  puts the files from before the restore back. The record says **Rolled back** with the safety-copy
+  path.
+- **Discard journal**: removes the journal and leaves the files exactly as they are, for the case
+  where you have sorted the folders out by hand. The safety copy stays until it is pruned.
+
+Nothing is recovered automatically; the service log lists any journal it finds at startup.
+
+### When a restore is refused or fails
+
+| Where | Message | Meaning and what to do |
+|---|---|---|
+| Dialog | `This backup cannot be restored.` with a reason | The archive fails a check: it belongs to another instance or map, an entry is missing, unlisted, or has a bad hash, or a name inside it is not a plain file name. Use another backup. |
+| Dialog | **Also restore the cluster data** is disabled | The instance is standalone, the backup was taken before cluster data was recorded, or it was taken in a different cluster. A world-only restore still works. |
+| Toast | `Could not restore <name>: Stop <name> (Running) first; ...` | An affected instance is not stopped. Stop it, or wait for the stop to finish. |
+| Toast | `... An operation is in progress for <name>; ...` | A start, stop, backup, or delete holds the lock. Try again when it finishes. |
+| Toast | `... is a junction or symbolic link; ...` | The world or cluster folder has been replaced by a link. A restore only writes to real folders. |
+| Toast | `Restore failed and the previous files were put back: <reason>` | Step 4 failed (a locked file, a full disk) and the rollback succeeded. The record says **Rolled back**. |
+| Banner | **Incomplete restore** | See [An interrupted restore](#an-interrupted-restore). |
 
 ## The installer's `Backups\_app` copies
 
@@ -166,5 +217,6 @@ which is why the installer restricts them to `SYSTEM` and administrators.
 
 Deleting an instance asks whether to delete its backup archives, with the box ticked. Leave it
 ticked and `Backups\<slug>\` goes with the instance; clear it and the zips stay on disk. The records
-go with the instance row either way, so a kept zip is restored by hand. See
+go with the instance row either way, so a kept zip can only be restored by hand: unzip it and copy
+the files under `World` into `ShooterGameSaved<slug><MapKey>`. See
 [instances.md](instances.md).

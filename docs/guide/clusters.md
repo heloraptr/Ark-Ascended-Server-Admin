@@ -21,6 +21,10 @@ start. An instance that is not in a cluster is standalone and carries the same t
 
 Not shared: the map, session name, ports, player cap, backup interval and retention, and the world.
 
+A member's backup includes the cluster directory, and restoring that backup can put the directory
+back too. Every member shares it, so such a restore needs every member stopped, and if it is
+interrupted the cluster page shows it ([backups.md](backups.md#restoring-a-backup)).
+
 Everything the members have to agree on lives in one place, and the per-member files are generated
 from it, instead of you keeping several INI files in step by hand. The cluster owns the raw text; the
 manager takes it, applies the member's typed fields and overrides, and writes the generated files

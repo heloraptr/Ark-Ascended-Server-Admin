@@ -110,6 +110,46 @@ public sealed class InstanceCommands(
 
     // ---- lifecycle -----------------------------------------------------------------------------------
 
+    public async Task<IReadOnlyList<RestoreRecord>> GetRestoresAsync(int instanceId, CancellationToken cancellationToken = default)
+    {
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await db.RestoreRecords.AsNoTracking()
+            .Where(r => r.InstanceId == instanceId)
+            .OrderByDescending(r => r.Id)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<RestoreJournal?> GetRestoreJournalAsync(int instanceId, CancellationToken cancellationToken = default)
+    {
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        return restoreJournals.FindForInstance(instanceId);
+    }
+
+    public async Task<RestoreInspection> InspectRestoreAsync(int instanceId, string fileName, CancellationToken cancellationToken = default)
+    {
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        return await backups.InspectRestoreAsync(instanceId, fileName, cancellationToken);
+    }
+
+    public async Task<OperationOutcome> RestoreAsync(int instanceId, string fileName, bool includeCluster, CancellationToken cancellationToken = default)
+    {
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        return await backups.RestoreAsync(instanceId, fileName, includeCluster, cancellationToken);
+    }
+
+    public async Task<OperationOutcome> RecoverRestoreAsync(string operationId, CancellationToken cancellationToken = default)
+    {
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        return await backups.RecoverAsync(operationId, cancellationToken);
+    }
+
+    public async Task<OperationOutcome> DiscardRestoreJournalAsync(string operationId, CancellationToken cancellationToken = default)
+    {
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        return await backups.DiscardJournalAsync(operationId, cancellationToken);
+    }
+
     public async Task<OperationOutcome> StartAsync(int instanceId, CancellationToken cancellationToken = default)
     {
         await guard.EnsureAuthorizedAsync(cancellationToken);

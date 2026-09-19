@@ -57,6 +57,12 @@ public sealed class ClusterCommands(
         return new ClusterDetail(cluster, cluster.Mods.OrderBy(m => m.Order).Select(m => new ModListItem(m.Mod!, m.Enabled)).ToList(), instances);
     }
 
+    public async Task<RestoreJournal?> GetRestoreJournalAsync(int clusterId, CancellationToken cancellationToken = default)
+    {
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        return restoreJournals.FindForCluster(clusterId);
+    }
+
     public async Task<CommandResult<int>> CreateAsync(string name, ConfigSourceKind source, int? sourceId, CancellationToken cancellationToken = default)
     {
         await guard.EnsureAuthorizedAsync(cancellationToken);

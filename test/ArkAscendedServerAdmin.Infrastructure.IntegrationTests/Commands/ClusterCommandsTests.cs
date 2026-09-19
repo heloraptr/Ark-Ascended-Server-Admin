@@ -36,8 +36,10 @@ public class ClusterCommandsTests
 
             Assert.Contains("incomplete restore (alpha-op)", create.Error, StringComparison.Ordinal);
             Assert.Contains("incomplete restore (alpha-op)", delete.Error, StringComparison.Ordinal);
+            Assert.Equal("alpha-op", (await host.Clusters.GetRestoreJournalAsync(cluster.Value, ct))?.OperationId);
 
             host.Journals.Delete("alpha-op");
+            Assert.Null(await host.Clusters.GetRestoreJournalAsync(cluster.Value, ct));
             Assert.True((await host.Clusters.DeleteAsync(cluster.Value, ct)).Succeeded);
         }
     }

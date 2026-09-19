@@ -157,7 +157,7 @@ preview finds a problem while the instance is stopped.
 | **Mods** | The ordered mod list: the map's mod and cluster mods locked, the instance's own below. [mods.md](mods.md). |
 | **Launch** | The flags editor and `What a start would run`, the exact command line. [launch-options.md](launch-options.md). |
 | **Settings** | **Instance name**, **Session name**, **Max players**, **Game port**, **RCON port**, **Backup interval, minutes**, **Backups to keep**, **Admin whitelist**; **Save settings**, **Reset**. While the process is live: `Port and player changes apply at the next start.` The slug and the map cannot change. |
-| **Backups** | The backup list with outcome, archive name, size, and trigger. [backups.md](backups.md). |
+| **Backups** | The backup list with outcome, archive name, size, and trigger, a restore icon on each successful row, and the list of restores. [backups.md](backups.md). |
 
 ## Deleting an instance
 
