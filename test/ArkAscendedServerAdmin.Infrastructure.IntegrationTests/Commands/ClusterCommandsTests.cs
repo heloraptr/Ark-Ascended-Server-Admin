@@ -83,6 +83,9 @@ public class ClusterCommandsTests
             await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Clusters.SaveLaunchFlagsAsync(1, new LaunchFlags(), ct));
             await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Clusters.SetModsAsync(1, [], ct));
             await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Clusters.DeleteAsync(1, ct));
+            await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Clusters.ListScheduledActionsAsync(1, ct));
+            await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Clusters.SaveScheduledActionsAsync(1, [], ct));
+            await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Clusters.ListScheduledActionRunsAsync(1, 10, ct));
 
             await using var db = host.Db();
             Assert.Empty(await db.Clusters.ToListAsync(ct));

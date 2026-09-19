@@ -8,7 +8,11 @@ namespace ArkAscendedServerAdmin.Commands;
 
 public sealed record ClusterSummary(int Id, string Name, string Slug, string ClusterKey);
 
-/// <summary>One dashboard row; the live state comes from <see cref="IProcessManager"/>, not from here.</summary>
+/// <summary>
+/// One dashboard row; the live state comes from <see cref="IProcessManager"/>, not from here.
+/// <paramref name="NextDeadline"/> is the next scheduled action across the rows that apply to the instance
+/// (B3), null when nothing is scheduled.
+/// </summary>
 public sealed record InstanceSummary(
     int Id,
     string Name,
@@ -21,7 +25,8 @@ public sealed record InstanceSummary(
     int RconPort,
     int MaxPlayers,
     int ModCount,
-    BackupRecord? LastBackup);
+    BackupRecord? LastBackup,
+    DateTimeOffset? NextDeadline);
 
 public sealed record DashboardData(IReadOnlyList<ClusterSummary> Clusters, IReadOnlyList<InstanceSummary> Instances);
 
@@ -82,7 +87,10 @@ public sealed record InstanceDraft
     public int? BackupRetention { get; init; }
 }
 
-/// <summary>The editable fields on the instance settings tab (the slug and map are fixed after creation).</summary>
+/// <summary>
+/// The editable fields on the instance settings tab (the slug and map are fixed after creation).
+/// <paramref name="OverridesClusterSchedule"/> makes the instance ignore its cluster's scheduled actions (B3).
+/// </summary>
 public sealed record InstanceEdit(
     string Name,
     string SessionName,
@@ -91,7 +99,8 @@ public sealed record InstanceEdit(
     int RconPort,
     string AdminWhitelist,
     int? BackupIntervalMinutes,
-    int? BackupRetention);
+    int? BackupRetention,
+    bool OverridesClusterSchedule);
 
 public sealed record PortSuggestion(int GamePort, int RconPort);
 
@@ -173,4 +182,13 @@ public interface IInstanceCommands
 
     /// <summary>Builds the command line and generates the INI in memory (nothing is written) so the owner can see what a start would do.</summary>
     Task<CommandResult<LaunchPreview>> PreviewLaunchAsync(int instanceId, CancellationToken cancellationToken = default);
+
+    /// <summary>The instance's own schedule rows plus, unless it overrides the cluster schedule, its cluster's rows flagged <see cref="ScheduledActionView.Inherited"/> (B3).</summary>
+    Task<CommandResult<IReadOnlyList<ScheduledActionView>>> ListScheduledActionsAsync(int instanceId, CancellationToken cancellationToken = default);
+
+    /// <summary>Whole-list save of the instance's own rows (B3): a known id updates in place, id zero inserts, rows left out are deleted; inherited rows are refused.</summary>
+    Task<CommandResult> SaveScheduledActionsAsync(int instanceId, IReadOnlyList<ScheduledActionEdit> rows, CancellationToken cancellationToken = default);
+
+    /// <summary>The instance's scheduled action runs, newest first (B3).</summary>
+    Task<CommandResult<IReadOnlyList<ScheduledActionRunView>>> ListScheduledActionRunsAsync(int instanceId, int take = 10, CancellationToken cancellationToken = default);
 }

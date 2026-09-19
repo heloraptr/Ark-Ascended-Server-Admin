@@ -42,6 +42,8 @@ public sealed class ClusterCommands(
             .Include(c => c.Mods).ThenInclude(m => m.Mod)
             .Include(c => c.Instances).ThenInclude(i => i.Map)
             .Include(c => c.Instances).ThenInclude(i => i.Mods)
+            .Include(c => c.Instances).ThenInclude(i => i.ScheduledActions)
+            .Include(c => c.ScheduledActions)
             .SingleOrDefaultAsync(c => c.Id == clusterId, cancellationToken);
         if (cluster is null)
         {
@@ -51,7 +53,11 @@ public sealed class ClusterCommands(
         var instances = new List<InstanceSummary>();
         foreach (var instance in cluster.Instances.OrderBy(i => i.Name))
         {
-            instances.Add(CommandSupport.ToSummary(instance, cluster.Mods, await CommandSupport.LastBackupAsync(db, instance.Id, cancellationToken)));
+            instances.Add(CommandSupport.ToSummary(
+                instance,
+                cluster.Mods,
+                await CommandSupport.LastBackupAsync(db, instance.Id, cancellationToken),
+                CommandSupport.NextDeadline(instance, cluster.ScheduledActions, timeProvider)));
         }
 
         return new ClusterDetail(cluster, cluster.Mods.OrderBy(m => m.Order).Select(m => new ModListItem(m.Mod!, m.Enabled)).ToList(), instances);
@@ -257,5 +263,61 @@ public sealed class ClusterCommands(
         await db.SaveChangesAsync(cancellationToken);
         logger.LogInformation("Deleted cluster {Name}; its directory {Directory} was left in place.", cluster.Name, layout.ClusterDirectory(cluster.Slug));
         return CommandResult.Ok;
+    }
+
+    // ---- scheduled actions (B3) ---------------------------------------------------------------------
+
+    public async Task<CommandResult<IReadOnlyList<ScheduledActionView>>> ListScheduledActionsAsync(int clusterId, CancellationToken cancellationToken = default)
+    {
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        if (!await db.Clusters.AnyAsync(c => c.Id == clusterId, cancellationToken))
+        {
+            return CommandResult<IReadOnlyList<ScheduledActionView>>.Fail("The cluster no longer exists.");
+        }
+
+        var rows = await CommandSupport.ScheduledActionsAsync(db, a => a.ClusterId == clusterId, inherited: false, cancellationToken);
+        return CommandResult<IReadOnlyList<ScheduledActionView>>.Ok(rows);
+    }
+
+    public async Task<CommandResult> SaveScheduledActionsAsync(int clusterId, IReadOnlyList<ScheduledActionEdit> rows, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        if (!await db.Clusters.AnyAsync(c => c.Id == clusterId, cancellationToken))
+        {
+            return CommandResult.Fail("The cluster no longer exists.");
+        }
+
+        var own = await db.ScheduledActions.Where(a => a.ClusterId == clusterId).ToListAsync(cancellationToken);
+        var problems = new List<string>();
+        problems.AddRange(CommandSupport.ValidateScheduledActions(rows));
+        problems.AddRange(CommandSupport.ValidateScheduledActionOwnership(rows, own, "cluster"));
+        if (problems.Count > 0)
+        {
+            return CommandResult.Fail(problems);
+        }
+
+        CommandSupport.ApplyScheduledActions(db, own, rows, a => a.ClusterId = clusterId);
+        await db.SaveChangesAsync(cancellationToken);
+        return CommandResult.Ok;
+    }
+
+    public async Task<CommandResult<IReadOnlyList<ScheduledActionRunView>>> ListScheduledActionRunsAsync(int clusterId, int take = 10, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(take);
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        if (!await db.Clusters.AnyAsync(c => c.Id == clusterId, cancellationToken))
+        {
+            return CommandResult<IReadOnlyList<ScheduledActionRunView>>.Fail("The cluster no longer exists.");
+        }
+
+        var runs = await CommandSupport.ScheduledActionRunsAsync(db, r => r.Instance!.ClusterId == clusterId, take, cancellationToken);
+        return CommandResult<IReadOnlyList<ScheduledActionRunView>>.Ok(runs);
     }
 }
