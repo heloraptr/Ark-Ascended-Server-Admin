@@ -41,9 +41,9 @@
             <div class="field">
                 <label for="cron-every">Every</label>
                 <span class="cron-inline">
-                    <RadzenNumeric TValue="int" id="cron-every" @bind-Value="_everyHours" Min="1" Max="12" />
+                    <RadzenNumeric TValue="int" id="cron-every" @bind-Value="_everyHours" Min="1" Max="12" ShowUpDown="false" />
                     <span class="faint">hours, at minute</span>
-                    <RadzenNumeric TValue="int" @bind-Value="_atMinute" Min="0" Max="59" aria-label="Minute" />
+                    <RadzenNumeric TValue="int" @bind-Value="_atMinute" Min="0" Max="59" ShowUpDown="false" aria-label="Minute" />
                 </span>
                 <span class="hint">Counted from midnight: every 6 hours at minute 0 is 00:00, 06:00, 12:00, and 18:00.</span>
             </div>
