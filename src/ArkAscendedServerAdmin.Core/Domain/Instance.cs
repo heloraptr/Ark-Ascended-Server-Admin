@@ -43,6 +43,12 @@ public sealed class Instance
     /// <summary><see langword="null"/> uses the App Setting default.</summary>
     public int? BackupRetention { get; set; }
 
+    /// <summary>
+    /// True ignores the cluster's <see cref="ScheduledAction"/> rows entirely, so only the instance's own
+    /// rows apply (B3). Mirrors the Default/Inherit idea of launch flags at the list level rather than per row.
+    /// </summary>
+    public bool OverridesClusterSchedule { get; set; }
+
     public int? LastPid { get; set; }
 
     /// <summary>When the manager issued the launch (wall clock).</summary>
@@ -64,4 +70,6 @@ public sealed class Instance
     public List<BackupRecord> Backups { get; } = [];
 
     public List<RestoreRecord> Restores { get; } = [];
+
+    public List<ScheduledAction> ScheduledActions { get; } = [];
 }

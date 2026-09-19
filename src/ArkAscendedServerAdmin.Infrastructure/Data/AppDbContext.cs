@@ -40,6 +40,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<MaintenanceState> MaintenanceStates => Set<MaintenanceState>();
 
+    public DbSet<ScheduledAction> ScheduledActions => Set<ScheduledAction>();
+
+    public DbSet<ScheduledActionRun> ScheduledActionRuns => Set<ScheduledActionRun>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<AppSettingRow>(b =>
@@ -172,6 +176,27 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                     v => v.Aggregate(0, (hash, entry) => HashCode.Combine(hash, entry)),
                     v => v.ToList()));
             b.Ignore(x => x.IsResolved);
+        });
+
+        modelBuilder.Entity<ScheduledAction>(b =>
+        {
+            b.Property(x => x.Kind).HasConversion<string>().HasMaxLength(16);
+            b.Property(x => x.Command).HasMaxLength(512).IsRequired();
+            b.HasOne(x => x.Cluster).WithMany(c => c.ScheduledActions).HasForeignKey(x => x.ClusterId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.Instance).WithMany(i => i.ScheduledActions).HasForeignKey(x => x.InstanceId).OnDelete(DeleteBehavior.Cascade);
+            b.ToTable(t => t.HasCheckConstraint(
+                "CK_ScheduledActions_SingleOwner",
+                "(ClusterId IS NULL) <> (InstanceId IS NULL)"));
+        });
+
+        modelBuilder.Entity<ScheduledActionRun>(b =>
+        {
+            b.Property(x => x.Outcome).HasConversion<string>().HasMaxLength(16);
+            b.Property(x => x.Reason).HasMaxLength(512).IsRequired();
+            b.HasOne(x => x.ScheduledAction).WithMany(a => a.Runs).HasForeignKey(x => x.ScheduledActionId);
+            b.HasOne(x => x.Instance).WithMany().HasForeignKey(x => x.InstanceId);
+            b.HasIndex(x => new { x.ScheduledActionId, x.InstanceId, x.LocalDate }).IsUnique();
+            b.HasIndex(x => new { x.InstanceId, x.StartedAt });
         });
     }
 

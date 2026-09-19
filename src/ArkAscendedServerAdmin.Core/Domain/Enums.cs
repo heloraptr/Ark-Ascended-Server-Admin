@@ -47,3 +47,30 @@ public enum RestoreOutcome
     Failed,
     RolledBack,
 }
+
+/// <summary>What a <see cref="ScheduledAction"/> does when its deadline arrives (B3).</summary>
+public enum ScheduledActionKind
+{
+    /// <summary>A countdown to the deadline, then a stop and relaunch.</summary>
+    Restart,
+    /// <summary>One RCON command sent at the deadline; it has no warning countdown.</summary>
+    RconCommand,
+    /// <summary>A countdown to the deadline, then <c>DestroyWildDinos</c>.</summary>
+    DinoWipe,
+}
+
+/// <summary>
+/// Outcome of one <see cref="ScheduledActionRun"/>. <see cref="Started"/> is the claim written when the
+/// action fires; the runner turns it into one of the others when the operation returns, and marks any row
+/// still <see cref="Started"/> at service start as <see cref="Interrupted"/>.
+/// </summary>
+public enum ScheduledActionOutcome
+{
+    Started,
+    Succeeded,
+    Failed,
+    /// <summary>The action did not run that day; <see cref="ScheduledActionRun.Reason"/> says why.</summary>
+    Skipped,
+    /// <summary>The service stopped while the action was in flight.</summary>
+    Interrupted,
+}
