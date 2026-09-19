@@ -277,7 +277,7 @@ public sealed class ClusterCommands(
             return CommandResult<IReadOnlyList<ScheduledActionView>>.Fail("The cluster no longer exists.");
         }
 
-        var rows = await CommandSupport.ScheduledActionsAsync(db, a => a.ClusterId == clusterId, inherited: false, cancellationToken);
+        var rows = await CommandSupport.ScheduledActionsAsync(db, a => a.ClusterId == clusterId, inherited: false, timeProvider, cancellationToken);
         return CommandResult<IReadOnlyList<ScheduledActionView>>.Ok(rows);
     }
 
@@ -294,7 +294,7 @@ public sealed class ClusterCommands(
 
         var own = await db.ScheduledActions.Where(a => a.ClusterId == clusterId).ToListAsync(cancellationToken);
         var problems = new List<string>();
-        problems.AddRange(CommandSupport.ValidateScheduledActions(rows));
+        problems.AddRange(CommandSupport.ValidateScheduledActions(rows, timeProvider.GetUtcNow(), timeProvider.LocalTimeZone));
         problems.AddRange(CommandSupport.ValidateScheduledActionOwnership(rows, own, "cluster"));
         if (problems.Count > 0)
         {

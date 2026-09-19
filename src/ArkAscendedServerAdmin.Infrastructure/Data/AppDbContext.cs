@@ -181,6 +181,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<ScheduledAction>(b =>
         {
             b.Property(x => x.Kind).HasConversion<string>().HasMaxLength(16);
+            b.Property(x => x.Cron).HasMaxLength(128).IsRequired();
             b.Property(x => x.Command).HasMaxLength(512).IsRequired();
             b.HasOne(x => x.Cluster).WithMany(c => c.ScheduledActions).HasForeignKey(x => x.ClusterId).OnDelete(DeleteBehavior.Cascade);
             b.HasOne(x => x.Instance).WithMany(i => i.ScheduledActions).HasForeignKey(x => x.InstanceId).OnDelete(DeleteBehavior.Cascade);
@@ -195,7 +196,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             b.Property(x => x.Reason).HasMaxLength(512).IsRequired();
             b.HasOne(x => x.ScheduledAction).WithMany(a => a.Runs).HasForeignKey(x => x.ScheduledActionId);
             b.HasOne(x => x.Instance).WithMany().HasForeignKey(x => x.InstanceId);
-            b.HasIndex(x => new { x.ScheduledActionId, x.InstanceId, x.LocalDate }).IsUnique();
+            b.HasIndex(x => new { x.ScheduledActionId, x.InstanceId, x.ScheduledFor }).IsUnique();
             b.HasIndex(x => new { x.InstanceId, x.StartedAt });
         });
     }

@@ -487,6 +487,11 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                         .HasMaxLength(512)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Cron")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("Enabled")
                         .HasColumnType("INTEGER");
 
@@ -497,9 +502,6 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(16)
                         .HasColumnType("TEXT");
-
-                    b.Property<int>("TimeOfDay")
-                        .HasColumnType("INTEGER");
 
                     b.Property<int>("WarningMinutes")
                         .HasColumnType("INTEGER");
@@ -528,9 +530,6 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                     b.Property<int>("InstanceId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateOnly>("LocalDate")
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("Outcome")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -544,6 +543,9 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                     b.Property<int>("ScheduledActionId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTimeOffset>("ScheduledFor")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTimeOffset>("StartedAt")
                         .HasColumnType("TEXT");
 
@@ -551,7 +553,7 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
 
                     b.HasIndex("InstanceId", "StartedAt");
 
-                    b.HasIndex("ScheduledActionId", "InstanceId", "LocalDate")
+                    b.HasIndex("ScheduledActionId", "InstanceId", "ScheduledFor")
                         .IsUnique();
 
                     b.ToTable("ScheduledActionRuns");

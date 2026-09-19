@@ -26,7 +26,7 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                         .Annotation("Sqlite:Autoincrement", true),
                     InstanceId = table.Column<int>(type: "INTEGER", nullable: true),
                     ClusterId = table.Column<int>(type: "INTEGER", nullable: true),
-                    TimeOfDay = table.Column<int>(type: "INTEGER", nullable: false),
+                    Cron = table.Column<string>(type: "TEXT", maxLength: 128, nullable: false),
                     Kind = table.Column<string>(type: "TEXT", maxLength: 16, nullable: false),
                     Command = table.Column<string>(type: "TEXT", maxLength: 512, nullable: false),
                     WarningMinutes = table.Column<int>(type: "INTEGER", nullable: false),
@@ -58,7 +58,7 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                         .Annotation("Sqlite:Autoincrement", true),
                     ScheduledActionId = table.Column<int>(type: "INTEGER", nullable: false),
                     InstanceId = table.Column<int>(type: "INTEGER", nullable: false),
-                    LocalDate = table.Column<DateOnly>(type: "TEXT", nullable: false),
+                    ScheduledFor = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
                     StartedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
                     CompletedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
                     Outcome = table.Column<string>(type: "TEXT", maxLength: 16, nullable: false),
@@ -87,9 +87,9 @@ namespace ArkAscendedServerAdmin.Infrastructure.Data.Migrations
                 columns: new[] { "InstanceId", "StartedAt" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_ScheduledActionRuns_ScheduledActionId_InstanceId_LocalDate",
+                name: "IX_ScheduledActionRuns_ScheduledActionId_InstanceId_ScheduledFor",
                 table: "ScheduledActionRuns",
-                columns: new[] { "ScheduledActionId", "InstanceId", "LocalDate" },
+                columns: new[] { "ScheduledActionId", "InstanceId", "ScheduledFor" },
                 unique: true);
 
             migrationBuilder.CreateIndex(

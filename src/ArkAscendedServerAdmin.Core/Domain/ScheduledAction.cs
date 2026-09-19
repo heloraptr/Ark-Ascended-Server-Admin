@@ -1,10 +1,10 @@
 namespace ArkAscendedServerAdmin.Domain;
 
 /// <summary>
-/// One daily action at a local time of day (B3). Owned by exactly one instance or one cluster (a check
+/// One recurring action on a cron schedule (B3). Owned by exactly one instance or one cluster (a check
 /// constraint enforces it); a cluster's rows apply to every member instance unless the instance sets
-/// <see cref="Instance.OverridesClusterSchedule"/>. Each day's occurrence is an explicit instant computed by
-/// <see cref="Scheduling.ScheduleOccurrences"/>, so a clock change never shifts or repeats an action.
+/// <see cref="Instance.OverridesClusterSchedule"/>. Each occurrence is an explicit instant computed by
+/// <see cref="Scheduling.ScheduleOccurrences"/> from <see cref="Cron"/> in the host's local zone.
 /// </summary>
 public sealed class ScheduledAction
 {
@@ -18,8 +18,8 @@ public sealed class ScheduledAction
 
     public Cluster? Cluster { get; set; }
 
-    /// <summary>Minutes since local midnight, 0–1439.</summary>
-    public int TimeOfDay { get; set; }
+    /// <summary>A standard five-field cron expression (minute, hour, day of month, month, day of week) read in the host's local zone.</summary>
+    public string Cron { get; set; } = string.Empty;
 
     public ScheduledActionKind Kind { get; set; }
 

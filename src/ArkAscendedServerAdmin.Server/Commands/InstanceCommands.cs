@@ -620,10 +620,10 @@ public sealed class InstanceCommands(
         var rows = new List<ScheduledActionView>();
         if (!instance.OverridesClusterSchedule && instance.ClusterId is { } clusterId)
         {
-            rows.AddRange(await CommandSupport.ScheduledActionsAsync(db, a => a.ClusterId == clusterId, inherited: true, cancellationToken));
+            rows.AddRange(await CommandSupport.ScheduledActionsAsync(db, a => a.ClusterId == clusterId, inherited: true, timeProvider, cancellationToken));
         }
 
-        rows.AddRange(await CommandSupport.ScheduledActionsAsync(db, a => a.InstanceId == instanceId, inherited: false, cancellationToken));
+        rows.AddRange(await CommandSupport.ScheduledActionsAsync(db, a => a.InstanceId == instanceId, inherited: false, timeProvider, cancellationToken));
         return CommandResult<IReadOnlyList<ScheduledActionView>>.Ok(rows);
     }
 
@@ -647,7 +647,7 @@ public sealed class InstanceCommands(
         }
 
         var problems = new List<string>();
-        problems.AddRange(CommandSupport.ValidateScheduledActions(rows));
+        problems.AddRange(CommandSupport.ValidateScheduledActions(rows, timeProvider.GetUtcNow(), timeProvider.LocalTimeZone));
         problems.AddRange(CommandSupport.ValidateScheduledActionOwnership(rows, own, "instance", inherited));
         if (problems.Count > 0)
         {

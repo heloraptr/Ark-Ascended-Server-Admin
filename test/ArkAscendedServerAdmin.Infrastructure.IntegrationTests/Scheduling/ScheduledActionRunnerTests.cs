@@ -12,24 +12,24 @@ namespace ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Scheduling;
 /// <summary>
 /// The scheduled-action runner's claim, skip, fan-out, execute, and recovery rules (B3) against the real run
 /// table, with the process manager and the RCON send path faked. The clock's zone is pinned (UTC, or US Eastern
-/// for the clock-change case) so the machine's zone never matters.
+/// for the clock-change cases) so the machine's zone never matters.
 /// </summary>
 public class ScheduledActionRunnerTests
 {
     private static readonly DateTimeOffset _noon = new(2026, 9, 7, 12, 0, 0, TimeSpan.Zero);
 
-    private const int Noon = 12 * 60;
+    private const string AtNoon = "0 12 * * *";
 
     // ---- claim -------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task DueRow_IsClaimedOnceForTheDay_AndLaterTicksInsertNothingMore()
+    public async Task DueRow_IsClaimedOnceForTheOccurrence_AndLaterTicksInTheMinuteInsertNothingMore()
     {
         using var root = new TempDataRoot();
         var ct = TestContext.Current.CancellationToken;
         var f = await Fixture.CreateAsync(root, _noon, TimeZoneInfo.Utc, ct);
         var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
-        var action = await f.ActionAsync(instance.Id, null, Noon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
+        var action = await f.ActionAsync(instance.Id, null, AtNoon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
         f.Processes.Set(instance.Id, InstanceState.Running);
 
         await f.TickAsync(ct);
@@ -39,10 +39,32 @@ public class ScheduledActionRunnerTests
         await f.TickAsync(ct);
 
         var run = Assert.Single(await f.RunsAsync(ct));
-        Assert.Equal((action, instance.Id, new DateOnly(2026, 9, 7), ScheduledActionOutcome.Succeeded, string.Empty), (run.ScheduledActionId, run.InstanceId, run.LocalDate, run.Outcome, run.Reason));
+        Assert.Equal((action, instance.Id, _noon, ScheduledActionOutcome.Succeeded, string.Empty), (run.ScheduledActionId, run.InstanceId, run.ScheduledFor, run.Outcome, run.Reason));
         Assert.Equal(_noon, run.StartedAt);
         Assert.Equal(_noon, run.CompletedAt);
         Assert.Equal([(instance.Id, "saveworld")], f.Rcon.Calls);
+    }
+
+    [Fact]
+    public async Task RowFiringTwiceADay_GetsOneRunPerOccurrence()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        var f = await Fixture.CreateAsync(root, _noon, TimeZoneInfo.Utc, ct);
+        var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
+        var action = await f.ActionAsync(instance.Id, null, "0 12,13 * * *", ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
+        f.Processes.Set(instance.Id, InstanceState.Running);
+
+        await f.TickAsync(ct);
+        f.Clock.Advance(TimeSpan.FromMinutes(30));
+        await f.TickAsync(ct);
+        f.Clock.Advance(TimeSpan.FromMinutes(30));
+        await f.TickAsync(ct);
+
+        var runs = await f.RunsAsync(ct);
+        Assert.Equal([(action, _noon), (action, _noon.AddHours(1))], runs.Select(r => (r.ScheduledActionId, r.ScheduledFor)));
+        Assert.All(runs, r => Assert.Equal(ScheduledActionOutcome.Succeeded, r.Outcome));
+        Assert.Equal([(instance.Id, "saveworld"), (instance.Id, "saveworld")], f.Rcon.Calls);
     }
 
     [Fact]
@@ -52,8 +74,8 @@ public class ScheduledActionRunnerTests
         var ct = TestContext.Current.CancellationToken;
         var f = await Fixture.CreateAsync(root, _noon, TimeZoneInfo.Utc, ct);
         var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
-        var first = await f.ActionAsync(instance.Id, null, Noon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
-        var second = await f.ActionAsync(instance.Id, null, Noon, ScheduledActionKind.RconCommand, command: "broadcast hi", ct: ct);
+        var first = await f.ActionAsync(instance.Id, null, AtNoon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
+        var second = await f.ActionAsync(instance.Id, null, AtNoon, ScheduledActionKind.RconCommand, command: "broadcast hi", ct: ct);
         f.Processes.Set(instance.Id, InstanceState.Running);
 
         await f.TickAsync(ct);
@@ -74,7 +96,7 @@ public class ScheduledActionRunnerTests
         var alpha = await TestSeed.InstanceAsync(root, "alpha", clustered: true, ct);
         var beta = await TestSeed.InstanceAsync(root, "beta", clustered: true, ct);
         var gamma = await TestSeed.InstanceAsync(root, "gamma", clustered: true, ct, i => i.OverridesClusterSchedule = true);
-        var action = await f.ActionAsync(null, alpha.ClusterId, Noon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
+        var action = await f.ActionAsync(null, alpha.ClusterId, AtNoon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
         foreach (var id in new[] { alpha.Id, beta.Id, gamma.Id })
         {
             f.Processes.Set(id, InstanceState.Running);
@@ -97,7 +119,7 @@ public class ScheduledActionRunnerTests
         var ct = TestContext.Current.CancellationToken;
         var f = await Fixture.CreateAsync(root, _noon, TimeZoneInfo.Utc, ct);
         var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
-        await f.ActionAsync(instance.Id, null, Noon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
+        await f.ActionAsync(instance.Id, null, AtNoon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
         f.Processes.Set(instance.Id, InstanceState.Stopped);
 
         await f.TickAsync(ct);
@@ -115,7 +137,7 @@ public class ScheduledActionRunnerTests
         var ct = TestContext.Current.CancellationToken;
         var f = await Fixture.CreateAsync(root, _noon, TimeZoneInfo.Utc, ct);
         var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
-        await f.ActionAsync(instance.Id, null, Noon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
+        await f.ActionAsync(instance.Id, null, AtNoon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
         f.Processes.Set(instance.Id, InstanceState.Running);
         using var update = await f.Gate.AcquireExclusiveAsync(ct);
 
@@ -133,7 +155,7 @@ public class ScheduledActionRunnerTests
         var ct = TestContext.Current.CancellationToken;
         var f = await Fixture.CreateAsync(root, _noon, TimeZoneInfo.Utc, ct);
         var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
-        await f.ActionAsync(instance.Id, null, Noon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
+        await f.ActionAsync(instance.Id, null, AtNoon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
         f.Processes.Set(instance.Id, InstanceState.Running);
         using var backup = f.Locks.TryAcquire(instance.Id);
 
@@ -144,25 +166,74 @@ public class ScheduledActionRunnerTests
         Assert.Empty(f.Rcon.Calls);
     }
 
+    // ---- clock changes (Cronos' rules, US Eastern) -------------------------------------------------
+
     [Fact]
-    public async Task SpringForwardGap_WritesOneSkippedRunWithTheGapReason()
+    public async Task SpringForwardGap_RunsOnceRightAfterTheTransition()
     {
         using var root = new TempDataRoot();
         var ct = TestContext.Current.CancellationToken;
-        // 03:00 EDT on 2026-03-08 is the first minute after the missing hour.
-        var f = await Fixture.CreateAsync(root, new DateTimeOffset(2026, 3, 8, 7, 0, 0, TimeSpan.Zero), FindEastern(), ct);
+        // 02:30 EST does not exist on 2026-03-08; the occurrence moves to 03:00 EDT (07:00Z), so a 10-minute warning is due at 06:50Z.
+        var shifted = new DateTimeOffset(2026, 3, 8, 7, 0, 0, TimeSpan.Zero);
+        var f = await Fixture.CreateAsync(root, shifted.AddMinutes(-11), FindEastern(), ct);
         var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
-        var action = await f.ActionAsync(instance.Id, null, 2 * 60 + 30, ScheduledActionKind.Restart, warning: 10, ct: ct);
+        var action = await f.ActionAsync(instance.Id, null, "30 2 * * *", ScheduledActionKind.Restart, warning: 10, ct: ct);
+        f.Processes.Set(instance.Id, InstanceState.Running);
+
+        for (var tick = 0; tick < 30; tick++)
+        {
+            await f.TickAsync(ct);
+            f.Clock.Advance(TimeSpan.FromMinutes(1));
+        }
+
+        var run = Assert.Single(await f.RunsAsync(ct));
+        Assert.Equal((action, shifted, ScheduledActionOutcome.Succeeded), (run.ScheduledActionId, run.ScheduledFor, run.Outcome));
+        Assert.Equal(shifted.AddMinutes(-10), run.StartedAt);
+        Assert.Equal([(instance.Id, shifted)], f.Processes.Restarts);
+    }
+
+    [Fact]
+    public async Task FallBackOverlap_FixedTimeRunsOnceAtTheEarlierInstant()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        // 01:30 happens twice on 2026-11-01: 05:30Z (EDT) and 06:30Z (EST). Only the first is an occurrence.
+        var earlier = new DateTimeOffset(2026, 11, 1, 5, 30, 0, TimeSpan.Zero);
+        var f = await Fixture.CreateAsync(root, earlier, FindEastern(), ct);
+        var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
+        var action = await f.ActionAsync(instance.Id, null, "30 1 * * *", ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
         f.Processes.Set(instance.Id, InstanceState.Running);
 
         await f.TickAsync(ct);
-        f.Clock.Advance(TimeSpan.FromMinutes(1));
+        f.Clock.Advance(TimeSpan.FromHours(1));
         await f.TickAsync(ct);
 
         var run = Assert.Single(await f.RunsAsync(ct));
-        Assert.Equal((action, new DateOnly(2026, 3, 8), ScheduledActionOutcome.Skipped), (run.ScheduledActionId, run.LocalDate, run.Outcome));
-        Assert.Equal("The local time 02:30 does not exist on 2026-03-08 (clocks moved forward).", run.Reason);
-        Assert.Empty(f.Processes.Restarts);
+        Assert.Equal((action, earlier, ScheduledActionOutcome.Succeeded), (run.ScheduledActionId, run.ScheduledFor, run.Outcome));
+        Assert.Equal([(instance.Id, "saveworld")], f.Rcon.Calls);
+    }
+
+    [Fact]
+    public async Task FallBackOverlap_IntervalRunsInBothHours()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        var firstHour = new DateTimeOffset(2026, 11, 1, 5, 0, 0, TimeSpan.Zero); // 01:00 EDT
+        var f = await Fixture.CreateAsync(root, firstHour, FindEastern(), ct);
+        var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
+        await f.ActionAsync(instance.Id, null, "*/30 * * * *", ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
+        f.Processes.Set(instance.Id, InstanceState.Running);
+
+        for (var tick = 0; tick < 4; tick++)
+        {
+            await f.TickAsync(ct);
+            f.Clock.Advance(TimeSpan.FromMinutes(30));
+        }
+
+        var runs = await f.RunsAsync(ct);
+        Assert.Equal([firstHour, firstHour.AddMinutes(30), firstHour.AddMinutes(60), firstHour.AddMinutes(90)], runs.Select(r => r.ScheduledFor));
+        Assert.All(runs, r => Assert.Equal(ScheduledActionOutcome.Succeeded, r.Outcome));
+        Assert.Equal(4, f.Rcon.Calls.Count);
     }
 
     // ---- execution ---------------------------------------------------------------------------------
@@ -174,7 +245,7 @@ public class ScheduledActionRunnerTests
         var ct = TestContext.Current.CancellationToken;
         var f = await Fixture.CreateAsync(root, _noon, TimeZoneInfo.Utc, ct);
         var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
-        await f.ActionAsync(instance.Id, null, Noon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
+        await f.ActionAsync(instance.Id, null, AtNoon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
         f.Processes.Set(instance.Id, InstanceState.Running);
         f.Rcon.Results["saveworld"] = CommandResult<string>.Fail("RCON connect failure: Connection refused.");
 
@@ -193,13 +264,13 @@ public class ScheduledActionRunnerTests
         var ct = TestContext.Current.CancellationToken;
         var f = await Fixture.CreateAsync(root, _noon, TimeZoneInfo.Utc, ct);
         var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
-        await f.ActionAsync(instance.Id, null, Noon + 10, ScheduledActionKind.Restart, warning: 10, ct: ct);
+        await f.ActionAsync(instance.Id, null, "10 12 * * *", ScheduledActionKind.Restart, warning: 10, ct: ct);
         f.Processes.Set(instance.Id, InstanceState.Running);
 
         await f.TickAsync(ct);
 
         var run = Assert.Single(await f.RunsAsync(ct));
-        Assert.Equal(ScheduledActionOutcome.Succeeded, run.Outcome);
+        Assert.Equal((ScheduledActionOutcome.Succeeded, _noon.AddMinutes(10)), (run.Outcome, run.ScheduledFor));
         Assert.Equal([(instance.Id, _noon.AddMinutes(10))], f.Processes.Restarts);
         Assert.Empty(f.Locks.Holders);
         Assert.Empty(f.Rcon.Calls);
@@ -212,7 +283,7 @@ public class ScheduledActionRunnerTests
         var ct = TestContext.Current.CancellationToken;
         var f = await Fixture.CreateAsync(root, _noon, TimeZoneInfo.Utc, ct);
         var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
-        await f.ActionAsync(instance.Id, null, Noon + 10, ScheduledActionKind.DinoWipe, warning: 10, ct: ct);
+        await f.ActionAsync(instance.Id, null, "10 12 * * *", ScheduledActionKind.DinoWipe, warning: 10, ct: ct);
         f.Processes.Set(instance.Id, InstanceState.Running);
 
         await f.TickAsync(ct);
@@ -233,9 +304,9 @@ public class ScheduledActionRunnerTests
         var ct = TestContext.Current.CancellationToken;
         var f = await Fixture.CreateAsync(root, _noon, TimeZoneInfo.Utc, ct);
         var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
-        var action = await f.ActionAsync(instance.Id, null, Noon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
-        await f.RunAsync(action, instance.Id, new DateOnly(2026, 9, 6), _noon.AddDays(-1), ScheduledActionOutcome.Started, ct);
-        await f.RunAsync(action, instance.Id, new DateOnly(2026, 9, 5), _noon.AddDays(-2), ScheduledActionOutcome.Succeeded, ct);
+        var action = await f.ActionAsync(instance.Id, null, AtNoon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
+        await f.RunAsync(action, instance.Id, _noon.AddDays(-1), ScheduledActionOutcome.Started, ct);
+        await f.RunAsync(action, instance.Id, _noon.AddDays(-2), ScheduledActionOutcome.Succeeded, ct);
 
         await f.Runner.RecoverAsync(ct);
 
@@ -252,9 +323,9 @@ public class ScheduledActionRunnerTests
         var ct = TestContext.Current.CancellationToken;
         var f = await Fixture.CreateAsync(root, _noon, TimeZoneInfo.Utc, ct);
         var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
-        var action = await f.ActionAsync(instance.Id, null, Noon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
-        await f.RunAsync(action, instance.Id, new DateOnly(2026, 8, 7), _noon.AddDays(-31), ScheduledActionOutcome.Succeeded, ct);
-        var kept = await f.RunAsync(action, instance.Id, new DateOnly(2026, 8, 9), _noon.AddDays(-29), ScheduledActionOutcome.Failed, ct);
+        var action = await f.ActionAsync(instance.Id, null, AtNoon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
+        await f.RunAsync(action, instance.Id, _noon.AddDays(-31), ScheduledActionOutcome.Succeeded, ct);
+        var kept = await f.RunAsync(action, instance.Id, _noon.AddDays(-29), ScheduledActionOutcome.Failed, ct);
 
         await f.Runner.RecoverAsync(ct);
 
@@ -315,19 +386,20 @@ public class ScheduledActionRunnerTests
             await Runner.WhenIdleAsync();
         }
 
-        public async Task<int> ActionAsync(int? instanceId, int? clusterId, int timeOfDay, ScheduledActionKind kind, int warning = 10, string command = "", CancellationToken ct = default)
+        public async Task<int> ActionAsync(int? instanceId, int? clusterId, string cron, ScheduledActionKind kind, int warning = 10, string command = "", CancellationToken ct = default)
         {
             await using var db = Root.CreateDbContext();
-            var action = new ScheduledAction { InstanceId = instanceId, ClusterId = clusterId, TimeOfDay = timeOfDay, Kind = kind, WarningMinutes = warning, Command = command };
+            var action = new ScheduledAction { InstanceId = instanceId, ClusterId = clusterId, Cron = cron, Kind = kind, WarningMinutes = warning, Command = command };
             db.ScheduledActions.Add(action);
             await db.SaveChangesAsync(ct);
             return action.Id;
         }
 
-        public async Task<int> RunAsync(int actionId, int instanceId, DateOnly localDate, DateTimeOffset startedAt, ScheduledActionOutcome outcome, CancellationToken ct)
+        /// <summary>A run seeded straight into the table, scheduled for and started at <paramref name="startedAt"/>.</summary>
+        public async Task<int> RunAsync(int actionId, int instanceId, DateTimeOffset startedAt, ScheduledActionOutcome outcome, CancellationToken ct)
         {
             await using var db = Root.CreateDbContext();
-            var run = new ScheduledActionRun { ScheduledActionId = actionId, InstanceId = instanceId, LocalDate = localDate, StartedAt = startedAt, Outcome = outcome };
+            var run = new ScheduledActionRun { ScheduledActionId = actionId, InstanceId = instanceId, ScheduledFor = startedAt, StartedAt = startedAt, Outcome = outcome };
             db.ScheduledActionRuns.Add(run);
             await db.SaveChangesAsync(ct);
             return run.Id;

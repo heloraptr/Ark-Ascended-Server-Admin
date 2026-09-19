@@ -17,8 +17,9 @@ namespace ArkAscendedServerAdmin.Infrastructure.Scheduling;
 /// <summary>
 /// The scheduled-action timer (B3): once a minute, on the minute, every instance's applicable rows are asked
 /// which of them are due (<see cref="ScheduleOccurrences.DueInMinute"/>), and each due row is claimed by
-/// inserting its run for the local day. The unique index on (action, instance, local date) makes that insert
-/// the once-per-day guarantee: a second tick in the same minute, or a restart within it, inserts nothing. A
+/// inserting its run for the occurrence. The unique index on (action, instance, scheduled instant) makes that
+/// insert the once-per-occurrence guarantee: a second tick in the same minute, or a restart within it, inserts
+/// nothing, while a row that fires several times a day gets one run per occurrence. A
 /// row that cannot run gets a <see cref="ScheduledActionOutcome.Skipped"/> run with the reason; a row that
 /// can is executed detached from the tick, one per instance at a time, and its run is completed when the
 /// operation returns. At service start every run still <see cref="ScheduledActionOutcome.Started"/> becomes
@@ -188,17 +189,13 @@ public sealed class ScheduledActionRunner(
                 {
                     ScheduledActionId = action.Id,
                     InstanceId = instance.Id,
-                    LocalDate = occurrence.LocalDate,
+                    ScheduledFor = occurrence.Deadline,
                     StartedAt = now,
                     Outcome = ScheduledActionOutcome.Started,
                 };
 
                 IInstanceLease? lease = null;
-                if (occurrence.SkipReason is { } gap)
-                {
-                    Skip(run, gap);
-                }
-                else if (processManager.GetRuntime(instance.Id).State != InstanceState.Running)
+                if (processManager.GetRuntime(instance.Id).State != InstanceState.Running)
                 {
                     Skip(run, NotRunningReason);
                 }
@@ -217,7 +214,7 @@ public sealed class ScheduledActionRunner(
 
                 if (!await TryClaimAsync(db, run, cancellationToken))
                 {
-                    // Already ran (or was skipped) today: a second tick in the same minute, or a restart within it.
+                    // The occurrence was already claimed (run or skipped): a second tick in the same minute, or a restart within it.
                     lease?.Dispose();
                     continue;
                 }
@@ -230,7 +227,7 @@ public sealed class ScheduledActionRunner(
 
                 startedThisMinute = true;
                 logger.LogInformation("Scheduled {Kind} (action {ActionId}) for instance {InstanceId} started; deadline {Deadline:O}.", action.Kind, action.Id, instance.Id, occurrence.Deadline);
-                _inFlight[instance.Id] = RunOneAsync(run.Id, instance.Id, action, occurrence.Deadline!.Value, lease!, cancellationToken);
+                _inFlight[instance.Id] = RunOneAsync(run.Id, instance.Id, action, occurrence.Deadline, lease!, cancellationToken);
             }
         }
     }
@@ -245,7 +242,7 @@ public sealed class ScheduledActionRunner(
         run.CompletedAt = timeProvider.GetUtcNow();
     }
 
-    /// <summary>Inserts the run as the day's claim; false when the unique index says the day is already claimed.</summary>
+    /// <summary>Inserts the run as the occurrence's claim; false when the unique index says the occurrence is already claimed.</summary>
     private static async Task<bool> TryClaimAsync(AppDbContext db, ScheduledActionRun run, CancellationToken cancellationToken)
     {
         db.ScheduledActionRuns.Add(run);

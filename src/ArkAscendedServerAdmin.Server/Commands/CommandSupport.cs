@@ -206,21 +206,47 @@ internal static class CommandSupport
 
     public const int MaxRconCommandLength = 512;
 
-    public const int MaxScheduledTimeOfDay = 1439;
+    public const int MaxCronLength = 128;
 
     public const int MaxWarningMinutes = 60;
 
-    /// <summary>The owner's rows in id order, each flagged <paramref name="inherited"/>; <paramref name="owned"/> picks the owner.</summary>
+    /// <summary>How many upcoming occurrences a save looks at to catch a schedule that repeats inside its own countdown.</summary>
+    private const int UpcomingOccurrencesChecked = 50;
+
+    /// <summary>
+    /// The owner's rows in id order, each flagged <paramref name="inherited"/>, with the friendly text and the
+    /// next deadline after now in the host's local zone computed in memory; <paramref name="owned"/> picks the
+    /// owner.
+    /// </summary>
     public static async Task<IReadOnlyList<ScheduledActionView>> ScheduledActionsAsync(
         AppDbContext db,
         Expression<Func<ScheduledAction, bool>> owned,
         bool inherited,
-        CancellationToken cancellationToken) =>
-        await db.ScheduledActions.AsNoTracking()
+        TimeProvider time,
+        CancellationToken cancellationToken)
+    {
+        var now = time.GetUtcNow();
+        var zone = time.LocalTimeZone;
+        var rows = await db.ScheduledActions.AsNoTracking()
             .Where(owned)
             .OrderBy(a => a.Id)
-            .Select(a => new ScheduledActionView(a.Id, a.InstanceId, a.ClusterId, a.TimeOfDay, a.Kind, a.Command, a.WarningMinutes, a.Enabled, inherited))
             .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(a => new ScheduledActionView(
+                a.Id,
+                a.InstanceId,
+                a.ClusterId,
+                a.Cron,
+                ScheduleDescriptions.Describe(a.Cron),
+                ScheduleOccurrences.NextDeadline(a, now, zone),
+                a.Kind,
+                a.Command,
+                a.WarningMinutes,
+                a.Enabled,
+                inherited))
+            .ToList();
+    }
 
     /// <summary>
     /// The newest <paramref name="take"/> runs matching <paramref name="scope"/>, newest first. Ids are handed out
@@ -242,7 +268,7 @@ internal static class CommandSupport
                 r.ScheduledActionId,
                 r.InstanceId,
                 r.Instance!.Name,
-                r.LocalDate,
+                r.ScheduledFor,
                 r.StartedAt,
                 r.CompletedAt,
                 r.Outcome,
@@ -253,8 +279,12 @@ internal static class CommandSupport
         return page.OrderByDescending(r => r.StartedAt).ThenByDescending(r => r.Id).ToList();
     }
 
-    /// <summary>The field problems in a whole-list schedule save, each naming the row by its position (1-based).</summary>
-    public static IReadOnlyList<string> ValidateScheduledActions(IReadOnlyList<ScheduledActionEdit> rows)
+    /// <summary>
+    /// The field problems in a whole-list schedule save, each naming the row by its position (1-based).
+    /// <paramref name="now"/> and <paramref name="zone"/> anchor the look-ahead that catches a schedule that
+    /// never fires or repeats inside its own warning countdown.
+    /// </summary>
+    public static IReadOnlyList<string> ValidateScheduledActions(IReadOnlyList<ScheduledActionEdit> rows, DateTimeOffset now, TimeZoneInfo zone)
     {
         var problems = new List<string>();
         var seen = new HashSet<int>();
@@ -267,9 +297,23 @@ internal static class CommandSupport
                 problems.Add($"{label} repeats scheduled action #{row.Id}.");
             }
 
-            if (row.TimeOfDay is < 0 or > MaxScheduledTimeOfDay)
+            var cron = (row.Cron ?? string.Empty).Trim();
+            IReadOnlyList<DateTimeOffset> upcoming = [];
+            if (cron.Length > MaxCronLength)
             {
-                problems.Add($"{label}: the time of day must be between 00:00 and 23:59.");
+                problems.Add($"{label}: the schedule must be {MaxCronLength} characters or fewer.");
+            }
+            else if (!ScheduleOccurrences.TryParse(cron, out var expression))
+            {
+                problems.Add($"{label}: the schedule is not a valid cron expression.");
+            }
+            else
+            {
+                upcoming = ScheduleOccurrences.NextDeadlines(expression, now, zone, UpcomingOccurrencesChecked);
+                if (upcoming.Count == 0)
+                {
+                    problems.Add($"{label}: the schedule never runs.");
+                }
             }
 
             if (!Enum.IsDefined(row.Kind))
@@ -291,6 +335,22 @@ internal static class CommandSupport
                 else if (row.Command.Trim().Length > MaxRconCommandLength)
                 {
                     problems.Add($"{label}: the RCON command must be {MaxRconCommandLength} characters or fewer.");
+                }
+            }
+
+            // Two occurrences closer than the countdown plus the runner's minute would make the second one
+            // land while the first is still counting down, and it would only ever be skipped.
+            if (upcoming.Count > 1 && row.WarningMinutes is >= 0 and <= MaxWarningMinutes)
+            {
+                var effectiveWarning = row.Kind == ScheduledActionKind.RconCommand ? 0 : row.WarningMinutes;
+                var minimumGap = TimeSpan.FromMinutes(effectiveWarning + 1);
+                for (var i = 1; i < upcoming.Count; i++)
+                {
+                    if (upcoming[i] - upcoming[i - 1] < minimumGap)
+                    {
+                        problems.Add($"{label}: the schedule repeats faster than its warning countdown.");
+                        break;
+                    }
                 }
             }
         }
@@ -351,7 +411,7 @@ internal static class CommandSupport
                 kept.Add(row.Id);
             }
 
-            target.TimeOfDay = row.TimeOfDay;
+            target.Cron = row.Cron.Trim();
             target.Kind = row.Kind;
             target.Command = row.Kind == ScheduledActionKind.RconCommand ? row.Command.Trim() : string.Empty;
             target.WarningMinutes = row.WarningMinutes;
