@@ -55,6 +55,9 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
     /// <summary>Starting without a successful probe for this long becomes StartingUnconfirmed (launched) or Unreachable (attached).</summary>
     public static readonly TimeSpan StartupBound = TimeSpan.FromMinutes(10);
 
+    /// <summary>A remainder this short at the top of a countdown pass is timer skew, not a minute worth announcing.</summary>
+    private static readonly TimeSpan _countdownSlack = TimeSpan.FromSeconds(1);
+
     /// <summary>How long a stop waits for <c>HasExited</c> after <c>Kill</c> before reporting an unverified exit.</summary>
     public static readonly TimeSpan ExitVerificationBound = TimeSpan.FromSeconds(30);
 
@@ -785,6 +788,14 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
                 if (remaining <= TimeSpan.Zero)
                 {
                     break;
+                }
+
+                if (remaining <= _countdownSlack)
+                {
+                    // A timer can wake a few milliseconds before the clock reaches the deadline; wait out the remainder
+                    // rather than announce the same minute twice.
+                    await Task.Delay(remaining, _time, token);
+                    continue;
                 }
 
                 var minutes = Math.Max(1, (int)Math.Ceiling((remaining - TimeSpan.FromSeconds(1)).TotalMinutes));
