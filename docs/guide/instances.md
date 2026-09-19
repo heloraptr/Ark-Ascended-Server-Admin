@@ -26,7 +26,7 @@ final **Standalone** section for instances without a cluster. Each row shows:
 | Name | The small triangle for the state, the instance name (a link to its page), the session name under it. |
 | Map | The map name and `3 mods` or `vanilla`. The count is what a start passes in `-mods`: the map's own mod, the cluster's enabled mods, and the instance's enabled mods. |
 | Ports | `7777 game`, `27020 rcon`. |
-| State and backup | The state label ([README](README.md#instance-states)) and the last backup: `Backed up 12 min ago`, `Skipped 1 h ago`, `Failed`, or `no backup yet`. Hovering the backup shows its reason. |
+| State and backup | The state label ([README](README.md#instance-states)) and the last backup: `Backed up 12 min ago`, `Skipped 1 h ago`, `Failed`, or `no backup yet`. Hovering the backup shows its reason. When a scheduled action applies to the instance, a third line: `Next action 03:00`, `Next action tomorrow 03:00`, or `Next action in 12 min`; hovering it shows the full date and time ([scheduled actions](#scheduled-actions)). |
 | Actions | While a process is live: **Stop**, **Restart**, **Back up now** (enabled only when **Running**). While stopping: **Stop now** (skips the countdown), which turns into a disabled **Closing…** once the exit has been requested. Otherwise **Start** (disabled when the state is **Unknown**). Always: **Open console**. |
 
 **Start all**, **Stop all**, **Start selected**, and **Stop selected** submit every eligible row at
@@ -156,8 +156,47 @@ preview finds a problem while the instance is stopped.
 | **Config** | Standalone: the `GameUserSettings.ini` and `Game.ini` editors. Member: `INI files come from the <cluster> cluster.` Both: the **Overrides** table with **Add override**. [configuration-files.md](configuration-files.md). |
 | **Mods** | The ordered mod list: the map's mod and cluster mods locked, the instance's own below. [mods.md](mods.md). |
 | **Launch** | The flags editor and `What a start would run`, the exact command line. [launch-options.md](launch-options.md). |
-| **Settings** | **Instance name**, **Session name**, **Max players**, **Game port**, **RCON port**, **Backup interval, minutes**, **Backups to keep**, **Admin whitelist**; **Save settings**, **Reset**. While the process is live: `Port and player changes apply at the next start.` The slug and the map cannot change. |
+| **Settings** | **Instance name**, **Session name**, **Max players**, **Game port**, **RCON port**, **Backup interval, minutes**, **Backups to keep**, **Ignore the cluster's schedule** (members only), **Admin whitelist**; **Save settings**, **Reset**. While the process is live: `Port and player changes apply at the next start.` The slug and the map cannot change. Under the form, **Schedule**: the daily actions and their last runs ([below](#scheduled-actions)). |
 | **Backups** | The backup list with outcome, archive name, size, and trigger, a restore icon on each successful row, and the list of restores. [backups.md](backups.md). |
+
+## Scheduled actions
+
+The **Schedule** section at the bottom of the Settings tab runs an action at the same time every
+day. A row is a time, an action, and an **Enabled** box; **Add action** adds one at `03:00`,
+**Save schedule** writes the whole list, and a row that is not enabled stays listed but never runs.
+
+- **Restart** counts down, then stops the server the normal way and starts it again.
+- **RCON command** sends the command on the row, exactly as you would type it into the console;
+  the command and the reply show there too. `SaveWorld` is the usual one.
+- **Wipe wild dinos** counts down, then sends `DestroyWildDinos`.
+
+The time is the server's local time and is the moment of the action itself. A restart or a wipe
+also has a warning of 0 to 60 minutes (the **min warning** box after the action): the countdown starts that
+many minutes early and players see a broadcast each minute until the action, so a restart at
+`04:00` with a 10 minute warning starts talking at `03:50` and restarts at `04:00`. An RCON command
+has no warning. On the day the clocks go forward, a time inside the missing hour does not exist and
+the row is skipped for that day; on the day they go back, an ambiguous time runs at its first
+occurrence.
+
+A cluster member runs its cluster's rows as well as its own. They appear in the member's list
+locked, with `Comes from the cluster; change it on the cluster page.` on hover. Tick
+**Ignore the cluster's schedule** on the settings form and save it to run only the instance's own
+rows; the locked rows disappear from the list ([clusters.md](clusters.md#the-cluster-page)).
+
+Each row runs at most once a day, and one action runs on an instance at a time. The **Runs** list
+under the editor keeps the last ten across the rows: when it started, the action, the outcome, and
+a reason.
+
+| Outcome | Meaning |
+|---|---|
+| **Done** | The action finished. |
+| **In progress** | It is running now. |
+| **Failed** | The server refused it or the command returned an error; the reason says which. |
+| **Skipped** | The row's time passed without the action: `The server is not running.`, `An update is in progress.`, `Another action is in progress.`, the instance was busy with an operation, or the time did not exist that day. |
+| **Interrupted** | The service stopped while the action was in flight (`The service was restarted before the action finished.`). Nothing is retried; the next day's run is normal. |
+
+A skipped row is recorded so a missed action is visible rather than silent, and the row waits for
+the next day. Runs older than 30 days are removed.
 
 ## Deleting an instance
 

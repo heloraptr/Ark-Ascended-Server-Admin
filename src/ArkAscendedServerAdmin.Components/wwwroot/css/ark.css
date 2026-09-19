@@ -1844,3 +1844,63 @@ h1:focus-visible {
   gap: 8px;
   margin-bottom: 6px;
 }
+
+/* Schedule editor: rows inherited from the cluster first (locked), then the owner's own rows. The time input is a
+   plain <input type="time"> carrying the rz-textbox class so the theme styles it like the other inputs. */
+.sched-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.sched-row {
+  display: grid;
+  grid-template-columns: 118px 180px minmax(200px, 1fr) auto 32px;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 6px 6px;
+  border-bottom: 1px solid var(--ark-hairline);
+}
+
+.sched-row.is-locked {
+  opacity: 0.6;
+}
+
+.sched-row.is-locked .rzi {
+  justify-self: center;
+}
+
+.sched-row .detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sched-row .rz-textbox,
+.sched-row .rz-dropdown {
+  width: 100%;
+}
+
+.sched-row .sched-clock {
+  padding-left: 8px;
+}
+
+.sched-time::-webkit-calendar-picker-indicator {
+  filter: invert(0.6);
+  cursor: pointer;
+}
+
+.sched-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sched-warning .rz-numeric {
+  width: 72px;
+}
+
+.sched-add {
+  margin: 10px 0 12px;
+}

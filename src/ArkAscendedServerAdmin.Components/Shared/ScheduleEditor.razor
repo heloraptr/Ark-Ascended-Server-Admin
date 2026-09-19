@@ -1,0 +1,189 @@
+@* Scheduled actions editor over the whole list (B3). Rows inherited from the cluster are shown locked on an instance; the owner's own rows are edited on a copy and saved together, existing ids kept so their runs stay attached. Under it, the last runs across the rows. *@
+@using ArkAscendedServerAdmin.Commands
+@using ArkAscendedServerAdmin.Domain
+
+<div class="sched-list">
+    @foreach (var locked in Rows.Where(r => r.Inherited))
+    {
+        <div class="sched-row is-locked" title="Comes from the cluster; change it on the cluster page.">
+            <span class="num sched-clock">@Clock(locked.TimeOfDay)</span>
+            <span>@Presentation.Label(locked.Kind)</span>
+            <span class="detail">
+                @if (locked.Kind == ScheduledActionKind.RconCommand)
+                {
+                    <span class="mono">@locked.Command</span>
+                }
+                else
+                {
+                    <text>@Presentation.Plural(locked.WarningMinutes, "minute") warning</text>
+                }
+            </span>
+            <span class="faint">@(locked.Enabled ? "enabled" : "disabled")</span>
+            <RadzenIcon Icon="lock" Style="color:var(--ark-steel-3)" />
+        </div>
+    }
+    @foreach (var row in _rows)
+    {
+        <div class="sched-row">
+            <input type="time" class="rz-textbox sched-time" @bind="row.Time" @bind:format="HH:mm" aria-label="Time of day" />
+            <RadzenDropDown TValue="ScheduledActionKind" @bind-Value="row.Kind" Data="_kinds" TextProperty="Text" ValueProperty="Value" aria-label="Action" />
+            @if (row.Kind == ScheduledActionKind.RconCommand)
+            {
+                <RadzenTextBox @bind-Value="row.Command" Placeholder="RCON command, e.g. SaveWorld" aria-label="RCON command" />
+            }
+            else
+            {
+                <span class="sched-warning" title="Players see a countdown broadcast each minute before the action.">
+                    <RadzenNumeric TValue="int" @bind-Value="row.WarningMinutes" Min="0" Max="60" ShowUpDown="false" aria-label="Warning minutes" />
+                    <span class="faint">min warning</span>
+                </span>
+            }
+            <div class="check-row">
+                <RadzenCheckBox TValue="bool" @bind-Value="row.Enabled" Name="@row.Key" />
+                <label for="@row.Key">Enabled</label>
+            </div>
+            <RadzenButton Icon="close" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Remove" Disabled="Busy" Click="() => _rows.Remove(row)" />
+        </div>
+    }
+    @if (_rows.Count == 0 && !Rows.Any(r => r.Inherited))
+    {
+        <p class="muted" style="padding:10px 0">Nothing scheduled. Add an action to restart the server, send an RCON command, or wipe wild dinos at the same time every day.</p>
+    }
+</div>
+<div class="sched-add">
+    <RadzenButton Text="Add action" Icon="add" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="Busy" Click="Add" />
+</div>
+<p class="hint muted">Times are the server's local time and mark the action itself: a restart or a wipe counts its warning down to that time, broadcasting to players each minute, and an RCON command is sent right at it. Each row runs once a day; a time that does not exist on a clock-change day is skipped that day.</p>
+<Problems Items="_problems" />
+<div class="form-actions">
+    <RadzenButton Text="Save schedule" Icon="save" ButtonStyle="ButtonStyle.Primary" Disabled="Busy" Click="SaveAsync" />
+    <RadzenButton Text="Reset" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="Busy" Click="Reset" />
+</div>
+
+<div style="margin-top:22px">
+    <SectionHead Title="Runs" />
+    @if (Runs.Count == 0)
+    {
+        <p class="muted">No runs yet. A row is recorded here each day its time passes, whether it ran or was skipped.</p>
+    }
+    else
+    {
+        <RadzenDataGrid Data="Runs" TItem="ScheduledActionRunView" Density="Density.Compact">
+            <Columns>
+                <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="StartedAt" Title="When" Width="170px">
+                    <Template Context="r">@Presentation.Stamp(r.StartedAt)</Template>
+                </RadzenDataGridColumn>
+                @if (ShowInstanceColumn)
+                {
+                    <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="InstanceName" Title="Instance" Width="160px" />
+                }
+                <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="Kind" Title="Action" Width="150px">
+                    <Template Context="r">@Presentation.Label(r.Kind)</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="Outcome" Title="Outcome" Width="120px">
+                    <Template Context="r"><span class="@Presentation.Tone(r.Outcome)">@Presentation.Label(r.Outcome)</span></Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="Reason" Title="Reason">
+                    <Template Context="r"><span class="muted" title="@r.Reason">@r.Reason</span></Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    }
+</div>
+
+@code {
+    private sealed record KindOption(string Text, ScheduledActionKind Value);
+
+    // One editable row. Id stays 0 for a row added here until the save assigns it.
+    private sealed class Row
+    {
+        public string Key { get; init; } = string.Empty;
+        public int Id { get; init; }
+        public TimeOnly Time { get; set; }
+        public ScheduledActionKind Kind { get; set; }
+        public string Command { get; set; } = string.Empty;
+        public int WarningMinutes { get; set; }
+        public bool Enabled { get; set; }
+    }
+
+    private static readonly KindOption[] _kinds =
+    [
+        new(Presentation.Label(ScheduledActionKind.Restart), ScheduledActionKind.Restart),
+        new(Presentation.Label(ScheduledActionKind.RconCommand), ScheduledActionKind.RconCommand),
+        new(Presentation.Label(ScheduledActionKind.DinoWipe), ScheduledActionKind.DinoWipe),
+    ];
+
+    private readonly List<Row> _rows = [];
+    private IReadOnlyList<string>? _problems;
+    private IReadOnlyList<ScheduledActionView>? _source;
+    private int _next;
+
+    /// <summary>The persisted rows, inherited ones flagged; the owner's own rows are edited on a copy until saved.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ScheduledActionView> Rows { get; set; } = [];
+
+    /// <summary>The last runs, newest first.</summary>
+    [Parameter]
+    public IReadOnlyList<ScheduledActionRunView> Runs { get; set; } = [];
+
+    /// <summary>Saves the whole list; the problems of a refused save are shown under the rows.</summary>
+    [Parameter, EditorRequired]
+    public Func<IReadOnlyList<ScheduledActionEdit>, Task<CommandResult>> OnSave { get; set; } = default!;
+
+    /// <summary>True on the cluster page, where the runs come from several members.</summary>
+    [Parameter]
+    public bool ShowInstanceColumn { get; set; }
+
+    [Parameter]
+    public bool Busy { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(_source, Rows))
+        {
+            _source = Rows;
+            Reset();
+        }
+    }
+
+    private void Reset()
+    {
+        _rows.Clear();
+        foreach (var row in Rows.Where(r => !r.Inherited))
+        {
+            _rows.Add(new Row
+            {
+                Key = NextKey(),
+                Id = row.Id,
+                Time = TimeOnly.FromTimeSpan(TimeSpan.FromMinutes(row.TimeOfDay)),
+                Kind = row.Kind,
+                Command = row.Command,
+                WarningMinutes = row.WarningMinutes,
+                Enabled = row.Enabled,
+            });
+        }
+
+        _problems = null;
+    }
+
+    private void Add() => _rows.Add(new Row { Key = NextKey(), Time = new TimeOnly(3, 0), Kind = ScheduledActionKind.Restart, WarningMinutes = 10, Enabled = true });
+
+    private string NextKey() => $"sched-on-{++_next}";
+
+    private async Task SaveAsync()
+    {
+        var edits = _rows
+            .Select(r => new ScheduledActionEdit(
+                r.Id,
+                r.Time.Hour * 60 + r.Time.Minute,
+                r.Kind,
+                r.Kind == ScheduledActionKind.RconCommand ? r.Command.Trim() : string.Empty,
+                r.WarningMinutes,
+                r.Enabled))
+            .ToList();
+        var result = await OnSave(edits);
+        _problems = result.Succeeded ? null : result.Errors;
+    }
+
+    private static string Clock(int minutesSinceMidnight) => $"{minutesSinceMidnight / 60:00}:{minutesSinceMidnight % 60:00}";
+}

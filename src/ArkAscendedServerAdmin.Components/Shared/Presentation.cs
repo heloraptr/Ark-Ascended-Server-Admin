@@ -108,6 +108,34 @@ public static class Presentation
         _ => "tone-bad",
     };
 
+    /// <summary>The plain name of a scheduled action kind: "Restart", "RCON command", "Wipe wild dinos".</summary>
+    public static string Label(ScheduledActionKind kind) => kind switch
+    {
+        ScheduledActionKind.Restart => "Restart",
+        ScheduledActionKind.RconCommand => "RCON command",
+        ScheduledActionKind.DinoWipe => "Wipe wild dinos",
+        _ => kind.ToString(),
+    };
+
+    public static string Label(ScheduledActionOutcome outcome) => outcome switch
+    {
+        ScheduledActionOutcome.Started => "In progress",
+        ScheduledActionOutcome.Succeeded => "Done",
+        ScheduledActionOutcome.Failed => "Failed",
+        ScheduledActionOutcome.Skipped => "Skipped",
+        ScheduledActionOutcome.Interrupted => "Interrupted",
+        _ => outcome.ToString(),
+    };
+
+    /// <summary>Skipped is neutral (the day passed without the action, for a stated reason); Failed and Interrupted are bad.</summary>
+    public static string Tone(ScheduledActionOutcome outcome) => outcome switch
+    {
+        ScheduledActionOutcome.Succeeded => "tone-ok",
+        ScheduledActionOutcome.Started => "tone-rim",
+        ScheduledActionOutcome.Skipped => "muted",
+        _ => "tone-bad",
+    };
+
     /// <summary>The journal phase as a clause: "stopped while replacing the files".</summary>
     public static string Label(RestorePhase phase) => phase switch
     {
@@ -147,6 +175,44 @@ public static class Presentation
         }
 
         return at.Value.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// The forward-looking counterpart of <see cref="Ago"/>, for the next scheduled action: "now", "in 12 min",
+    /// "03:00" when it falls later today, "tomorrow 03:00", otherwise the local date and time; "none" for null.
+    /// </summary>
+    public static string Until(DateTimeOffset? at, DateTimeOffset now)
+    {
+        if (at is null)
+        {
+            return "none";
+        }
+
+        var span = at.Value - now;
+        if (span < TimeSpan.FromMinutes(1))
+        {
+            return "now";
+        }
+
+        if (span < TimeSpan.FromHours(1))
+        {
+            return $"in {(int)span.TotalMinutes} min";
+        }
+
+        var local = at.Value.ToLocalTime();
+        var today = now.ToLocalTime().Date;
+        var clock = local.ToString("HH:mm", CultureInfo.InvariantCulture);
+        if (local.Date == today)
+        {
+            return clock;
+        }
+
+        if (local.Date == today.AddDays(1))
+        {
+            return $"tomorrow {clock}";
+        }
+
+        return local.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
     }
 
     public static string Bytes(long? bytes)

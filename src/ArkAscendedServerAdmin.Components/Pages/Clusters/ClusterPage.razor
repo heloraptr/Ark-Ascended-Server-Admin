@@ -75,7 +75,13 @@ else
                                 <div class="name"><a href="instances/@instance.Id">@instance.Name</a><small>@instance.SessionName</small></div>
                                 <div class="cell"><strong>@instance.MapName</strong></div>
                                 <div class="cell ports"><strong class="num">@instance.GamePort <span class="faint">game</span></strong><span class="num">@instance.RconPort <span class="faint">rcon</span></span></div>
-                                <div class="cell"><InstanceStateView Runtime="runtime" ShowHint="false" /></div>
+                                <div class="cell">
+                                    <InstanceStateView Runtime="runtime" ShowHint="false" />
+                                    @if (instance.NextDeadline is { } deadline)
+                                    {
+                                        <span style="display:block;font-size:12px" title="@Presentation.Stamp(deadline)"><span class="faint">Next action</span> <span class="muted">@Presentation.Until(deadline, _now)</span></span>
+                                    }
+                                </div>
                                 <div class="actions">
                                     <RadzenButton Icon="arrow_forward" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Open" Click="@(() => Navigation.NavigateTo($"instances/{instance.Id}"))" />
                                 </div>
@@ -131,6 +137,18 @@ else
                     <RadzenButton Text="Save settings" Icon="save" ButtonStyle="ButtonStyle.Primary" Disabled="Busy" Click="SaveAsync" />
                     <RadzenButton Text="Reset" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="Busy" Click="ResetEdit" />
                 </div>
+                <section class="ark-section" style="margin-top:28px">
+                    <SectionHead Title="Schedule" />
+                    <p class="muted">Every member runs these unless it ignores the cluster's schedule on its Settings tab.</p>
+                    @if (_schedule is null)
+                    {
+                        <p class="muted">Loading…</p>
+                    }
+                    else
+                    {
+                        <ScheduleEditor Rows="_schedule" Runs="_scheduleRuns" ShowInstanceColumn="true" Busy="Busy" OnSave="SaveScheduleAsync" />
+                    }
+                </section>
             </RadzenTabsItem>
         </Tabs>
     </RadzenTabs>
@@ -142,6 +160,9 @@ else
 
     private ClusterDetail? _detail;
     private RestoreJournal? _journal;
+    private IReadOnlyList<ScheduledActionView>? _schedule;
+    private IReadOnlyList<ScheduledActionRunView> _scheduleRuns = [];
+    private DateTimeOffset _now = DateTimeOffset.UtcNow;
     private IReadOnlyList<ModLibraryEntry> _library = [];
     private string? _name;
     private string? _key;
@@ -190,6 +211,8 @@ else
         var mapMods = await ModCommands.GetMapModsAsync();
         _library = (await ModCommands.ListLibraryAsync()).Where(m => !mapMods.ContainsKey(m.Id)).ToList();
         ResetEdit();
+        _now = DateTimeOffset.UtcNow;
+        await LoadScheduleAsync();
     });
 
     private void ResetEdit()
@@ -228,6 +251,30 @@ else
                 _detail = await ClusterCommands.GetAsync(Id);
             }
         });
+    }
+
+    private async Task LoadScheduleAsync()
+    {
+        var rows = await ClusterCommands.ListScheduledActionsAsync(Id);
+        var runs = await ClusterCommands.ListScheduledActionRunsAsync(Id);
+        _schedule = rows.Value ?? [];
+        _scheduleRuns = runs.Value ?? [];
+    }
+
+    /// <summary>The editor shows a refused save's problems itself; a successful save reloads the rows so the new ids and the runs follow.</summary>
+    private async Task<CommandResult> SaveScheduleAsync(IReadOnlyList<ScheduledActionEdit> rows)
+    {
+        var result = CommandResult.Fail("The schedule was not saved.");
+        await GuardedAsync(async () =>
+        {
+            result = await ClusterCommands.SaveScheduledActionsAsync(Id, rows);
+            if (result.Succeeded)
+            {
+                Notifications.Done("Saved schedule");
+                await LoadScheduleAsync();
+            }
+        });
+        return result;
     }
 
     private async Task SaveModsAsync(IReadOnlyList<ModSelection> mods)

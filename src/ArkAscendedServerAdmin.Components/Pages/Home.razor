@@ -122,6 +122,10 @@ else
                                     <span class="faint">no backup yet</span>
                                 }
                             </span>
+                            @if (instance.NextDeadline is { } deadline)
+                            {
+                                <span style="display:block;font-size:12px" title="@Presentation.Stamp(deadline)"><span class="faint">Next action</span> <span class="muted">@Presentation.Until(deadline, _now)</span></span>
+                            }
                         </div>
                         <div class="actions">
                             @if (runtime.State == InstanceState.Stopping && runtime.ExitRequested)
