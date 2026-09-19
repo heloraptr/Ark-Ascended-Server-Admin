@@ -1,5 +1,6 @@
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Domain;
+using ArkAscendedServerAdmin.Infrastructure.Backups;
 using ArkAscendedServerAdmin.Infrastructure.Maintenance;
 using ArkAscendedServerAdmin.Infrastructure.Processes;
 using ArkAscendedServerAdmin.Maintenance;
@@ -37,7 +38,7 @@ public class ProcessManagerLifecycleTests
         Assert.True(harness.Manager.GetRuntime(alpha).HasLiveProcess);
         var lifetime = Substitute.For<IHostApplicationLifetime>();
         lifetime.ApplicationStopping.Returns(CancellationToken.None);
-        var delete = new InstanceDeleteService(root, root.Layout, harness.Locks, new DetachedJobs(TimeProvider.System), harness.Manager, new FakeFirewall(), new FakeLayoutService(), console, lifetime, TimeProvider.System, NullLogger<InstanceDeleteService>.Instance);
+        var delete = new InstanceDeleteService(root, root.Layout, harness.Locks, new RestoreJournalStore(root.Layout), new DetachedJobs(TimeProvider.System), harness.Manager, new FakeFirewall(), new FakeLayoutService(), console, lifetime, TimeProvider.System, NullLogger<InstanceDeleteService>.Instance);
 
         var outcome = await delete.DeleteAsync(alpha, new InstanceDeleteOptions(KeepWorldData: false, DeleteBackups: true), Ct);
 

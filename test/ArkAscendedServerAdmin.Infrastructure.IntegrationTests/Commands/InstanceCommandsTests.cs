@@ -490,7 +490,7 @@ public class InstanceCommandsTests
                     ? throw new InvalidOperationException("Instance 999 does not exist.")
                     : host.ProcessManager.StartAsync(call.ArgAt<int>(0), call.ArgAt<LaunchKind>(1), call.ArgAt<CancellationToken>(2)));
             var facade = new Server.Commands.InstanceCommands(
-                host.Guard, host.Root, host.Root.Layout, host.Host, host.Settings, throwing, host.Locks, host.Backups, host.DeleteService, host.LayoutService,
+                host.Guard, host.Root, host.Root.Layout, host.Host, host.Settings, throwing, host.Locks, host.Journals, host.Backups, host.DeleteService, host.LayoutService,
                 host.IniStore, host.GeneratedConfig, host.Rcon, host.Console, host.Clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<Server.Commands.InstanceCommands>.Instance);
 
             var outcomes = await facade.StartManyAsync([ok.Value, busy.Value, 999], ct);

@@ -5,6 +5,7 @@ using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Backups;
 using ArkAscendedServerAdmin.Infrastructure.Data;
+using ArkAscendedServerAdmin.Maintenance;
 using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Provisioning;
 using ArkAscendedServerAdmin.Rcon;
@@ -344,7 +345,7 @@ public class BackupServiceTests
         IGeneratedConfigWriter writer,
         ArkAscendedServerAdmin.Consoles.IConsoleService console,
         TimeProvider clock)
-        : BackupService(root, root.Layout, settings, locks, processes, rcon, writer, console, clock, NullLogger<BackupService>.Instance)
+        : BackupService(root, root.Layout, settings, locks, processes, rcon, writer, console, new RestoreService(root, root.Layout, locks, processes, new DetachedJobs(clock), new RestoreJournalStore(root.Layout), console, clock, NullLogger<RestoreService>.Instance), clock, NullLogger<BackupService>.Instance)
     {
         public Action<string>? OnSnapshotCopied { get; set; }
 

@@ -39,3 +39,11 @@ public enum BackupOutcome
     Skipped,
     Failed,
 }
+
+/// <summary>Outcome of one restore attempt (B2); <see cref="RolledBack"/> means the previous files are back in place.</summary>
+public enum RestoreOutcome
+{
+    Success,
+    Failed,
+    RolledBack,
+}

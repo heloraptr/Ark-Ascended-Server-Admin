@@ -16,7 +16,15 @@ public sealed record BackupManifestEntry(string Path, long Length, string Sha256
 /// <param name="MapKey">The map whose <c>.ark</c> is the anchor file.</param>
 /// <param name="CreatedAt">When the snapshot was taken.</param>
 /// <param name="Files">Every archived file.</param>
-public sealed record BackupManifest(string InstanceSlug, string MapKey, DateTimeOffset CreatedAt, IReadOnlyList<BackupManifestEntry> Files)
+/// <param name="ClusterSlug">The cluster the instance belonged to when the snapshot was taken; null for a standalone instance or a manifest written before B2.</param>
+/// <param name="ClusterCaptured">True when the cluster directory existed and its content is in the archive under <c>Cluster/</c>; false for a manifest written before B2.</param>
+public sealed record BackupManifest(
+    string InstanceSlug,
+    string MapKey,
+    DateTimeOffset CreatedAt,
+    IReadOnlyList<BackupManifestEntry> Files,
+    string? ClusterSlug = null,
+    bool ClusterCaptured = false)
 {
     public const string FileName = "manifest.json";
 

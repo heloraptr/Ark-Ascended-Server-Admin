@@ -7,13 +7,15 @@ namespace ArkAscendedServerAdmin.Infrastructure.Backups;
 public static class BackupServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the backup job (plan step 28) and its scheduler. Depends on the process manager, instance
+    /// Registers the backup job (plan step 28), its scheduler, and the restore service and journal store (B2). Depends on the process manager, instance
     /// locks, RCON client, generated-config writer, and console service being registered by their own modules.
     /// </summary>
     public static IServiceCollection AddArkBackups(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        services.AddSingleton<IRestoreJournals, RestoreJournalStore>();
+        services.AddSingleton<RestoreService>();
         services.AddSingleton<IBackupService, BackupService>();
         services.AddSingleton<BackupScheduler>();
         services.AddHostedService(sp => sp.GetRequiredService<BackupScheduler>());

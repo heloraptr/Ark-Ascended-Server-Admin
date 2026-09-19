@@ -62,4 +62,6 @@ public sealed class Instance
     public List<ExtraOverride> ExtraOverrides { get; } = [];
 
     public List<BackupRecord> Backups { get; } = [];
+
+    public List<RestoreRecord> Restores { get; } = [];
 }

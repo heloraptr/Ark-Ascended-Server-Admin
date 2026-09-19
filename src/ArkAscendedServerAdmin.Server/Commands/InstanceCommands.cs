@@ -26,6 +26,7 @@ public sealed class InstanceCommands(
     IAppSettingsStore settings,
     IProcessManager processManager,
     IInstanceLocks locks,
+    IRestoreJournals restoreJournals,
     IBackupService backups,
     IInstanceDeleteService deleteService,
     IInstanceLayoutService layoutService,
@@ -322,6 +323,10 @@ public sealed class InstanceCommands(
             else if (locks.IsClusterReserved(clusterId))
             {
                 problems.Add("The cluster is reserved by a restore; try again when it finishes.");
+            }
+            else if (restoreJournals.FindForCluster(clusterId) is { } journal)
+            {
+                problems.Add(journal.RefusalReason("the cluster"));
             }
         }
 

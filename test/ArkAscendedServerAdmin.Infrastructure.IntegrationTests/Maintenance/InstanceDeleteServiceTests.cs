@@ -1,6 +1,8 @@
+using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Consoles;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Firewall;
+using ArkAscendedServerAdmin.Infrastructure.Backups;
 using ArkAscendedServerAdmin.Infrastructure.Maintenance;
 using ArkAscendedServerAdmin.Maintenance;
 using ArkAscendedServerAdmin.Processes;
@@ -41,6 +43,26 @@ public class InstanceDeleteServiceTests
         Assert.Empty(f.Processes.Stops);
         Assert.Empty(f.Locks.Holders);
         Assert.Contains(f.Console.Snapshot(ConsoleChannels.Instance(f.Instance.Id)), l => l.Kind == ConsoleLineKind.Info && l.Text.Contains("deleted", StringComparison.Ordinal));
+    }
+
+    /// <summary>B2: a journal owns the world files and the safety copy under the backup folder, so the delete is refused.</summary>
+    [Fact]
+    public async Task Delete_IsRefusedWhileARestoreJournalReferencesTheInstance()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        var f = await Fixture.CreateAsync(root, ct);
+        var journals = new RestoreJournalStore(root.Layout);
+        journals.Write(new RestoreJournal("alpha-op", DateTimeOffset.UnixEpoch, f.Instance.Id, "alpha", "TheIsland_WP", null, null, [f.Instance.Id], Path.Combine(root.Layout.InstanceRestoreSafetyDirectory("alpha"), "x"), "old.zip", RestorePhase.RollbackFailed));
+
+        var outcome = await f.Service.DeleteAsync(f.Instance.Id, new InstanceDeleteOptions(KeepWorldData: false, DeleteBackups: true), ct);
+
+        Assert.False(outcome.Succeeded);
+        Assert.Contains("incomplete restore (alpha-op)", outcome.Error, StringComparison.Ordinal);
+        Assert.Empty(f.Locks.Holders);
+        Assert.True(Directory.Exists(root.Layout.InstanceBackupDirectory("alpha")));
+        await using var db = root.CreateDbContext();
+        Assert.True(await db.Instances.AnyAsync(ct));
     }
 
     [Fact]
@@ -238,7 +260,7 @@ public class InstanceDeleteServiceTests
             lifetime.ApplicationStopping.Returns(CancellationToken.None);
 
             var jobs = new DetachedJobs(clock);
-            var service = new InstanceDeleteService(root, root.Layout, locks, jobs, processes, firewall, layout, console, lifetime, clock, NullLogger<InstanceDeleteService>.Instance);
+            var service = new InstanceDeleteService(root, root.Layout, locks, new RestoreJournalStore(root.Layout), jobs, processes, firewall, layout, console, lifetime, clock, NullLogger<InstanceDeleteService>.Instance);
 
             return new Fixture
             {
