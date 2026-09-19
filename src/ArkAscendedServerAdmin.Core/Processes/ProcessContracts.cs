@@ -182,6 +182,16 @@ public interface IProcessManager
     /// <summary>"Stop now": ends a running stop job's countdown. False when no countdown is in progress.</summary>
     bool TrySkipCountdown(int instanceId);
 
+    /// <summary>
+    /// Broadcasts a countdown to <paramref name="deadline"/> on the instance's live session and completes when it
+    /// passes (B3): the same loop the stop countdown uses, so the minutes are computed from the clock and the
+    /// remaining time, never by adding elapsed minutes. <paramref name="messageTemplate"/> is a format string whose
+    /// <c>{0}</c> becomes "in N minute(s)" for each announcement and "now" for the last one. Takes no lock; the caller
+    /// holds the instance lease when the countdown must not be interrupted. Rejected, without broadcasting, when the
+    /// instance has no live process or no RCON credentials. <see cref="TrySkipCountdown"/> ends it early.
+    /// </summary>
+    Task<OperationOutcome> BroadcastCountdownAsync(int instanceId, DateTimeOffset deadline, string messageTemplate, CancellationToken cancellationToken);
+
     /// <summary>Re-attempts persisting <c>LastPid</c> / <c>LastProcessStartTime</c> for an <see cref="InstanceState.IdentityUnpersisted"/> instance.</summary>
     Task<OperationOutcome> RetryPersistIdentityAsync(int instanceId, CancellationToken cancellationToken);
 }

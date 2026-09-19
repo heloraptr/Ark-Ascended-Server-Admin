@@ -2,7 +2,6 @@ using ArkAscendedServerAdmin.Auth;
 using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Configuration;
-using ArkAscendedServerAdmin.Consoles;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Ini;
@@ -12,7 +11,7 @@ using ArkAscendedServerAdmin.Naming;
 using ArkAscendedServerAdmin.Ports;
 using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Provisioning;
-using ArkAscendedServerAdmin.Rcon;
+using ArkAscendedServerAdmin.Scheduling;
 using Microsoft.EntityFrameworkCore;
 
 namespace ArkAscendedServerAdmin.Server.Commands;
@@ -31,9 +30,7 @@ public sealed class InstanceCommands(
     IInstanceDeleteService deleteService,
     IInstanceLayoutService layoutService,
     IIniSourceStore iniStore,
-    IGeneratedConfigWriter generatedConfig,
-    IRconClient rcon,
-    IConsoleService console,
+    IRconOperations rconOperations,
     TimeProvider timeProvider,
     ILogger<InstanceCommands> logger) : IInstanceCommands
 {
@@ -241,56 +238,8 @@ public sealed class InstanceCommands(
     public async Task<CommandResult<string>> SendRconAsync(int instanceId, string command, CancellationToken cancellationToken = default)
     {
         await guard.EnsureAuthorizedAsync(cancellationToken);
-        if (string.IsNullOrWhiteSpace(command))
-        {
-            return CommandResult<string>.Fail("Type a command first.");
-        }
-
-        var runtime = processManager.GetRuntime(instanceId);
-        if (!runtime.HasLiveProcess)
-        {
-            return CommandResult<string>.Fail("The instance is not running, so there is nothing to send the command to.");
-        }
-
-        string slug;
-        await using (var db = await contextFactory.CreateDbContextAsync(cancellationToken))
-        {
-            slug = await db.Instances.AsNoTracking().Where(i => i.Id == instanceId).Select(i => i.Slug).SingleOrDefaultAsync(cancellationToken)
-                ?? throw new InvalidOperationException($"Instance {instanceId} does not exist.");
-        }
-
-        var generated = await generatedConfig.ReadGeneratedGameUserSettingsAsync(slug, cancellationToken);
-        if (generated is null)
-        {
-            return CommandResult<string>.Fail("The generated GameUserSettings.ini is missing, so the RCON password is unknown.");
-        }
-
-        var endpoint = RconCredentials.TryRead(generated, out var problem);
-        if (endpoint is null)
-        {
-            return CommandResult<string>.Fail(problem ?? "RCON credentials could not be read.");
-        }
-
-        var channel = ConsoleChannels.Instance(instanceId);
-        var trimmed = command.Trim();
-        console.Append(channel, new ConsoleLine(timeProvider.GetUtcNow(), $"> {trimmed}", ConsoleLineKind.Info));
-        try
-        {
-            var timeout = TimeSpan.FromSeconds((await settings.GetAsync(cancellationToken)).RconCommandTimeoutSeconds);
-            var reply = await rcon.ExecuteAsync(endpoint, trimmed, timeout, cancellationToken);
-            var text = string.IsNullOrWhiteSpace(reply) ? "(no reply)" : reply.TrimEnd();
-            foreach (var line in text.Split('\n'))
-            {
-                console.Append(channel, new ConsoleLine(timeProvider.GetUtcNow(), line.TrimEnd('\r'), ConsoleLineKind.Output));
-            }
-
-            return CommandResult<string>.Ok(text);
-        }
-        catch (RconException ex)
-        {
-            console.Append(channel, new ConsoleLine(timeProvider.GetUtcNow(), $"RCON {ex.Failure}: {ex.Message}", ConsoleLineKind.Error));
-            return CommandResult<string>.Fail($"RCON {ex.Failure.ToString().ToLowerInvariant()} failure: {ex.Message}");
-        }
+        // The send itself (live-process check, credentials, console echo) is the shared path the scheduled-action runner uses too (B3).
+        return await rconOperations.ExecuteAsync(instanceId, command, cancellationToken);
     }
 
     // ---- ports ---------------------------------------------------------------------------------------
