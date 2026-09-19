@@ -1896,11 +1896,6 @@ h1:focus-visible {
   white-space: nowrap;
 }
 
-.sched-time::-webkit-calendar-picker-indicator {
-  filter: invert(0.6);
-  cursor: pointer;
-}
-
 .sched-warning {
   display: flex;
   align-items: center;
@@ -1927,6 +1922,14 @@ h1:focus-visible {
 
 .cron-inline .rz-numeric {
   width: 80px;
+}
+
+.cron-clock {
+  gap: 4px;
+}
+
+.cron-clock .rz-numeric {
+  width: 56px;
 }
 
 .cron-dialog input.mono {

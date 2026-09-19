@@ -1,4 +1,4 @@
-@* Cron builder for one scheduled action (B3). Four modes cover the usual shapes and a text box takes anything else; every mode shows the expression it produces, its friendly text, and the next three occurrences in the server's local time. Closes with the expression string, or null when cancelled. *@
+@* Cron builder for one scheduled action (B3). Four modes cover the usual shapes and a text box takes anything else; every mode shows the expression it produces, its friendly text, and the next three occurrences in the server's local time. Times are entered as hour and minute on the 24-hour clock, so the boxes match the rows and the history rather than the browser's locale. Closes with the expression string, or null when cancelled. *@
 @using System.Globalization
 @using ArkAscendedServerAdmin.Scheduling
 @inject DialogService Dialogs
@@ -27,9 +27,13 @@
         @if (_mode == Mode.Daily)
         {
             <div class="field">
-                <label for="cron-time">Time</label>
-                <input type="time" id="cron-time" class="rz-textbox sched-time" @bind="_time" @bind:format="HH:mm" />
-                <span class="hint">The server's local time.</span>
+                <label for="cron-hour">Time</label>
+                <span class="cron-inline cron-clock">
+                    <RadzenNumeric TValue="int" id="cron-hour" @bind-Value="_hour" Min="0" Max="23" Format="00" ShowUpDown="false" aria-label="Hour" />
+                    <span class="faint">:</span>
+                    <RadzenNumeric TValue="int" id="cron-minute" @bind-Value="_minute" Min="0" Max="59" Format="00" ShowUpDown="false" aria-label="Minute" />
+                </span>
+                <span class="hint">The server's local time, on the 24-hour clock.</span>
             </div>
         }
         else if (_mode == Mode.Hours)
@@ -59,9 +63,13 @@
                 </div>
             </div>
             <div class="field">
-                <label for="cron-days-time">Time</label>
-                <input type="time" id="cron-days-time" class="rz-textbox sched-time" @bind="_time" @bind:format="HH:mm" />
-                <span class="hint">The server's local time.</span>
+                <label for="cron-days-hour">Time</label>
+                <span class="cron-inline cron-clock">
+                    <RadzenNumeric TValue="int" id="cron-days-hour" @bind-Value="_hour" Min="0" Max="23" Format="00" ShowUpDown="false" aria-label="Hour" />
+                    <span class="faint">:</span>
+                    <RadzenNumeric TValue="int" id="cron-days-minute" @bind-Value="_minute" Min="0" Max="59" Format="00" ShowUpDown="false" aria-label="Minute" />
+                </span>
+                <span class="hint">The server's local time, on the 24-hour clock.</span>
             </div>
         }
         else
@@ -115,7 +123,8 @@
     private static readonly string[] _dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
     private Mode _mode = Mode.Daily;
-    private TimeOnly _time = new(3, 0);
+    private int _hour = 3;
+    private int _minute;
     private int _everyHours = 6;
     private int _atMinute;
     private readonly bool[] _days = new bool[7];
@@ -143,7 +152,8 @@
 
         if (TryField(fields[1], 23, out var hour))
         {
-            _time = new TimeOnly(hour, minute);
+            _hour = hour;
+            _minute = minute;
             if (fields[4] == "*")
             {
                 _mode = Mode.Daily;
@@ -180,12 +190,12 @@
         switch (_mode)
         {
             case Mode.Daily:
-                return ($"{_time.Minute} {_time.Hour} * * *", null);
+                return ($"{_minute} {_hour} * * *", null);
             case Mode.Hours:
                 return (_everyHours == 1 ? $"{_atMinute} * * * *" : $"{_atMinute} */{_everyHours} * * *", null);
             case Mode.Days:
                 var days = DaysField();
-                return days.Length == 0 ? (string.Empty, "Choose at least one day.") : ($"{_time.Minute} {_time.Hour} * * {days}", null);
+                return days.Length == 0 ? (string.Empty, "Choose at least one day.") : ($"{_minute} {_hour} * * {days}", null);
             default:
                 var custom = _custom.Trim();
                 if (custom.Length == 0)
