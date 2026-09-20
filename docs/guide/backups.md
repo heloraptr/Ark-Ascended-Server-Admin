@@ -213,6 +213,10 @@ which is why the installer restricts them to `SYSTEM` and administrators.
 | Settings tab | "Backup interval must be between 1 and 10080 minutes, or left blank to use the default." | Fix the field or clear it. |
 | Settings tab | "Backups to keep must be between 1 and 1000, or left blank to use the default." | Same. |
 
+A skipped or failed attempt holds no zip, so it does not count against **Backups to keep**. Those
+rows are capped on their own instead: each instance keeps its 50 most recent, and anything older is
+dropped after the next backup, so a schedule that fails every time cannot bury the list.
+
 ## What happens to the zips when an instance goes
 
 Deleting an instance asks whether to delete its backup archives, with the box ticked. Leave it

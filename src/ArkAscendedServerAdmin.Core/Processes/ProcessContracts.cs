@@ -56,9 +56,10 @@ public enum SessionLiveness
 }
 
 /// <summary>
-/// One reply from the 15-second <c>ListPlayers</c> health probe, tagged with the session it came from (B0; the player
-/// tracker consumes it). <paramref name="SentAt"/> is taken before the command is sent, so a slow reply cannot look
-/// newer than evidence that arrived while it was in flight.
+/// One <c>ListPlayers</c> reply tagged with the session it came from (B0): the 15-second health probe raises one per
+/// success, and the owner's on-demand list is recorded the same way. The player tracker consumes them.
+/// <paramref name="SentAt"/> is taken before the command is sent, so a slow reply cannot look newer than evidence
+/// that arrived while it was in flight.
 /// </summary>
 public sealed record ProbeObservation(int InstanceId, int Pid, DateTimeOffset ProcessStartTime, DateTimeOffset SentAt, string Reply);
 

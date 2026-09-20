@@ -199,9 +199,17 @@ public sealed class FakeProcessManager(FakeMaintenanceGate? gate = null) : IProc
         }
     }
 
-    public void Set(int instanceId, InstanceState state)
+    /// <summary>The start time a live runtime carries when a test does not name one; with the pid it makes up the session identity.</summary>
+    public static readonly DateTimeOffset DefaultStartTime = new(2026, 9, 12, 9, 0, 0, TimeSpan.Zero);
+
+    /// <summary>
+    /// Publishes a runtime. A live one carries pid <c>1000 + instanceId</c> and <paramref name="startTime"/>, or
+    /// <see cref="DefaultStartTime"/> when none is given; passing a second start time stands for a restart.
+    /// </summary>
+    public void Set(int instanceId, InstanceState state, DateTimeOffset? startTime = null)
     {
-        var runtime = new InstanceRuntime(instanceId, state, state == InstanceState.Stopped ? null : 1000 + instanceId, null, null, null, null);
+        var live = state != InstanceState.Stopped;
+        var runtime = new InstanceRuntime(instanceId, state, live ? 1000 + instanceId : null, live ? startTime ?? DefaultStartTime : null, null, null, null);
         _runtimes[instanceId] = runtime;
         RuntimeChanged?.Invoke(runtime);
     }

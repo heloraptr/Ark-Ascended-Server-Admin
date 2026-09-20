@@ -13,7 +13,8 @@ namespace ArkAscendedServerAdmin.Server.Commands;
 
 /// <summary>
 /// Guarded facade for the Players page and the instance Players tab. The table is fed by
-/// <see cref="IPlayerTracker"/> from the game log; this reads it, asks one instance who is on, and forgets rows.
+/// <see cref="IPlayerTracker"/> from the game log and the health probe; this reads it, asks one instance who is on,
+/// and forgets rows.
 /// </summary>
 public sealed class PlayerCommands(
     IAuthorizationGuard guard,
@@ -37,7 +38,10 @@ public sealed class PlayerCommands(
     {
         await guard.EnsureAuthorizedAsync(cancellationToken);
 
-        if (processManager.GetRuntime(instanceId).State != InstanceState.Running)
+        // The session is read before the command goes out, so a reply that arrives after a restart is
+        // recognized as belonging to the process that has gone and is dropped by the tracker.
+        var runtime = processManager.GetRuntime(instanceId);
+        if (runtime.State != InstanceState.Running)
         {
             return CommandResult<OnlinePlayers>.Fail("The instance is not running, so there is no server to ask.");
         }
@@ -63,9 +67,18 @@ public sealed class PlayerCommands(
         try
         {
             var timeout = TimeSpan.FromSeconds((await settings.GetAsync(cancellationToken)).RconCommandTimeoutSeconds);
+            var sentAt = timeProvider.GetUtcNow();
             var reply = await rcon.ExecuteAsync(endpoint, RconCommands.ListPlayers, timeout, cancellationToken);
             var players = ListPlayersParser.Parse(reply);
-            await tracker.RecordListedAsync(instanceId, players, cancellationToken);
+            if (runtime.Pid is { } pid && runtime.ProcessStartTime is { } startTime)
+            {
+                await tracker.RecordListedAsync(new ProbeObservation(instanceId, pid, startTime, sentAt, reply), cancellationToken);
+            }
+            else
+            {
+                logger.LogDebug("Instance {InstanceId} is running without a full session identity, so its reply was reported but not recorded.", instanceId);
+            }
+
             return CommandResult<OnlinePlayers>.Ok(new OnlinePlayers(players, timeProvider.GetUtcNow()));
         }
         catch (RconException ex)

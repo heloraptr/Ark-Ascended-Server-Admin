@@ -1,11 +1,11 @@
-using ArkAscendedServerAdmin.Rcon;
+using ArkAscendedServerAdmin.Processes;
 
 namespace ArkAscendedServerAdmin.Players;
 
 /// <summary>
 /// Keeps the known players table current. Follows every instance console for join and leave lines
 /// (live and backfilled), marks an instance's players offline when its process is gone, and merges
-/// <c>ListPlayers</c> replies when the owner asks an instance who is on.
+/// <c>ListPlayers</c> replies: the health probe's every 15 seconds and the owner's on demand.
 /// </summary>
 public interface IPlayerTracker
 {
@@ -13,8 +13,11 @@ public interface IPlayerTracker
     event Action? Changed;
 
     /// <summary>
-    /// Records a <c>ListPlayers</c> reply: everyone listed is online on the instance now; anyone the table
-    /// thought was online there but who is missing from the reply is marked offline.
+    /// Records a <c>ListPlayers</c> reply tagged with the session it came from: everyone listed is online on the
+    /// instance as of <see cref="ProbeObservation.SentAt"/>; anyone the table thought was online there but who is
+    /// missing from the reply is marked offline. A row whose newest evidence is at or after the sent-at time is
+    /// left alone, so a slow reply never overwrites a join, a leave, or a later reply, on any instance. Returns
+    /// false, touching nothing, when the observation's session is no longer the instance's live one.
     /// </summary>
-    Task RecordListedAsync(int instanceId, IReadOnlyList<ListedPlayer> players, CancellationToken cancellationToken);
+    Task<bool> RecordListedAsync(ProbeObservation observation, CancellationToken cancellationToken);
 }

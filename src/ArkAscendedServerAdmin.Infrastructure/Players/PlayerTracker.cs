@@ -14,17 +14,17 @@ namespace ArkAscendedServerAdmin.Infrastructure.Players;
 
 /// <summary>
 /// The one writer of the known players table. Subscribes to every instance console (the log tail feeds
-/// it, live and backfilled lines alike) and to runtime changes; work is queued onto a single-reader
-/// channel so join and leave lines apply in the order the game wrote them, and the console event never
-/// waits on the database. Timestamps come from the line's own UTC stamp so a backfill replayed after a
-/// service restart records when things happened, not when they were read; an event older than what the
-/// row already knows is ignored, which makes a replay idempotent.
+/// it, live and backfilled lines alike), to the health probe's <c>ListPlayers</c> replies, and to runtime
+/// changes; work is queued onto a single-reader channel so join and leave lines apply in the order the
+/// game wrote them, and the console event never waits on the database. Timestamps come from the line's
+/// own UTC stamp, or from the moment a reply was sent, so a backfill replayed after a service restart
+/// records when things happened, not when they were read; evidence older than what the row already knows
+/// is ignored, which makes a replay idempotent.
 /// </summary>
 public sealed class PlayerTracker(
     IDbContextFactory<AppDbContext> contextFactory,
     IConsoleService console,
     IProcessManager processManager,
-    TimeProvider timeProvider,
     ILogger<PlayerTracker> logger) : IPlayerTracker, IHostedService, IDisposable
 {
     private const string ChannelPrefix = "instance:";
@@ -40,6 +40,7 @@ public sealed class PlayerTracker(
     {
         console.LineAppended += OnLineAppended;
         processManager.RuntimeChanged += OnRuntimeChanged;
+        processManager.ProbeObserved += OnProbeObserved;
         _loop = Task.Run(() => DrainAsync(_stopping.Token), CancellationToken.None);
         return Task.CompletedTask;
     }
@@ -48,6 +49,7 @@ public sealed class PlayerTracker(
     {
         console.LineAppended -= OnLineAppended;
         processManager.RuntimeChanged -= OnRuntimeChanged;
+        processManager.ProbeObserved -= OnProbeObserved;
         _work.Writer.TryComplete();
         if (_loop is { } loop)
         {
@@ -62,51 +64,63 @@ public sealed class PlayerTracker(
         }
     }
 
-    public async Task RecordListedAsync(int instanceId, IReadOnlyList<ListedPlayer> players, CancellationToken cancellationToken)
+    public async Task<bool> RecordListedAsync(ProbeObservation observation, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(players);
+        ArgumentNullException.ThrowIfNull(observation);
 
-        var now = timeProvider.GetUtcNow();
-        bool changed;
+        var runtime = processManager.GetRuntime(observation.InstanceId);
+        if (!runtime.HasLiveProcess || runtime.Pid != observation.Pid || runtime.ProcessStartTime != observation.ProcessStartTime)
+        {
+            logger.LogDebug(
+                "Dropped a ListPlayers reply from pid {Pid} on instance {InstanceId}: it is no longer the live session.",
+                observation.Pid,
+                observation.InstanceId);
+            return false;
+        }
+
+        var listed = ListPlayersParser.Parse(observation.Reply);
+        var sentAt = observation.SentAt;
+        var changed = false;
         await _gate.WaitAsync(cancellationToken);
         try
         {
             await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
-            var ids = players.Select(p => p.EosId.ToLowerInvariant()).ToList();
+            var ids = listed.Select(p => p.EosId.ToLowerInvariant()).ToList();
             var rows = await db.KnownPlayers
-                .Where(p => ids.Contains(p.EosId.ToLower()) || (p.LastInstanceId == instanceId && p.IsOnline))
+                .Where(p => ids.Contains(p.EosId.ToLower()) || (p.LastInstanceId == observation.InstanceId && p.IsOnline))
                 .ToListAsync(cancellationToken);
 
-            foreach (var player in players)
+            var changes = PresenceSnapshot.Decide(observation.InstanceId, sentAt, listed, rows);
+            foreach (var newcomer in changes.Newcomers)
             {
-                var row = rows.FirstOrDefault(p => p.EosId.Equals(player.EosId, StringComparison.OrdinalIgnoreCase));
-                if (row is null)
+                db.KnownPlayers.Add(new KnownPlayer
                 {
-                    db.KnownPlayers.Add(new KnownPlayer
-                    {
-                        Name = player.Name,
-                        EosId = player.EosId,
-                        FirstSeenAt = now,
-                        LastSeenAt = now,
-                        IsOnline = true,
-                        LastInstanceId = instanceId,
-                    });
-                }
-                else
-                {
-                    row.Name = player.Name;
-                    row.LastSeenAt = now;
-                    row.IsOnline = true;
-                    row.LastInstanceId = instanceId;
-                }
+                    Name = newcomer.Name,
+                    EosId = newcomer.EosId,
+                    FirstSeenAt = sentAt,
+                    LastSeenAt = sentAt,
+                    IsOnline = true,
+                    LastInstanceId = observation.InstanceId,
+                });
             }
 
-            foreach (var row in rows.Where(p => p.LastInstanceId == instanceId && p.IsOnline && !ids.Contains(p.EosId.ToLowerInvariant())))
+            foreach (var (row, player) in changes.Online)
             {
+                row.Name = player.Name;
+                row.LastSeenAt = sentAt;
+                row.IsOnline = true;
+                row.LastInstanceId = observation.InstanceId;
+            }
+
+            foreach (var row in changes.Offline)
+            {
+                // When they left is unknown, so LastLeftAt stays put; LastSeenAt moves because the reply is
+                // newer evidence about the player than whatever the row held.
+                row.LastSeenAt = sentAt;
                 row.IsOnline = false;
             }
 
-            changed = await db.SaveChangesAsync(cancellationToken) > 0;
+            changed = !changes.IsEmpty && await db.SaveChangesAsync(cancellationToken) > 0;
         }
         finally
         {
@@ -117,6 +131,8 @@ public sealed class PlayerTracker(
         {
             RaiseChanged();
         }
+
+        return true;
     }
 
     /// <summary>Applies one join or leave event; false when it was older than the row's latest evidence and skipped.</summary>
@@ -212,6 +228,9 @@ public sealed class PlayerTracker(
 
         _work.Writer.TryWrite(token => ApplyAsync(instanceId, logEvent, line.At, token));
     }
+
+    private void OnProbeObserved(ProbeObservation observation) =>
+        _work.Writer.TryWrite(token => RecordListedAsync(observation, token));
 
     private void OnRuntimeChanged(InstanceRuntime runtime)
     {

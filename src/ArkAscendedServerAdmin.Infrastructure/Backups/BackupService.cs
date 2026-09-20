@@ -90,6 +90,7 @@ public class BackupService(
             await PruneAsync(instance, settings, cancellationToken);
         }
 
+        await PruneUnsuccessfulAsync(instance, cancellationToken);
         return record;
     }
 
@@ -510,6 +511,31 @@ public class BackupService(
 
         await db.SaveChangesAsync(cancellationToken);
         Info(instance, $"Pruned {prune.Count} backup(s) beyond the retention of {retention}.");
+    }
+
+    /// <summary>
+    /// Caps the instance's skipped and failed rows at <see cref="BackupRetention.UnsuccessfulRecordsKept"/> after every
+    /// backup, so an instance that keeps failing cannot fill the table. Those rows hold no archive, so nothing is
+    /// deleted from disk and the console is left alone.
+    /// </summary>
+    private async Task PruneUnsuccessfulAsync(Instance instance, CancellationToken cancellationToken)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var records = await db.BackupRecords
+            .Where(r => r.InstanceId == instance.Id && r.Outcome != BackupOutcome.Success)
+            .ToListAsync(cancellationToken);
+        var prune = BackupRetention.SelectUnsuccessfulForPruning(records);
+        if (prune.Count == 0)
+        {
+            return;
+        }
+
+        db.BackupRecords.RemoveRange(prune);
+        await db.SaveChangesAsync(cancellationToken);
+        logger.LogDebug(
+            "Pruned {Count} skipped or failed backup record(s) of instance {InstanceId}.",
+            prune.Count,
+            instance.Id);
     }
 
     private BackupRecord Outcome(Instance instance, bool isManual, DateTimeOffset createdAt, BackupOutcome outcome, string? reason) =>
