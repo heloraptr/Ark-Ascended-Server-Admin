@@ -9,8 +9,7 @@
     @foreach (var locked in Rows.Where(r => r.Inherited))
     {
         <div class="sched-row is-locked" title="Comes from the cluster; change it on the cluster page.">
-            <span class="sched-when"><span class="sched-desc" title="@When(locked.Cron, locked.NextDeadline)">@locked.Description</span></span>
-            <span>@Presentation.Label(locked.Kind)</span>
+            <span class="sched-kind">@Presentation.Label(locked.Kind)</span>
             <span class="detail">
                 @if (locked.Kind == ScheduledActionKind.RconCommand)
                 {
@@ -21,6 +20,7 @@
                     <text>@Presentation.Plural(locked.WarningMinutes, "minute") warning</text>
                 }
             </span>
+            <span class="sched-when"><span class="sched-desc" title="@When(locked.Cron, locked.NextDeadline)">@locked.Description</span></span>
             <span class="faint">@(locked.Enabled ? "enabled" : "disabled")</span>
             <RadzenIcon Icon="lock" Style="color:var(--ark-steel-3)" />
         </div>
@@ -28,10 +28,6 @@
     @foreach (var row in _rows)
     {
         <div class="sched-row">
-            <span class="sched-when">
-                <span class="sched-desc" title="@When(row.Cron, row.NextDeadline)">@row.Description</span>
-                <RadzenButton Icon="edit" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Change the schedule" Disabled="Busy" Click="() => EditAsync(row)" />
-            </span>
             <RadzenDropDown TValue="ScheduledActionKind" @bind-Value="row.Kind" Data="_kinds" TextProperty="Text" ValueProperty="Value" aria-label="Action" />
             @if (row.Kind == ScheduledActionKind.RconCommand)
             {
@@ -44,6 +40,10 @@
                     <span class="faint">min warning</span>
                 </span>
             }
+            <span class="sched-when">
+                <span class="sched-desc" title="@When(row.Cron, row.NextDeadline)">@row.Description</span>
+                <RadzenButton Icon="edit" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Change the schedule" Disabled="Busy" Click="() => EditAsync(row)" />
+            </span>
             <div class="check-row">
                 <RadzenCheckBox TValue="bool" @bind-Value="row.Enabled" Name="@row.Key" />
                 <label for="@row.Key">Enabled</label>

@@ -1845,16 +1845,24 @@ h1:focus-visible {
   margin-bottom: 6px;
 }
 
-/* Schedule editor: rows inherited from the cluster first (locked), then the owner's own rows. The time input is a
-   plain <input type="time"> carrying the rz-textbox class so the theme styles it like the other inputs. */
+/* Schedule editor: rows inherited from the cluster first (locked), then the owner's own rows. The columns are the
+   kind, the command or warning (the one that stretches), the schedule, the enabled flag, and the remove button or
+   lock. The list owns the tracks and each row is a subgrid, so the content-sized columns line up across locked and
+   editable rows; the per-row template is the fallback where subgrid is unsupported. */
 .sched-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 180px minmax(140px, 1fr) max-content max-content max-content;
+}
+
+.sched-list > .muted {
+  grid-column: 1 / -1;
 }
 
 .sched-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1.4fr) 180px minmax(200px, 1fr) auto 32px;
+  grid-column: 1 / -1;
+  grid-template-columns: 180px minmax(140px, 1fr) max-content max-content max-content;
+  grid-template-columns: subgrid;
   align-items: center;
   gap: 12px;
   min-height: 46px;
@@ -1866,8 +1874,15 @@ h1:focus-visible {
   opacity: 0.6;
 }
 
+.sched-row > .rz-button,
 .sched-row.is-locked .rzi {
   justify-self: center;
+}
+
+/* The locked text sits where the inputs' text does: 1px border plus 7px padding. */
+.sched-kind,
+.sched-row .detail {
+  padding-left: 8px;
 }
 
 .sched-row .detail {
@@ -1882,17 +1897,18 @@ h1:focus-visible {
   width: 100%;
 }
 
+.sched-kind,
+.sched-row > .faint {
+  white-space: nowrap;
+}
+
 .sched-when {
   display: flex;
   align-items: center;
   gap: 4px;
-  min-width: 0;
-  padding-left: 8px;
 }
 
 .sched-desc {
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
