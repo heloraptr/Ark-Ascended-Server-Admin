@@ -108,7 +108,13 @@ else
                             <a href="instances/@instance.Id">@instance.Name</a>
                             <small>@instance.SessionName</small>
                         </div>
-                        <div class="cell"><strong>@instance.MapName</strong>@(instance.ModCount > 0 ? Presentation.Plural(instance.ModCount, "mod") : "vanilla")</div>
+                        <div class="cell">
+                            <strong>@instance.MapName</strong>@(instance.ModCount > 0 ? Presentation.Plural(instance.ModCount, "mod") : "vanilla")
+                            @if (runtime.HasLiveProcess && Processes.GetTelemetry(instance.Id) is { } telemetry)
+                            {
+                                <span class="num" style="display:block;font-size:12px" title="@($"Sampled {Presentation.Clock(telemetry.SampledAt)}")">@Presentation.Telemetry(telemetry)</span>
+                            }
+                        </div>
                         <div class="cell ports"><strong class="num">@instance.GamePort <span class="faint">game</span></strong><span class="num">@instance.RconPort <span class="faint">rcon</span></span></div>
                         <div class="cell">
                             <InstanceStateView Runtime="runtime" ShowHint="false" />
@@ -197,6 +203,7 @@ else
     {
         _maintenance = Updates.Current;
         Processes.RuntimeChanged += OnRuntimeChanged;
+        Processes.TelemetryChanged += OnTelemetryChanged;
         Updates.Changed += OnMaintenanceChanged;
         await LoadAsync();
     }
@@ -212,6 +219,8 @@ else
     private string NameOf(int id) => _data?.Instances.FirstOrDefault(i => i.Id == id)?.Name ?? $"instance #{id}";
 
     private void OnRuntimeChanged(InstanceRuntime runtime) => _ = InvokeAsync(StateHasChanged);
+
+    private void OnTelemetryChanged(int instanceId, InstanceTelemetry? sample) => _ = InvokeAsync(StateHasChanged);
 
     private void OnMaintenanceChanged(MaintenanceSnapshot snapshot) => _ = InvokeAsync(async () =>
     {
@@ -276,6 +285,7 @@ else
     public void Dispose()
     {
         Processes.RuntimeChanged -= OnRuntimeChanged;
+        Processes.TelemetryChanged -= OnTelemetryChanged;
         Updates.Changed -= OnMaintenanceChanged;
     }
 }

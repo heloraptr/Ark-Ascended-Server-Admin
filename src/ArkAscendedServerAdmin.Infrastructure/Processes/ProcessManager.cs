@@ -94,6 +94,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
 
     private readonly ConcurrentDictionary<int, InstanceRuntime> _runtimes = new();
     private readonly ConcurrentDictionary<int, Session> _sessions = new();
+    private readonly ConcurrentDictionary<int, InstanceTelemetry> _telemetry = new();
 
     public ProcessManager(
         IDbContextFactory<AppDbContext> dbFactory,
@@ -146,6 +147,11 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
     public event Action<InstanceRuntime>? RuntimeChanged;
 
     public event Action<ProbeObservation>? ProbeObserved;
+
+    public event Action<int, InstanceTelemetry?>? TelemetryChanged;
+
+    public InstanceTelemetry? GetTelemetry(int instanceId) =>
+        _telemetry.TryGetValue(instanceId, out var sample) ? sample : null;
 
     public InstanceRuntime GetRuntime(int instanceId) =>
         _runtimes.TryGetValue(instanceId, out var runtime) ? runtime : Default(instanceId);
@@ -1068,6 +1074,8 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
                 return;
             }
 
+            SampleTelemetry(session);
+
             try
             {
                 await Task.Delay(LivenessInterval, _time, token);
@@ -1077,6 +1085,49 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
                 return;
             }
         }
+    }
+
+    /// <summary>
+    /// One resource reading per liveness tick (B7). The first tick of a session only records the baseline, because a
+    /// CPU share needs two <c>TotalProcessorTime</c> readings; every later tick refreshes the baseline over the tick
+    /// that just passed and publishes at most every <see cref="TelemetrySampler.PublishInterval"/>. A process that
+    /// cannot be read is skipped without a log line: the next tick either reads it or sees the exit.
+    /// </summary>
+    private void SampleTelemetry(Session session)
+    {
+        long workingSet;
+        TimeSpan processorTime;
+        try
+        {
+            session.Process.Refresh();
+            workingSet = session.Process.WorkingSet64;
+            processorTime = session.Process.TotalProcessorTime;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or NotSupportedException)
+        {
+            return;
+        }
+
+        var now = _time.GetUtcNow();
+        var previousTotal = session.ProcessorTime;
+        var previousAt = session.ProcessorTimeAt;
+        session.ProcessorTime = processorTime;
+        session.ProcessorTimeAt = now;
+        if (previousTotal is not { } lastTotal || previousAt is not { } lastAt)
+        {
+            return;
+        }
+
+        if (!TelemetrySampler.ShouldPublish(session.TelemetryPublishedAt, now, TelemetrySampler.PublishInterval))
+        {
+            return;
+        }
+
+        var percent = TelemetrySampler.CpuPercent(lastTotal, processorTime, now - lastAt, Environment.ProcessorCount);
+        var sample = new InstanceTelemetry(session.InstanceId, workingSet, percent, now);
+        session.TelemetryPublishedAt = now;
+        _telemetry[session.InstanceId] = sample;
+        RaiseTelemetry(session.InstanceId, sample);
     }
 
     private async Task HandleExitAsync(Session session)
@@ -1101,6 +1152,8 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         }
 
         Update(session.InstanceId, runtime => runtime with { State = InstanceState.Stopped, Pid = null, ProcessStartTime = null, Detail = detail, ExitRequested = false });
+        _telemetry.TryRemove(session.InstanceId, out _);
+        RaiseTelemetry(session.InstanceId, null);
         await MirrorStateAsync(session.InstanceId, InstanceState.Stopped, _lifetime, clearIdentity: true);
 
         session.Cancellation.Cancel();
@@ -1148,6 +1201,19 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             ProcessRowStatus.Complete => SessionLiveness.Dead,
             _ => SessionLiveness.Unknown,
         };
+    }
+
+    /// <summary>The two-argument twin of <see cref="Raise{T}"/>, for <see cref="TelemetryChanged"/>.</summary>
+    private void RaiseTelemetry(int instanceId, InstanceTelemetry? sample)
+    {
+        try
+        {
+            TelemetryChanged?.Invoke(instanceId, sample);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "A TelemetryChanged subscriber threw.");
+        }
     }
 
     /// <summary>Subscriber exceptions are logged, never propagated into the loop that raised the event.</summary>
@@ -1358,6 +1424,15 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
 
         /// <summary>The one-time warning for a HasExited failure the process table could not settle.</summary>
         public volatile bool ProbeUnknownLogged;
+
+        /// <summary>The previous tick's processor-time reading and the moment it was taken; the liveness loop owns both (B7).</summary>
+        public TimeSpan? ProcessorTime { get; set; }
+
+        /// <inheritdoc cref="ProcessorTime" />
+        public DateTimeOffset? ProcessorTimeAt { get; set; }
+
+        /// <summary>When the last telemetry sample was published, or null until the first one (B7).</summary>
+        public DateTimeOffset? TelemetryPublishedAt { get; set; }
 
         /// <summary>Drops Sentry SDK chatter before it reaches the console; one per log tail.</summary>
         public ConsoleNoiseFilter Noise { get; } = new();

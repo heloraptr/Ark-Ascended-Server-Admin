@@ -234,6 +234,18 @@ public static class Presentation
         return value.ToString(unit == 0 ? "0" : "0.#", CultureInfo.InvariantCulture) + " " + units[unit];
     }
 
+    /// <summary>A working set in gigabytes with one decimal, always in GB: "6.2 GB" (B7).</summary>
+    public static string Gigabytes(long bytes) =>
+        (bytes / (1024.0 * 1024 * 1024)).ToString("0.0", CultureInfo.InvariantCulture) + " GB";
+
+    /// <summary>A share as a whole-number percent, rounded half away from zero: "14 %" (B7).</summary>
+    public static string Percent(double percent) =>
+        Math.Round(percent, MidpointRounding.AwayFromZero).ToString("0", CultureInfo.InvariantCulture) + " %";
+
+    /// <summary>The resource line shown while a process is live: "RAM 6.2 GB · CPU 14 %" (B7).</summary>
+    public static string Telemetry(InstanceTelemetry sample) =>
+        $"RAM {Gigabytes(sample.WorkingSetBytes)} · CPU {Percent(sample.CpuPercent)}";
+
     public static string Clock(DateTimeOffset at) => at.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture);
 
     public static string Stamp(DateTimeOffset at) => at.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);

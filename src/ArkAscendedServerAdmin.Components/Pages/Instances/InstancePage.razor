@@ -36,6 +36,10 @@ else
             <span class="faint"> · </span>@instance.Map!.Name
             <span class="faint"> · </span><span class="num">@instance.GamePort</span> <span class="faint">game</span> <span class="num">@instance.RconPort</span> <span class="faint">rcon</span>
             <span class="faint"> · </span><span class="mono faint">@instance.Slug</span>
+            @if (_runtime.HasLiveProcess && _telemetry is { } telemetry)
+            {
+                <span class="faint"> · </span><span class="num" title="@($"Sampled {Presentation.Clock(telemetry.SampledAt)}")">@Presentation.Telemetry(telemetry)</span>
+            }
         </LeadContent>
         <Actions>
             @if (_runtime.State == InstanceState.Stopping && _runtime.ExitRequested)
@@ -390,6 +394,7 @@ else
 
     private InstanceDetail? _detail;
     private InstanceRuntime _runtime = default!;
+    private InstanceTelemetry? _telemetry;
     private IReadOnlyList<ModLibraryEntry> _library = [];
     private IReadOnlyList<ExtraOverride> _overrides = [];
     private IReadOnlyList<BackupRecord>? _backups;
@@ -421,6 +426,7 @@ else
     protected override void OnInitialized()
     {
         Processes.RuntimeChanged += OnRuntimeChanged;
+        Processes.TelemetryChanged += OnTelemetryChanged;
         BackupService.Recorded += OnBackupRecorded;
         BackupService.Restored += OnRestored;
     }
@@ -449,6 +455,7 @@ else
 
         _loadedId = Id;
         _runtime = Processes.GetRuntime(Id);
+        _telemetry = Processes.GetTelemetry(Id);
         await LoadAsync();
 
         if (StartRequested && _detail is { } detail)
@@ -512,6 +519,17 @@ else
             OverridesClusterSchedule = i.OverridesClusterSchedule,
         };
         _settingsProblems = null;
+    }
+
+    private void OnTelemetryChanged(int instanceId, InstanceTelemetry? sample)
+    {
+        if (instanceId != Id)
+        {
+            return;
+        }
+
+        _telemetry = sample;
+        _ = InvokeAsync(StateHasChanged);
     }
 
     private void OnRuntimeChanged(InstanceRuntime runtime)
@@ -840,6 +858,7 @@ else
     public void Dispose()
     {
         Processes.RuntimeChanged -= OnRuntimeChanged;
+        Processes.TelemetryChanged -= OnTelemetryChanged;
         BackupService.Recorded -= OnBackupRecorded;
         BackupService.Restored -= OnRestored;
     }
