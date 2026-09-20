@@ -1250,10 +1250,6 @@ h1:focus-visible {
   opacity: 0.35;
 }
 
-.mod-item .actions .is-off {
-  color: var(--ark-trace);
-}
-
 .mod-item .order {
   color: var(--ark-steel-3);
   font-size: 12px;
