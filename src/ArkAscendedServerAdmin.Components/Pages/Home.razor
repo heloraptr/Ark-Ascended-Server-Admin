@@ -130,7 +130,7 @@ else
                         <div class="actions">
                             @if (runtime.State == InstanceState.Stopping && runtime.ExitRequested)
                             {
-                                <RadzenButton Text="Closing…" Icon="hourglass_top" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Warning" Disabled="true" title="Exit requested; waiting for the process to close" />
+                                <RadzenButton Text="Stopping…" Icon="hourglass_top" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Warning" Disabled="true" title="Exit requested; waiting for the process to close" />
                             }
                             else if (runtime.State == InstanceState.Stopping)
                             {

@@ -40,7 +40,7 @@ else
         <Actions>
             @if (_runtime.State == InstanceState.Stopping && _runtime.ExitRequested)
             {
-                <RadzenButton Text="Closing…" Icon="hourglass_top" ButtonStyle="ButtonStyle.Warning" Variant="Variant.Outlined" Disabled="true" title="Exit requested; waiting for the process to close" />
+                <RadzenButton Text="Stopping…" Icon="hourglass_top" ButtonStyle="ButtonStyle.Warning" Variant="Variant.Outlined" Disabled="true" title="Exit requested; waiting for the process to close" />
             }
             else if (_runtime.State == InstanceState.Stopping)
             {
