@@ -154,7 +154,7 @@ preview finds a problem while the instance is stopped.
 | **Console** | The `ShooterGame.log` tail and the RCON input. [console-and-rcon.md](console-and-rcon.md). |
 | **Players** | `On the server now`: asks the server with `ListPlayers` each time the tab opens, **List players** to ask again. [players-and-whitelists.md](players-and-whitelists.md). |
 | **Config** | Standalone: the `GameUserSettings.ini` and `Game.ini` editors. Member: `INI files come from the <cluster> cluster.` Both: the **Overrides** table with **Add override**. [configuration-files.md](configuration-files.md). |
-| **Mods** | The ordered mod list: the map's mod and cluster mods locked, the instance's own below. [mods.md](mods.md). |
+| **Mods** | The ordered mod list: the map's mod and cluster mods locked, the instance's own below. Under it, "Not in the library?" takes a CurseForge project id, or a search when a key is set, and puts the mod in the library and on this list in one press. [mods.md](mods.md). |
 | **Launch** | The flags editor and `What a start would run`, the exact command line. [launch-options.md](launch-options.md). |
 | **Settings** | **Instance name**, **Session name**, **Max players**, **Game port**, **RCON port**, **Backup interval, minutes**, **Backups to keep**, **Ignore the cluster's schedule** (members only), **Admin whitelist**; **Save settings**, **Reset**. While the process is live: `Port and player changes apply at the next start.` The slug and the map cannot change. |
 | **Backups** | The backup list with outcome, archive name, size, and trigger, a restore icon on each successful row, and the list of restores. [backups.md](backups.md). |

@@ -12,7 +12,7 @@ the last click. Paths are relative to the `DataRoot` configured in `appsettings.
 | Cluster | Standalone or a cluster | Members share the cluster's INI files, mods, base launch options, whitelist, and a cluster directory for transfers. |
 | Map | One of the map rows | Official maps are seeded; custom maps are rows on the Maps page. |
 | Config source | Where the two INI files start from, and the server admin password | Standalone only. Game defaults, blank, or a copy of another instance's or cluster's current source text. The password is required before the first start because RCON is how the manager saves and stops the server. |
-| Mods | Ordered CurseForge ids | A custom map's own mod loads first, then cluster mods, then these. The map mod is set on the map and cannot be listed here. |
+| Mods | Ordered CurseForge ids | A custom map's own mod loads first, then cluster mods, then these. The map mod is set on the map and cannot be listed here. The list is picked from the mod library, and "Not in the library?" under it adds a CurseForge mod to the library and to the list without leaving the wizard ([mods.md](guide/mods.md)). |
 | Launch options | Typed `-Flag` values and free-text extra arguments | Members can inherit from the cluster per flag. Reserved options (`-port`, `-mods`, `-clusterid`, ...) are rejected in free text. |
 | Ports | Game port, RCON port, max players, admin whitelist | Suggested from the port ranges in Settings, skipping every other instance and the web UI's own port. |
 | Summary | Review, then **Create instance**, optionally with **Start the server right away** | |

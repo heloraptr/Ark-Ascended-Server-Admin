@@ -39,6 +39,10 @@ summary or thumbnail until a key is added and **Refresh names** is pressed.
 
 Adding an id that is already in the library updates its metadata instead of failing.
 
+The Mods page is not the only way in. Every mod list — a cluster's, an instance's, and the
+wizard's — can take a project id or a search of its own and put the result straight into the
+library, so a mod you have just found does not cost you the page you are on.
+
 ## The library list
 
 Every entry shows its id, "updated *N* ago" when known, its summary, and where it is used ("map
@@ -67,6 +71,21 @@ offers a map mod. **Save mods** writes the list. The footer reminds you: "Order 
 this order, the map's own mod first, then cluster mods. A disabled mod keeps its place but is left out
 of the start command. Changes to the list need a restart." The wizard's
 *Mods* step is the same editor ([instance-creation.md](../instance-creation.md)).
+
+Under the drop-down, every one of those lists carries a second way in, for a mod the library does
+not hold yet. It starts with the question "Not in the library?". With a key it is one box, "Search
+CurseForge, or paste a project id", and **Look up**: a bare number is fetched by id and added at
+once, anything else is a search, and each hit gets **Add** or the word "listed" when the list
+already has it. Without a key it is the same **project id** and **name** pair the Mods page offers,
+under the same hint about what a key buys you.
+
+One press does both halves of the job. The mod goes into the library through the same call the Mods
+page makes, and the row is appended to the list you are editing: "Added *Name* to the library — It
+is on this list too; Save mods keeps it there." The library drop-down above picks it up in the same
+moment, so a second list on the same page can use it. Nothing reaches the instance or the cluster
+until **Save mods**, and in the wizard nothing is written until **Create instance**. A lookup that
+fails says so under the box, where the rest of the editor's problems appear, and the list is left
+alone.
 
 ## The order they load in
 
@@ -108,6 +127,7 @@ by id, and `POST /v1/mods` for **Refresh names**.
 | Search, Add, Refresh names | `CurseForge could not be reached: <error>` | Network or a non-2xx answer. Retry later; the error is the HTTP client's message. |
 | Add | `A CurseForge mod id is a positive number.` | Zero or negative id. |
 | Add without a key | `Give the mod a name so it can be recognized in the lists.` | The **Name** field is empty. |
+| "Not in the library?" on a mod list | `Mod <id> is already on this list.` | The id is on the list already, whether as the map's mod, a cluster mod, or one of your own rows. |
 | Remove | `Remove it from cluster X, instance Y, map Z first.` | The entry is referenced. Take it off those lists (or change the map's mod id) first. |
 | Save mods (cluster, instance, wizard) | `One of the chosen mods is no longer in the library.` | The entry was removed while the editor was open. Reload the page. |
 | Save mods (cluster, instance, wizard) | `Map mods load automatically with their map and cannot be listed here: <id> (<map>).` | The id belongs to a custom map. Choose the map instead. |
