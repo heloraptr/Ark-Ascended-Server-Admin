@@ -125,5 +125,5 @@ and the web UI (which sits behind HTTPS and the login) is the way to reach it re
 | Toast and console | `RCON protocol failure: ...` | Anything else the client could not interpret. |
 | Console | `Log tail stopped: ...` | The tail loop threw; the state is still tracked by the liveness poll. Restart the instance to get the console back. |
 | Console | `Cannot probe RCON: <problem> Check ServerAdminPassword / RCONPort; the process is still watched for exit.` | On re-attach, no credentials could be read; the state is **Unreachable**. |
-| Console | `RCON 'doexit' failed (Connect): ... Continuing with the next step.` | During a stop; the job falls through to the graceful timeout and the kill. |
+| Console | `RCON 'doexit' failed (Connect): ... Continuing with the next step.` | During a stop; nothing took the command, so the job kills the process straight away instead of waiting the graceful timeout out (`doexit was not acknowledged; killing pid <n> now ...`). |
 | Console | `Server exited unexpectedly (code <n>).` | An exit the manager did not ask for. The log above it is the evidence; nothing restarts the server automatically. |

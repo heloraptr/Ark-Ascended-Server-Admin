@@ -69,10 +69,12 @@ instance(s)."
 ### Stopping
 
 Every entry is stopped with `RequireVerifiedExit`: the pre-stop broadcast countdown
-(unless set to zero), `doexit` over RCON, a wait of **Graceful stop timeout** seconds, then a kill
-if needed, and the exit must be observed. An instance that is already dead is marked done. If any
-stop cannot be verified the update ends with "Could not stop every instance with a verified exit
-(instance *N*: ...). The stopped instances stay stopped; fix the cause and start the update again."
+(unless set to zero), `doexit` over RCON, a wait of **Graceful stop timeout** seconds once the server
+has acknowledged it, then a kill if needed, and the exit must be observed. An entry whose `doexit`
+went unanswered is killed without the wait, so an instance that was still loading does not hold the
+update up for a minute. An instance that is already dead is marked done. If any stop cannot be
+verified the update ends with "Could not stop every instance with a verified exit (instance *N*:
+...). The stopped instances stay stopped; fix the cause and start the update again."
 Once every entry is done, the manager enumerates processes and refuses if any
 `ArkAscendedServer.exe` still runs from under `DataRoot`: "ArkAscendedServer.exe is still running
 under the data root (*path* (PID *n*)); stop it before updating."
