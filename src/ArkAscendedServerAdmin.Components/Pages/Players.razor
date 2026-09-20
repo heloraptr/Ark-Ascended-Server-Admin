@@ -24,49 +24,79 @@ else
     <p class="muted" style="margin:0 0 12px">
         @Presentation.Plural(_players.Count, "player") known, @(_players.Count(p => p.IsOnline)) online now.
     </p>
-    <RadzenDataGrid Data="_players" TItem="KnownPlayer" Density="Density.Compact" AllowSorting="true">
+    <RadzenDataGrid Data="_players" TItem="KnownPlayer" Density="Density.Compact" AllowSorting="true" class="grid-clip">
         <Columns>
-            <RadzenDataGridColumn TItem="KnownPlayer" Property="Name" Title="Name" />
-            <RadzenDataGridColumn TItem="KnownPlayer" Property="IsOnline" Title="Status" Width="230px">
+            <RadzenDataGridColumn TItem="KnownPlayer" Property="Name" Title="Name" Width="11%">
+                <Template Context="p"><span class="clip" title="@p.Name">@p.Name</span></Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="KnownPlayer" Property="IsOnline" Title="Status" Width="12%">
                 <Template Context="p">
-                    @if (p.IsOnline)
-                    {
-                        <span class="tone-ok">Online</span>
-                        @if (p.LastInstance is { } on)
+                    <span class="clip" title="@Status(p)">
+                        @if (p.IsOnline)
                         {
-                            <span class="muted"> on @on.Name</span>
+                            <span class="tone-ok">Online</span>
+                            @if (p.LastInstance is { } on)
+                            {
+                                <span class="muted"> on @on.Name</span>
+                            }
                         }
-                    }
-                    else
-                    {
-                        <span class="muted">Last seen @Presentation.Ago(p.LastSeenAt, _now)@(p.LastInstance is { } was ? $" on {was.Name}" : null)</span>
-                    }
+                        else
+                        {
+                            <span class="muted">Last seen @Presentation.Ago(p.LastSeenAt, _now)@(p.LastInstance is { } was ? $" on {was.Name}" : null)</span>
+                        }
+                    </span>
                 </Template>
             </RadzenDataGridColumn>
-            <RadzenDataGridColumn TItem="KnownPlayer" Property="Platform" Title="Platform" Width="100px">
-                <Template Context="p"><span class="muted">@(p.Platform ?? "—")</span></Template>
+            <RadzenDataGridColumn TItem="KnownPlayer" Property="Platform" Title="Platform" Width="9%">
+                <Template Context="p"><span class="clip muted" title="@p.Platform">@(p.Platform ?? "—")</span></Template>
             </RadzenDataGridColumn>
-            <RadzenDataGridColumn TItem="KnownPlayer" Property="EosId" Title="EOS id">
+            <RadzenDataGridColumn TItem="KnownPlayer" Property="EosId" Title="EOS id" Width="12%">
                 <Template Context="p">
-                    <span class="mono">@p.EosId</span>
-                    <RadzenButton Icon="content_copy" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Copy" Click="@(() => CopyAsync(p.EosId))" />
+                    <div class="id-cell">
+                        <span class="mono clip" title="@p.EosId">@p.EosId</span>
+                        <RadzenButton Icon="content_copy" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Copy id" Click="@(() => CopyAsync(p.EosId))" />
+                    </div>
                 </Template>
             </RadzenDataGridColumn>
-            <RadzenDataGridColumn TItem="KnownPlayer" Property="FirstSeenAt" Title="First seen" Width="150px">
-                <Template Context="p">@Presentation.Stamp(p.FirstSeenAt)</Template>
+            <RadzenDataGridColumn TItem="KnownPlayer" Property="FirstSeenAt" Title="First seen" Width="14%">
+                <Template Context="p"><span class="clip num" title="@Presentation.Stamp(p.FirstSeenAt)">@Presentation.Stamp(p.FirstSeenAt)</span></Template>
             </RadzenDataGridColumn>
-            <RadzenDataGridColumn TItem="KnownPlayer" Property="LastJoinedAt" Title="Last joined" Width="150px">
-                <Template Context="p">@(p.LastJoinedAt is { } joined ? Presentation.Stamp(joined) : "—")</Template>
-            </RadzenDataGridColumn>
-            <RadzenDataGridColumn TItem="KnownPlayer" Title="Whitelist" Width="330px" Sortable="false">
+            <RadzenDataGridColumn TItem="KnownPlayer" Property="LastJoinedAt" Title="Last joined" Width="14%">
                 <Template Context="p">
-                    <div style="display:flex;gap:6px;align-items:center">
-                        <RadzenDropDown TValue="string" @bind-Value="_target" Data="Targets" TextProperty="Text" ValueProperty="Value" Placeholder="Choose a list" Style="width:200px" />
+                    @{
+                        var joined = p.LastJoinedAt is { } at ? Presentation.Stamp(at) : "—";
+                    }
+                    <span class="clip num" title="@joined">@joined</span>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="KnownPlayer" Title="Whitelist" Width="24%" Sortable="false">
+                <Template Context="p">
+                    <div class="wl-pick">
+                        <RadzenDropDown TValue="string" @bind-Value="_target" Data="Targets" TextProperty="Text" ValueProperty="Value" Placeholder="Choose a list" Style="width:100%">
+                            <Template Context="item">
+                                @{
+                                    var listed = (Target)item;
+                                }
+                                <span class="wl-target">
+                                    <span class="clip" title="@listed.Text">@listed.Text</span>
+                                    <span class="tag">@listed.Kind</span>
+                                </span>
+                            </Template>
+                            <ValueTemplate Context="item">
+                                @{
+                                    var chosen = (Target)item;
+                                }
+                                <span class="wl-target">
+                                    <span class="clip" title="@chosen.Text">@chosen.Text</span>
+                                    <span class="tag">@chosen.Kind</span>
+                                </span>
+                            </ValueTemplate>
+                        </RadzenDropDown>
                         <RadzenButton Text="Add" Size="ButtonSize.ExtraSmall" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="@(Busy || _target is null)" Click="@(() => WhitelistAsync(p))" />
                     </div>
                 </Template>
             </RadzenDataGridColumn>
-            <RadzenDataGridColumn TItem="KnownPlayer" Width="60px" Sortable="false">
+            <RadzenDataGridColumn TItem="KnownPlayer" Width="4%" Sortable="false">
                 <Template Context="p">
                     <RadzenButton Icon="close" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Forget" Click="@(() => ForgetAsync(p))" />
                 </Template>
@@ -77,7 +107,8 @@ else
 }
 
 @code {
-    private sealed record Target(string Text, string Value);
+    /// <summary>One entry of the whitelist drop-down: the name, the word for what it is, and "c"/"i" plus the id.</summary>
+    private sealed record Target(string Text, string Kind, string Value);
 
     private IReadOnlyList<KnownPlayer>? _players;
     private IReadOnlyList<Target> Targets = [];
@@ -91,11 +122,16 @@ else
         {
             await LoadAsync();
             var dashboard = await Instances.GetDashboardAsync();
-            Targets = dashboard.Clusters.Select(c => new Target($"cluster {c.Name}", $"c{c.Id}"))
-                .Concat(dashboard.Instances.Select(i => new Target(i.Name, $"i{i.Id}")))
+            Targets = dashboard.Clusters.Select(c => new Target(c.Name, "cluster", $"c{c.Id}"))
+                .Concat(dashboard.Instances.Select(i => new Target(i.Name, "instance", $"i{i.Id}")))
                 .ToList();
         });
     }
+
+    /// <summary>The Status cell as one line, for the cell's title when the column cuts it off.</summary>
+    private string Status(KnownPlayer player) => player.IsOnline
+        ? $"Online{(player.LastInstance is { } on ? $" on {on.Name}" : null)}"
+        : $"Last seen {Presentation.Ago(player.LastSeenAt, _now)}{(player.LastInstance is { } was ? $" on {was.Name}" : null)}";
 
     private async Task LoadAsync()
     {

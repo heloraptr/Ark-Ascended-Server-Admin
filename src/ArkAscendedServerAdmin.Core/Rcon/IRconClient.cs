@@ -54,4 +54,11 @@ public static class RconCommands
         ArgumentNullException.ThrowIfNull(message);
         return $"broadcast {message.ReplaceLineEndings(" ")}";
     }
+
+    /// <summary>Disconnects one player by EOS id; nothing stops them from joining again at once.</summary>
+    public static string KickPlayer(string eosId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(eosId);
+        return $"KickPlayer {eosId.Trim()}";
+    }
 }

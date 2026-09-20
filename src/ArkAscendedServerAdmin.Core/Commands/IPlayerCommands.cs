@@ -20,5 +20,12 @@ public interface IPlayerCommands
     /// <summary>Runs <c>ListPlayers</c> on one Running instance and merges the reply into the table.</summary>
     Task<CommandResult<OnlinePlayers>> ListOnlineAsync(int instanceId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Sends <c>KickPlayer &lt;eosId&gt;</c> to one instance with a live process and returns the server's reply text.
+    /// The command and the reply are echoed to the instance console like any console send. The player can rejoin
+    /// at once; this is not a ban.
+    /// </summary>
+    Task<CommandResult<string>> KickPlayerAsync(int instanceId, string eosId, CancellationToken cancellationToken = default);
+
     Task<CommandResult> DeleteAsync(int knownPlayerId, CancellationToken cancellationToken = default);
 }

@@ -132,13 +132,22 @@ else
                 }
                 else
                 {
-                    <RadzenDataGrid Data="_online.Players" TItem="ListedPlayer" Density="Density.Compact" AllowSorting="true">
+                    <RadzenDataGrid Data="_online.Players" TItem="ListedPlayer" Density="Density.Compact" AllowSorting="true" class="grid-clip">
                         <Columns>
-                            <RadzenDataGridColumn TItem="ListedPlayer" Property="Name" Title="Name" />
-                            <RadzenDataGridColumn TItem="ListedPlayer" Property="EosId" Title="EOS id">
+                            <RadzenDataGridColumn TItem="ListedPlayer" Property="Name" Title="Name" Width="32%">
+                                <Template Context="p"><span class="clip" title="@p.Name">@p.Name</span></Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="ListedPlayer" Property="EosId" Title="EOS id" Width="60%">
                                 <Template Context="p">
-                                    <span class="mono">@p.EosId</span>
-                                    <RadzenButton Icon="content_copy" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Copy" Click="@(() => CopyAsync(p.EosId))" />
+                                    <div class="id-cell">
+                                        <span class="mono clip" title="@p.EosId">@p.EosId</span>
+                                        <RadzenButton Icon="content_copy" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Copy id" Click="@(() => CopyAsync(p.EosId))" />
+                                    </div>
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="ListedPlayer" Width="8%" Sortable="false">
+                                <Template Context="p">
+                                    <RadzenButton Icon="person_remove" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Kick" Disabled="@(_kicking || !_runtime.HasLiveProcess)" Click="@(() => KickAsync(p))" />
                                 </Template>
                             </RadzenDataGridColumn>
                         </Columns>
@@ -482,6 +491,7 @@ else
     private OnlinePlayers? _online;
     private string? _onlineError;
     private bool _listing;
+    private bool _kicking;
     private int _loadedId;
 
     [Parameter]
@@ -934,6 +944,36 @@ else
         finally
         {
             _listing = false;
+        }
+    }
+
+    /// <summary>Disconnects one player over RCON and asks the server again, so the row goes as soon as they do.</summary>
+    private async Task KickAsync(ListedPlayer player)
+    {
+        if (!await ConfirmAsync($"Kick {player.Name}?", "They can rejoin at once.", "Kick", icon: "person_remove"))
+        {
+            return;
+        }
+
+        _kicking = true;
+        var kicked = false;
+        try
+        {
+            await GuardedAsync(async () =>
+            {
+                var result = await PlayerCommands.KickPlayerAsync(Id, player.EosId);
+                Notifications.Report(result, ActionVerb.Kicked, player.Name);
+                kicked = result.Succeeded;
+            });
+        }
+        finally
+        {
+            _kicking = false;
+        }
+
+        if (kicked)
+        {
+            await ListPlayersAsync();
         }
     }
 

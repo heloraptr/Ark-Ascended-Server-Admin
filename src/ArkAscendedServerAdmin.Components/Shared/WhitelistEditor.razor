@@ -19,13 +19,13 @@
             <div class="who">
                 @if (Known(locked.EosId) is { } name)
                 {
-                    <strong>@name</strong>
+                    <strong title="@name">@name</strong>
                 }
                 else
                 {
                     <strong class="is-tbd" title="Shown once they join a server">TBD</strong>
                 }
-                <span><span class="mono">@locked.EosId</span> · @locked.Source</span>
+                <span title="@($"{locked.EosId} · {locked.Source}")"><span class="mono">@locked.EosId</span> · @locked.Source</span>
             </div>
             <RadzenIcon Icon="lock" Style="color:var(--ark-steel-3)" title="@($"Comes {locked.Source}; remove it there.")" />
         </div>
@@ -36,13 +36,13 @@
             <div class="who">
                 @if (Known(id) is { } name)
                 {
-                    <strong>@name</strong>
+                    <strong title="@name">@name</strong>
                 }
                 else
                 {
                     <strong class="is-tbd" title="Shown once they join a server">TBD</strong>
                 }
-                <span class="mono">@id</span>
+                <span class="mono" title="@id">@id</span>
             </div>
             <RadzenButton Icon="close" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Remove" Click="() => RemoveAsync(id)" />
         </div>

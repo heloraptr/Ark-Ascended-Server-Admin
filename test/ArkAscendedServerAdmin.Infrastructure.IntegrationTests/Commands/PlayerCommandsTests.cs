@@ -45,7 +45,61 @@ public class PlayerCommandsTests
 
         await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Players.ListAsync(ct));
         await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Players.ListOnlineAsync(1, ct));
+        await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Players.KickPlayerAsync(1, EosA, ct));
         await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Players.DeleteAsync(1, ct));
+        Assert.Empty(host.Rcon.Calls);
+    }
+
+    [Fact]
+    public async Task Kick_SendsKickPlayerWithTheId_AndReturnsTheReply()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var host = new CommandTestHost();
+        await host.InitializeAsync(ct);
+        var alpha = await CreateAsync(host, "Alpha", 7777, 27020, ct);
+        host.ProcessManager.Set(alpha, InstanceState.Running);
+        await host.WriteGeneratedSettingsAsync("alpha", "pw", 27020, ct);
+        host.Rcon.Replies[$"KickPlayer {EosA}"] = "Kicked";
+
+        var result = await host.Players.KickPlayerAsync(alpha, $"  {EosA} ", ct);
+
+        Assert.True(result.Succeeded, result.Error);
+        Assert.Equal("Kicked", result.Value);
+        var call = Assert.Single(host.Rcon.Calls);
+        Assert.Equal((27020, $"KickPlayer {EosA}"), (call.Endpoint.Port, call.Command));
+    }
+
+    [Fact]
+    public async Task Kick_WithoutAnId_OrOnAStoppedInstance_SaysSoWithoutAsking()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var host = new CommandTestHost();
+        await host.InitializeAsync(ct);
+        var alpha = await CreateAsync(host, "Alpha", 7777, 27020, ct);
+
+        var blank = await host.Players.KickPlayerAsync(alpha, "   ", ct);
+        var stopped = await host.Players.KickPlayerAsync(alpha, EosA, ct);
+
+        Assert.Equal("The player has no id to kick by.", blank.Error);
+        Assert.Equal("The instance is not running, so there is nothing to send the command to.", stopped.Error);
+        Assert.Empty(host.Rcon.Calls);
+    }
+
+    [Fact]
+    public async Task Kick_WhenRconFails_ReportsTheFailure()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var host = new CommandTestHost();
+        await host.InitializeAsync(ct);
+        var alpha = await CreateAsync(host, "Alpha", 7777, 27020, ct);
+        host.ProcessManager.Set(alpha, InstanceState.Running);
+        await host.WriteGeneratedSettingsAsync("alpha", "pw", 27020, ct);
+        host.Rcon.FailuresByPort[27020] = new RconException(RconFailure.Timeout, "Timed out.");
+
+        var result = await host.Players.KickPlayerAsync(alpha, EosA, ct);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("RCON timeout failure: Timed out.", result.Error);
     }
 
     [Fact]
