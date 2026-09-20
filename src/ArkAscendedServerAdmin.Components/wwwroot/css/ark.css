@@ -1851,7 +1851,7 @@ h1:focus-visible {
    editable rows; the per-row template is the fallback where subgrid is unsupported. */
 .sched-list {
   display: grid;
-  grid-template-columns: 180px minmax(140px, 1fr) max-content max-content max-content;
+  grid-template-columns: 180px minmax(140px, 3fr) minmax(max-content, 2fr) max-content max-content;
 }
 
 .sched-list > .muted {
@@ -1861,7 +1861,7 @@ h1:focus-visible {
 .sched-row {
   display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: 180px minmax(140px, 1fr) max-content max-content max-content;
+  grid-template-columns: 180px minmax(140px, 3fr) minmax(max-content, 2fr) max-content max-content;
   grid-template-columns: subgrid;
   align-items: center;
   gap: 12px;
