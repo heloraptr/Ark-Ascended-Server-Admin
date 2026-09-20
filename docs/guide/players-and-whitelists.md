@@ -110,6 +110,22 @@ directly under `ShooterGame\Saved`; the code carries a note that whether the gam
 exactly that location when launched with `AltSaveDirectoryName` was still to be confirmed on a live
 server, so check on your own server once before relying on it.
 
+## Bans apply to the whole box
+
+The manager does not manage bans, and this is deliberate. On a live server the game keeps a single
+`BanList.txt` in the shared install:
+
+```
+Server\ShooterGame\Binaries\Win64\BanList.txt
+```
+
+Every instance reaches that folder through its junction, so there is one list for all of them. The game
+rewrites the file from its own memory on every `BanPlayer` and `UnbanPlayer` and never reads it back
+while it runs: a line added by hand disappears at the next ban, and when two servers are up, whichever
+bans last overwrites the other one's bans on disk. Two consequences follow. A `BanPlayer` sent from any
+instance console bans that account on every server on the box, not just the one you typed it into.
+And the file is only a record, not a control: to unban, send `UnbanPlayer` from a running server.
+
 ## When an id or a name is refused
 
 | Where | Message | Meaning and what to do |

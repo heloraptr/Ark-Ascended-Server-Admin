@@ -50,6 +50,11 @@ that repeats the feature will be closed with a link here.
 - A Discord bot. One-way notifications to a Discord channel are planned; two-way control from
   Discord is not. The web UI already works from a phone, and a bot needs its own authentication story
   for a single-password app.
+- Ban lists. The game keeps one `BanList.txt` for the whole install, in the shared
+  `ShooterGame\Binaries\Win64`, rewrites it from memory on every `BanPlayer` and `UnbanPlayer`, and
+  never reads it back while running. There is no honest way to keep a per-instance or per-cluster
+  list, so the manager leaves the file alone. A ban sent from any instance console applies to every
+  server on the box; see the players guide.
 - Updating itself from inside the app. The service cannot safely replace its own binaries while
   running. The installer script owns upgrades, with a journal and rollback; the app will only tell you
   that a newer release exists.
