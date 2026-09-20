@@ -50,6 +50,7 @@ public sealed class ClusterCommands(
             return null;
         }
 
+        var modDates = await CommandSupport.ModDatesAsync(db, cancellationToken);
         var instances = new List<InstanceSummary>();
         foreach (var instance in cluster.Instances.OrderBy(i => i.Name))
         {
@@ -57,7 +58,8 @@ public sealed class ClusterCommands(
                 instance,
                 cluster.Mods,
                 await CommandSupport.LastBackupAsync(db, instance.Id, cancellationToken),
-                CommandSupport.NextDeadline(instance, cluster.ScheduledActions, timeProvider)));
+                CommandSupport.NextDeadline(instance, cluster.ScheduledActions, timeProvider),
+                modDates));
         }
 
         return new ClusterDetail(cluster, cluster.Mods.OrderBy(m => m.Order).Select(m => new ModListItem(m.Mod!, m.Enabled)).ToList(), instances);

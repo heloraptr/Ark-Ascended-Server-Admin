@@ -324,7 +324,7 @@
             }
 
             _maps = await Maps.ListAsync();
-            _library = await Mods.ListLibraryAsync();
+            _library = (await Mods.ListLibraryAsync()).Select(v => v.Mod).ToList();
             var mapMods = await Mods.GetMapModsAsync();
             _pickableLibrary = _library.Where(m => !mapMods.ContainsKey(m.Id)).ToList();
             _existingInstances = (await Instances.GetDashboardAsync()).Instances;
@@ -338,7 +338,7 @@
     /// <summary>Picks up a mod the mod list editor just added to the library, so the picker offers it as well.</summary>
     private Task ReloadLibraryAsync() => GuardedAsync(async () =>
     {
-        _library = await Mods.ListLibraryAsync();
+        _library = (await Mods.ListLibraryAsync()).Select(v => v.Mod).ToList();
         var mapMods = await Mods.GetMapModsAsync();
         _pickableLibrary = _library.Where(m => !mapMods.ContainsKey(m.Id)).ToList();
     });

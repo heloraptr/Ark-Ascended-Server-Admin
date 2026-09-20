@@ -8,6 +8,7 @@ using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Processes;
 using ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Provisioning;
 using ArkAscendedServerAdmin.Infrastructure.Players;
+using ArkAscendedServerAdmin.Infrastructure.Mods;
 using ArkAscendedServerAdmin.Infrastructure.Provisioning;
 using ArkAscendedServerAdmin.Infrastructure.Scheduling;
 using ArkAscendedServerAdmin.Install;
@@ -65,7 +66,8 @@ internal sealed class CommandTestHost : IDisposable
             RconOperations, Firewall, HostAddresses, Clock, NullLogger<InstanceCommands>.Instance);
         Clusters = new ClusterCommands(Guard, Root, Root.Layout, Instances, Locks, Journals, Clock, NullLogger<ClusterCommands>.Instance);
         Config = new ConfigCommands(Guard, Root, IniStore, NullLogger<ConfigCommands>.Instance);
-        Mods = new ModCommands(Guard, Root, Settings, CurseForge, Clock, NullLogger<ModCommands>.Instance);
+        Refresher = new ModMetadataRefresher(Root, Settings, CurseForge, NullLogger<ModMetadataRefresher>.Instance);
+        Mods = new ModCommands(Guard, Root, Settings, CurseForge, Refresher, Clock, NullLogger<ModCommands>.Instance);
         Tracker = new PlayerTracker(Root, Console, ProcessManager, NullLogger<PlayerTracker>.Instance);
         Players = new PlayerCommands(Guard, Root, Settings, ProcessManager, GeneratedConfig, Rcon, Tracker, Clock, NullLogger<PlayerCommands>.Instance);
         Maps = new MapCommands(Guard, Root, Mods);
@@ -126,6 +128,8 @@ internal sealed class CommandTestHost : IDisposable
     public ClusterCommands Clusters { get; }
 
     public ConfigCommands Config { get; }
+
+    public ModMetadataRefresher Refresher { get; }
 
     public ModCommands Mods { get; }
 

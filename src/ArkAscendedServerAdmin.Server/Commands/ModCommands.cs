@@ -5,6 +5,7 @@ using ArkAscendedServerAdmin.CurseForge.Models.Mods;
 using ArkAscendedServerAdmin.CurseForge.Models.Services;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Data;
+using ArkAscendedServerAdmin.Mods;
 using Microsoft.EntityFrameworkCore;
 
 namespace ArkAscendedServerAdmin.Server.Commands;
@@ -15,16 +16,21 @@ public sealed class ModCommands(
     IDbContextFactory<AppDbContext> contextFactory,
     IAppSettingsStore settings,
     ICurseForgeApi curseForge,
+    IModMetadataRefresher refresher,
     TimeProvider timeProvider,
     ILogger<ModCommands> logger) : IModCommands
 {
-    public const string NoApiKeyMessage = "Add a CurseForge API key on the Settings page to search. Mods can still be added by id.";
+    public const string NoApiKeyMessage = ModMetadata.NoApiKeyMessage;
 
-    public async Task<IReadOnlyList<ModLibraryEntry>> ListLibraryAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ModLibraryView>> ListLibraryAsync(CancellationToken cancellationToken = default)
     {
         await guard.EnsureAuthorizedAsync(cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
-        return await db.ModLibrary.AsNoTracking().OrderBy(m => m.Name).ToListAsync(cancellationToken);
+        var entries = await db.ModLibrary.AsNoTracking().OrderBy(m => m.Name).ToListAsync(cancellationToken);
+        var changed = ModUpdateStatus.ChangedMods(
+            await CommandSupport.ModLoadsAsync(db, cancellationToken),
+            entries.ToDictionary(e => e.Id, e => e.DateModified));
+        return entries.Select(e => new ModLibraryView(e, changed.Contains(e.Id))).ToList();
     }
 
     public async Task<IReadOnlyDictionary<int, ModUsage>> GetUsageAsync(CancellationToken cancellationToken = default)
@@ -92,7 +98,7 @@ public sealed class ModCommands(
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
         {
             logger.LogWarning(ex, "CurseForge search for '{Term}' failed.", searchTerm);
-            return CommandResult<IReadOnlyList<ModSearchHit>>.Fail(DescribeApiFailure(ex));
+            return CommandResult<IReadOnlyList<ModSearchHit>>.Fail(ModMetadata.DescribeApiFailure(ex));
         }
     }
 
@@ -117,7 +123,7 @@ public sealed class ModCommands(
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
         {
             logger.LogWarning(ex, "CurseForge lookup of mod {ModId} failed.", modId);
-            return CommandResult<ModLibraryEntry>.Fail(DescribeApiFailure(ex));
+            return CommandResult<ModLibraryEntry>.Fail(ModMetadata.DescribeApiFailure(ex));
         }
 
         return await UpsertAsync(mod.Id, mod.Name, mod.Summary, NullIfEmpty(mod.Logo.ThumbnailUrl), mod.DateModified, cancellationToken);
@@ -145,51 +151,7 @@ public sealed class ModCommands(
     public async Task<CommandResult<int>> RefreshMetadataAsync(CancellationToken cancellationToken = default)
     {
         await guard.EnsureAuthorizedAsync(cancellationToken);
-        if (!await IsApiKeyConfiguredAsync(cancellationToken))
-        {
-            return CommandResult<int>.Fail(NoApiKeyMessage);
-        }
-
-        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
-        var entries = await db.ModLibrary.ToListAsync(cancellationToken);
-        if (entries.Count == 0)
-        {
-            return CommandResult<int>.Ok(0);
-        }
-
-        List<Mod> mods;
-        try
-        {
-            mods = await curseForge.GetModsAsync(entries.Select(e => e.Id), pcOnly: false, cancellationToken);
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
-        {
-            logger.LogWarning(ex, "CurseForge metadata refresh failed.");
-            return CommandResult<int>.Fail(DescribeApiFailure(ex));
-        }
-
-        var changed = 0;
-        foreach (var mod in mods)
-        {
-            var entry = entries.SingleOrDefault(e => e.Id == mod.Id);
-            if (entry is null)
-            {
-                continue;
-            }
-
-            var modified = new DateTimeOffset(DateTime.SpecifyKind(mod.DateModified, DateTimeKind.Utc));
-            if (entry.Name != mod.Name || entry.Summary != mod.Summary || entry.ThumbnailUrl != NullIfEmpty(mod.Logo.ThumbnailUrl) || entry.DateModified != modified)
-            {
-                entry.Name = mod.Name;
-                entry.Summary = mod.Summary;
-                entry.ThumbnailUrl = NullIfEmpty(mod.Logo.ThumbnailUrl);
-                entry.DateModified = modified;
-                changed++;
-            }
-        }
-
-        await db.SaveChangesAsync(cancellationToken);
-        return CommandResult<int>.Ok(changed);
+        return await refresher.RefreshAsync(cancellationToken);
     }
 
     public async Task<CommandResult> RemoveAsync(int modId, CancellationToken cancellationToken = default)
@@ -247,9 +209,4 @@ public sealed class ModCommands(
             inLibrary);
 
     private static string? NullIfEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
-
-    private static string DescribeApiFailure(Exception ex) =>
-        ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized }
-            ? "CurseForge rejected the API key. Check it on the Settings page."
-            : $"CurseForge could not be reached: {ex.Message}";
 }

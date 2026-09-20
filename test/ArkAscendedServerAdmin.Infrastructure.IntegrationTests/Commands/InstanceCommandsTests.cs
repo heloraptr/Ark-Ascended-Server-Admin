@@ -403,6 +403,80 @@ public class InstanceCommandsTests
         }
     }
 
+    /// <summary>
+    /// B8: the dashboard row and the instance detail carry the mod badge for the mods a start would load
+    /// (the enabled cluster mods and the instance's own), and the next launch clears it.
+    /// </summary>
+    [Fact]
+    public async Task ModsChangedSinceLaunch_CoversTheModsAStartWouldLoad_AndALaterLaunchClearsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (host, mapId) = await StartAsync(ct);
+        using (host)
+        {
+            foreach (var id in new[] { 1, 2, 3, 4 })
+            {
+                await host.AddLibraryModAsync(id, $"Mod {id}", ct);
+            }
+
+            var cluster = await host.Clusters.CreateAsync("Survivors", ConfigSourceKind.Blank, null, ct);
+            Assert.True((await host.Clusters.SetModsAsync(cluster.Value, [1, new ModSelection(2, false)], ct)).Succeeded);
+            var member = await host.Instances.CreateAsync(Draft(mapId, "Able") with { ClusterId = cluster.Value, Mods = [3] }, ct);
+            var standalone = await host.Instances.CreateAsync(Draft(mapId, "Beta", 7779, 27021) with { Mods = [4] }, ct);
+            await using (var db = host.Db())
+            {
+                // Both were launched an hour ago; mods 2 (disabled on the cluster) and 3 changed since.
+                foreach (var instance in await db.Instances.ToListAsync(ct))
+                {
+                    instance.LastLaunchedAt = CommandTestHost.Now.AddHours(-1);
+                }
+
+                db.ModLibrary.Single(m => m.Id == 2).DateModified = CommandTestHost.Now;
+                db.ModLibrary.Single(m => m.Id == 3).DateModified = CommandTestHost.Now;
+                db.ModLibrary.Single(m => m.Id == 4).DateModified = CommandTestHost.Now.AddDays(-2);
+                await db.SaveChangesAsync(ct);
+            }
+
+            var dashboard = await host.Instances.GetDashboardAsync(ct);
+
+            Assert.True(dashboard.Instances.Single(i => i.Id == member.Value).ModsChangedSinceLaunch);
+            Assert.False(dashboard.Instances.Single(i => i.Id == standalone.Value).ModsChangedSinceLaunch);
+            Assert.True((await host.Instances.GetAsync(member.Value, ct))!.ModsChangedSinceLaunch);
+            Assert.False((await host.Instances.GetAsync(standalone.Value, ct))!.ModsChangedSinceLaunch);
+            Assert.True((await host.Clusters.GetAsync(cluster.Value, ct))!.Instances.Single(i => i.Id == member.Value).ModsChangedSinceLaunch);
+
+            await using (var db = host.Db())
+            {
+                db.Instances.Single(i => i.Id == member.Value).LastLaunchedAt = CommandTestHost.Now.AddMinutes(1);
+                await db.SaveChangesAsync(ct);
+            }
+
+            Assert.False((await host.Instances.GetDashboardAsync(ct)).Instances.Single(i => i.Id == member.Value).ModsChangedSinceLaunch);
+            Assert.False((await host.Instances.GetAsync(member.Value, ct))!.ModsChangedSinceLaunch);
+        }
+    }
+
+    [Fact]
+    public async Task ModsChangedSinceLaunch_IsNeverSetForAnInstanceThatWasNeverLaunched()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (host, mapId) = await StartAsync(ct);
+        using (host)
+        {
+            await host.AddLibraryModAsync(1, "Mod 1", ct);
+            var created = await host.Instances.CreateAsync(Draft(mapId) with { Mods = [1] }, ct);
+            await using (var db = host.Db())
+            {
+                db.ModLibrary.Single(m => m.Id == 1).DateModified = CommandTestHost.Now.AddYears(1);
+                await db.SaveChangesAsync(ct);
+            }
+
+            Assert.Null((await host.Instances.GetAsync(created.Value, ct))!.Instance.LastLaunchedAt);
+            Assert.False((await host.Instances.GetAsync(created.Value, ct))!.ModsChangedSinceLaunch);
+            Assert.False(Assert.Single((await host.Instances.GetDashboardAsync(ct)).Instances).ModsChangedSinceLaunch);
+        }
+    }
+
     [Fact]
     public async Task Get_LoadsClusterModsInClusterOrderAndInstanceModsInInstanceOrder()
     {

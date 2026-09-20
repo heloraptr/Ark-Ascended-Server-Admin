@@ -110,6 +110,10 @@ else
                         </div>
                         <div class="cell">
                             <strong>@instance.MapName</strong>@(instance.ModCount > 0 ? Presentation.Plural(instance.ModCount, "mod") : "vanilla")
+                            @if (instance.ModsChangedSinceLaunch)
+                            {
+                                <span style="display:block;margin-top:2px"><ModChangedBadge /></span>
+                            }
                             @if (runtime.HasLiveProcess && Processes.GetTelemetry(instance.Id) is { } telemetry)
                             {
                                 <span class="num" style="display:block;font-size:12px" title="@($"Sampled {Presentation.Clock(telemetry.SampledAt)}")">@Presentation.Telemetry(telemetry)</span>

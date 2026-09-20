@@ -12,6 +12,12 @@ public sealed record ModSearchHit(
     long DownloadCount,
     bool InLibrary);
 
+/// <summary>
+/// One library row as the Mods page reads it: the entry plus the mod badge (B8), which is set when the mod
+/// was modified after the last launch of at least one instance that loads it.
+/// </summary>
+public sealed record ModLibraryView(ModLibraryEntry Mod, bool ChangedSinceLaunch);
+
 /// <summary>Which clusters, instances, and custom maps reference a library entry (a referenced entry cannot be removed).</summary>
 public sealed record ModUsage(IReadOnlyList<string> Clusters, IReadOnlyList<string> Instances, IReadOnlyList<string> Maps)
 {
@@ -21,7 +27,8 @@ public sealed record ModUsage(IReadOnlyList<string> Clusters, IReadOnlyList<stri
 /// <summary>Scoped, guarded facade for the mod library page (DESIGN.md §8): CurseForge search with a key, manual ids without one.</summary>
 public interface IModCommands
 {
-    Task<IReadOnlyList<ModLibraryEntry>> ListLibraryAsync(CancellationToken cancellationToken = default);
+    /// <summary>The library in name order, each entry with its "changed since the last launch" flag (B8).</summary>
+    Task<IReadOnlyList<ModLibraryView>> ListLibraryAsync(CancellationToken cancellationToken = default);
 
     Task<IReadOnlyDictionary<int, ModUsage>> GetUsageAsync(CancellationToken cancellationToken = default);
 
@@ -38,7 +45,7 @@ public interface IModCommands
     /// <summary>Adds by id with an owner-typed name, for use without an API key.</summary>
     Task<CommandResult<ModLibraryEntry>> AddManualAsync(int modId, string name, CancellationToken cancellationToken = default);
 
-    /// <summary>Re-fetches metadata for every entry (requires a key); returns how many changed.</summary>
+    /// <summary>Re-fetches metadata for every entry through <see cref="Mods.IModMetadataRefresher"/> (requires a key); returns how many changed.</summary>
     Task<CommandResult<int>> RefreshMetadataAsync(CancellationToken cancellationToken = default);
 
     Task<CommandResult> RemoveAsync(int modId, CancellationToken cancellationToken = default);

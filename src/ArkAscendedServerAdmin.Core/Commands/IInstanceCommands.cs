@@ -11,7 +11,8 @@ public sealed record ClusterSummary(int Id, string Name, string Slug, string Clu
 /// <summary>
 /// One dashboard row; the live state comes from <see cref="IProcessManager"/>, not from here.
 /// <paramref name="NextDeadline"/> is the next scheduled action across the rows that apply to the instance
-/// (B3), null when nothing is scheduled.
+/// (B3), null when nothing is scheduled. <paramref name="ModsChangedSinceLaunch"/> is the mod badge (B8):
+/// a mod the instance loads was modified after the manager last launched it.
 /// </summary>
 public sealed record InstanceSummary(
     int Id,
@@ -26,16 +27,23 @@ public sealed record InstanceSummary(
     int MaxPlayers,
     int ModCount,
     BackupRecord? LastBackup,
-    DateTimeOffset? NextDeadline);
+    DateTimeOffset? NextDeadline,
+    bool ModsChangedSinceLaunch = false);
 
 public sealed record DashboardData(IReadOnlyList<ClusterSummary> Clusters, IReadOnlyList<InstanceSummary> Instances);
 
 /// <summary>
 /// The instance with its cluster, map, mods (with library entries), and extra overrides loaded, plus the
-/// cluster's mods in cluster order (empty for a standalone instance).
+/// cluster's mods in cluster order (empty for a standalone instance). <paramref name="MapMod"/> is a custom
+/// map's own mod, loaded ahead of every other and never part of the two lists.
+/// <paramref name="ModsChangedSinceLaunch"/> carries the mod badge for the instance header (B8).
 /// </summary>
-/// <summary><paramref name="MapMod"/> is a custom map's own mod, loaded ahead of every other and never part of the two lists.</summary>
-public sealed record InstanceDetail(Instance Instance, IReadOnlyList<ModListItem> ClusterMods, IReadOnlyList<ModListItem> InstanceMods, ModLibraryEntry? MapMod = null);
+public sealed record InstanceDetail(
+    Instance Instance,
+    IReadOnlyList<ModListItem> ClusterMods,
+    IReadOnlyList<ModListItem> InstanceMods,
+    ModLibraryEntry? MapMod = null,
+    bool ModsChangedSinceLaunch = false);
 
 /// <summary>Where a new standalone instance's or cluster's INI source text starts from.</summary>
 public enum ConfigSourceKind

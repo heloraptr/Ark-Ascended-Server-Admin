@@ -1,12 +1,10 @@
 using ArkAscendedServerAdmin.Configuration;
-using ArkAscendedServerAdmin.CurseForge;
-using ArkAscendedServerAdmin.CurseForge.Models.Services;
 using ArkAscendedServerAdmin.Infrastructure.Backups;
 using ArkAscendedServerAdmin.Infrastructure.Consoles;
-using ArkAscendedServerAdmin.Infrastructure.CurseForge;
 using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Infrastructure.Install;
 using ArkAscendedServerAdmin.Infrastructure.Maintenance;
+using ArkAscendedServerAdmin.Infrastructure.Mods;
 using ArkAscendedServerAdmin.Infrastructure.Networking;
 using ArkAscendedServerAdmin.Infrastructure.Players;
 using ArkAscendedServerAdmin.Infrastructure.Processes;
@@ -26,7 +24,7 @@ namespace ArkAscendedServerAdmin.Infrastructure;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers storage, install verification, the readiness pipeline, and the CurseForge client. Every
+    /// Registers storage, install verification, the readiness pipeline, and the mod library module. Every
     /// service here is a singleton or hosted service — nothing is tied to a Blazor circuit.
     /// </summary>
     public static IServiceCollection AddArkInfrastructure(this IServiceCollection services, DataRootLayout layout)
@@ -56,6 +54,7 @@ public static class ServiceCollectionExtensions
         services.AddArkPlayers();
         services.AddArkMaintenance();
         services.AddArkScheduling();
+        services.AddArkMods();
 
         services.AddSingleton<ReadinessMonitor>();
         services.AddSingleton<IReadinessMonitor>(sp => sp.GetRequiredService<ReadinessMonitor>());
@@ -63,18 +62,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IStartupControl>(sp => sp.GetRequiredService<StartupOrchestrator>());
         services.AddHostedService(sp => sp.GetRequiredService<StartupOrchestrator>());
 
-        services.AddCurseForgeApi();
-
-        return services;
-    }
-
-    private static IServiceCollection AddCurseForgeApi(this IServiceCollection services)
-    {
-        var options = new ApiOptions();
-        services.AddSingleton(options);
-        services.AddTransient<CurseForgeApiKeyHandler>();
-        services.AddHttpClient<ICurseForgeApi, CurseForgeApi>(client => client.BaseAddress = new Uri(options.BaseUrl))
-            .AddHttpMessageHandler<CurseForgeApiKeyHandler>();
         return services;
     }
 }

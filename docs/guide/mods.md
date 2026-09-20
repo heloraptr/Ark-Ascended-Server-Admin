@@ -47,13 +47,36 @@ library, so a mod you have just found does not cost you the page you are on.
 
 Every entry shows its id, "updated *N* ago" when known, its summary, and where it is used ("map
 *X*", "cluster *Y*", or instance names) or "not used". A map's own mod carries the tag "map mod ·
-*Map name*". Each row has an open-on-CurseForge button and a remove button, which is disabled with
+*Map name*", and a mod that has changed since a server last loaded it carries the pill
+"changed since launch" (see [When a mod changes](#when-a-mod-changes)). Each row has an open-on-CurseForge button and a remove button, which is disabled with
 the tooltip "Remove it from every list first" while the entry is referenced. **Refresh names** at
 the top re-fetches metadata for every entry (key required) and reports how many changed.
 
 Usage is worked out on the spot from the cluster lists, the instance lists, and the `Maps.ModId`
 column. Removing is refused while any of them reference the id; deleting an instance or a cluster
 removes its assignment rows, which frees the entry.
+
+## When a mod changes
+
+Each library entry keeps CurseForge's own `dateModified`. When that stamp is newer than the last time
+the manager launched an instance that loads the mod, the mod's row on this page, the instance's row on
+the dashboard, and the instance header all show the pill "changed since launch". Its hover text is the
+full sentence: "Mod metadata changed since the last launch".
+
+Read it exactly that way. The manager knows two things: CurseForge says the project changed, and the
+launch it issued for that instance was earlier. It does not know which version the server downloaded,
+whether the download succeeded, or whether the change was a new build at all — a description edit moves
+the same stamp. The pill is a prompt to restart when you want the newest build, not a report that the
+server is out of date.
+
+Starting the instance is what clears it: the launch time moves past the stamp and the pill disappears
+from all three places. There is nothing to acknowledge and no button to dismiss it. An instance that has
+never been started never shows the pill, and a mod that no instance loads never shows one either.
+
+The stamps are refreshed two ways. **Refresh names** on this page asks CurseForge about every entry
+right away. A daily background poll does the same on its own, so the pill appears without anyone
+pressing anything; it runs only while a CurseForge API key is set, it never blocks the UI, and a failed
+poll is logged and retried the next day. Without a key nothing is refreshed and no pill ever appears.
 
 ## Cluster mods and instance mods
 
@@ -116,7 +139,7 @@ saving a list updates the rows in place and removes the ones that left the list.
 
 CurseForge calls go to `https://api.curseforge.com` with `gameId=83374` (ARK: Survival Ascended):
 `/v1/mods/search` for **Search** (every page of results is fetched), `/v1/mods/{id}` for **Add**
-by id, and `POST /v1/mods` for **Refresh names**.
+by id, and `POST /v1/mods` for **Refresh names** and for the daily poll.
 
 ## Messages, and what they mean
 
@@ -134,6 +157,6 @@ by id, and `POST /v1/mods` for **Refresh names**.
 | Launch preview / Start | `Mod id <n> is not a valid CurseForge project id.` | A non-positive id reached the launch builder; fix the row on the Mods or Maps page. |
 | Settings | `CurseForgeApiKey must not contain whitespace or control characters.` | The pasted key has a stray space or line break. |
 
-A mod that CurseForge has updated is not detected by the manager beyond the "updated *N* ago"
-stamp; whether the server picks up a new version is between the server and CurseForge at the next
-start.
+Whether the server actually picks up a new version is between the server and CurseForge at the next
+start; the manager only compares CurseForge's stamp with its own launch time, as
+[When a mod changes](#when-a-mod-changes) describes.

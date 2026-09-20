@@ -246,6 +246,15 @@ public static class Presentation
     public static string Telemetry(InstanceTelemetry sample) =>
         $"RAM {Gigabytes(sample.WorkingSetBytes)} · CPU {Percent(sample.CpuPercent)}";
 
+    /// <summary>The short text of the mod badge (B8), whose full wording is <see cref="ModsChangedTitle"/>.</summary>
+    public const string ModsChangedLabel = "changed since launch";
+
+    /// <summary>
+    /// The mod badge's hover title (B8). Deliberately about the metadata: the manager knows a launch was
+    /// issued after the mod changed, not that the new files are installed.
+    /// </summary>
+    public const string ModsChangedTitle = "Mod metadata changed since the last launch";
+
     public static string Clock(DateTimeOffset at) => at.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture);
 
     public static string Stamp(DateTimeOffset at) => at.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);

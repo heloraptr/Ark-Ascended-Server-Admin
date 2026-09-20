@@ -1,10 +1,13 @@
 using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Consoles;
+using ArkAscendedServerAdmin.CurseForge.Models.Services;
+using ArkAscendedServerAdmin.Infrastructure.Mods;
 using ArkAscendedServerAdmin.Infrastructure.Scheduling;
 using ArkAscendedServerAdmin.Infrastructure.Startup;
 using ArkAscendedServerAdmin.Install;
 using ArkAscendedServerAdmin.Maintenance;
+using ArkAscendedServerAdmin.Mods;
 using ArkAscendedServerAdmin.Networking;
 using ArkAscendedServerAdmin.Players;
 using ArkAscendedServerAdmin.Processes;
@@ -46,6 +49,7 @@ public class ServiceRegistrationTests
             typeof(IPlayerTracker), typeof(IBackupService), typeof(IUpdateService), typeof(IInstanceDeleteService), typeof(IMaintenanceRecovery),
             typeof(IReadinessMonitor), typeof(IStartupControl), typeof(StartupOrchestrator),
             typeof(IRconOperations), typeof(ScheduledActionRunner), typeof(IHostAddressProvider),
+            typeof(ICurseForgeApi), typeof(IModMetadataRefresher), typeof(ModMetadataPoll),
         ];
 
         foreach (var type in required)
