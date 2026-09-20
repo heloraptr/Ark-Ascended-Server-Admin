@@ -1395,6 +1395,46 @@ h1:focus-visible {
   word-break: break-word;
 }
 
+/* ---- connection lines --------------------------------------------------------------------------- */
+
+/* One "open <address>:<port>" per row on the instance page's Connection card: the string, its copy
+   button, and a word saying who the string is for. */
+.connect-lines {
+  display: grid;
+  grid-template-columns: max-content max-content 1fr;
+  align-items: center;
+  gap: 2px 8px;
+  margin-top: 14px;
+  font-size: 13.5px;
+}
+
+/* Each line hands its three parts straight to the grid so the copy buttons and the labels line up
+   however long the addresses are. */
+.connect-line {
+  display: contents;
+}
+
+.connect-line .mono {
+  user-select: all;
+}
+
+/* The firewall row pairs the rule name with its verdict; they need a gap the markup does not give them. */
+.conn-rule span + span {
+  margin-left: 8px;
+}
+
+/* The sentences under the lines: smaller and quieter than body text, and not crowding the lines. */
+.connect-note {
+  margin: 14px 0 0;
+  color: var(--ark-steel-3);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.connect-note + .connect-note {
+  margin-top: 6px;
+}
+
 /* ---- wizard ------------------------------------------------------------------------------------- */
 
 /* The wizard fills the viewport below the page head: the step rail and the Back/Next row stay put, the

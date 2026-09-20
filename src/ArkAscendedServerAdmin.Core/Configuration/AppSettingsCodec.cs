@@ -26,13 +26,14 @@ public static class AppSettingsCodec
         public const string ConsoleBackfillLines = "ConsoleBackfillLines";
         public const string CurseForgeApiKey = "CurseForgeApiKey";
         public const string AdminWhitelist = "AdminWhitelist";
+        public const string PublicAddress = "PublicAddress";
         public const string Version = "Version";
 
         public static readonly IReadOnlyList<string> All =
         [
             StaggerDelaySeconds, SteamCmdValidate, GamePortStart, GamePortStep, RconPortStart, RconPortStep,
             DefaultBackupIntervalMinutes, DefaultBackupRetention, BackupQuiescenceSeconds, PreStopBroadcastMinutes,
-            GracefulStopTimeoutSeconds, RconCommandTimeoutSeconds, ConsoleBackfillLines, CurseForgeApiKey, AdminWhitelist, Version,
+            GracefulStopTimeoutSeconds, RconCommandTimeoutSeconds, ConsoleBackfillLines, CurseForgeApiKey, AdminWhitelist, PublicAddress, Version,
         ];
     }
 
@@ -57,6 +58,7 @@ public static class AppSettingsCodec
             [Keys.ConsoleBackfillLines] = Int(settings.ConsoleBackfillLines),
             [Keys.CurseForgeApiKey] = settings.CurseForgeApiKey,
             [Keys.AdminWhitelist] = settings.AdminWhitelist,
+            [Keys.PublicAddress] = settings.PublicAddress,
             [Keys.Version] = settings.Version.ToString(CultureInfo.InvariantCulture),
         };
     }
@@ -83,6 +85,7 @@ public static class AppSettingsCodec
             ConsoleBackfillLines = GetInt(rows, Keys.ConsoleBackfillLines, defaults.ConsoleBackfillLines),
             CurseForgeApiKey = rows.TryGetValue(Keys.CurseForgeApiKey, out var key) ? key.Trim() : defaults.CurseForgeApiKey,
             AdminWhitelist = rows.TryGetValue(Keys.AdminWhitelist, out var whitelist) ? whitelist : defaults.AdminWhitelist,
+            PublicAddress = rows.TryGetValue(Keys.PublicAddress, out var address) ? address.Trim() : defaults.PublicAddress,
             Version = GetLong(rows, Keys.Version, defaults.Version),
         };
     }

@@ -92,6 +92,7 @@ public class InstanceCommandsTests
             await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.SendRconAsync(1, "saveworld", ct));
             await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.CreateAsync(Draft(mapId), ct));
             await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.PreviewLaunchAsync(1, ct));
+            await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.GetConnectionAsync(1, ct));
             await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.ListScheduledActionsAsync(1, ct));
             await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.SaveScheduledActionsAsync(1, [], ct));
             await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.ListScheduledActionRunsAsync(1, 10, ct));
@@ -490,6 +491,76 @@ public class InstanceCommandsTests
         }
     }
 
+    /// <summary>B9: the Connection card's ports, addresses, public address, and firewall answer.</summary>
+    [Fact]
+    public async Task GetConnection_CarriesThePortsTheAddressesAndTheFirewallAnswer()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (host, mapId) = await StartAsync(ct);
+        using (host)
+        {
+            var created = await host.Instances.CreateAsync(Draft(mapId, "One", 7801, 27031), ct);
+            var id = created.Value;
+            host.HostAddresses.Addresses.Clear();
+            host.HostAddresses.Addresses.AddRange(["192.168.1.40", "10.0.0.5"]);
+            host.Firewall.Existing.Add(id);
+            await host.Settings.UpdateAsync(s => s with { PublicAddress = "ark.example.com" }, ct);
+
+            var view = await host.Instances.GetConnectionAsync(id, ct);
+
+            Assert.NotNull(view);
+            Assert.Equal(7801, view.GamePort);
+            Assert.Equal(27031, view.RconPort);
+            Assert.Equal(["192.168.1.40", "10.0.0.5"], view.LanAddresses);
+            Assert.Equal("ark.example.com", view.PublicAddress);
+            Assert.True(view.HasPublicAddress);
+            Assert.Equal($"ArkAscendedServerAdmin-{id}", view.FirewallRuleName);
+            Assert.True(view.FirewallRuleExists);
+            Assert.Equal("open 192.168.1.40:7801", view.OpenCommand("192.168.1.40"));
+            Assert.Equal("open ark.example.com:7801", view.OpenCommand(view.PublicAddress));
+        }
+    }
+
+    /// <summary>B9: no public address, no firewall rule, and an unknown instance.</summary>
+    [Fact]
+    public async Task GetConnection_WithoutAPublicAddressOrARule_SaysSo_AndIsNullForAnUnknownInstance()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (host, mapId) = await StartAsync(ct);
+        using (host)
+        {
+            var created = await host.Instances.CreateAsync(Draft(mapId), ct);
+
+            var view = await host.Instances.GetConnectionAsync(created.Value, ct);
+
+            Assert.NotNull(view);
+            Assert.Equal(string.Empty, view.PublicAddress);
+            Assert.False(view.HasPublicAddress);
+            Assert.False(view.FirewallRuleExists);
+            Assert.Null(await host.Instances.GetConnectionAsync(4242, ct));
+        }
+    }
+
+    /// <summary>B9: an unreadable firewall leaves the answer unknown rather than losing the card.</summary>
+    [Fact]
+    public async Task GetConnection_WhenTheFirewallCannotBeRead_LeavesTheAnswerUnknown()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (host, mapId) = await StartAsync(ct);
+        using (host)
+        {
+            var created = await host.Instances.CreateAsync(Draft(mapId), ct);
+            host.Firewall.Unreadable = true;
+            host.HostAddresses.Addresses.Clear();
+
+            var view = await host.Instances.GetConnectionAsync(created.Value, ct);
+
+            Assert.NotNull(view);
+            Assert.Null(view.FirewallRuleExists);
+            Assert.Empty(view.LanAddresses);
+        }
+    }
+
     // ---- lifecycle ----------------------------------------------------------------------------------
 
     [Fact]
@@ -534,7 +605,7 @@ public class InstanceCommandsTests
                     : host.ProcessManager.StartAsync(call.ArgAt<int>(0), call.ArgAt<LaunchKind>(1), call.ArgAt<CancellationToken>(2)));
             var facade = new Server.Commands.InstanceCommands(
                 host.Guard, host.Root, host.Root.Layout, host.Host, host.Settings, throwing, host.Locks, host.Journals, host.Backups, host.DeleteService, host.LayoutService,
-                host.IniStore, host.RconOperations, host.Clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<Server.Commands.InstanceCommands>.Instance);
+                host.IniStore, host.RconOperations, host.Firewall, host.HostAddresses, host.Clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<Server.Commands.InstanceCommands>.Instance);
 
             var outcomes = await facade.StartManyAsync([ok.Value, busy.Value, 999], ct);
 

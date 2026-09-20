@@ -111,11 +111,20 @@ internal sealed class FakeFirewall : IFirewallRules
 {
     public List<(int InstanceId, int GamePort)> Ensured { get; } = [];
 
+    /// <summary>Instance ids <see cref="InstanceRulesExist"/> answers true for; everything else answers false.</summary>
+    public HashSet<int> Existing { get; } = [];
+
+    /// <summary>Set to make <see cref="InstanceRulesExist"/> throw, the way an unreadable firewall does.</summary>
+    public bool Unreadable { get; set; }
+
     public void EnsureInstanceRules(int instanceId, int gamePort) => Ensured.Add((instanceId, gamePort));
 
     public void RemoveInstanceRules(int instanceId)
     {
     }
+
+    public bool InstanceRulesExist(int instanceId) =>
+        Unreadable ? throw new InvalidOperationException("Firewall rules could not be read.") : Existing.Contains(instanceId);
 }
 
 internal sealed class RecordingConsole : IConsoleService

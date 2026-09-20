@@ -7,12 +7,14 @@ using ArkAscendedServerAdmin.Infrastructure.CurseForge;
 using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Infrastructure.Install;
 using ArkAscendedServerAdmin.Infrastructure.Maintenance;
+using ArkAscendedServerAdmin.Infrastructure.Networking;
 using ArkAscendedServerAdmin.Infrastructure.Players;
 using ArkAscendedServerAdmin.Infrastructure.Processes;
 using ArkAscendedServerAdmin.Infrastructure.Provisioning;
 using ArkAscendedServerAdmin.Infrastructure.Scheduling;
 using ArkAscendedServerAdmin.Infrastructure.Startup;
 using ArkAscendedServerAdmin.Install;
+using ArkAscendedServerAdmin.Networking;
 using ArkAscendedServerAdmin.Startup;
 using ArkAscendedServerAdmin.Storage;
 using Microsoft.EntityFrameworkCore;
@@ -42,6 +44,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IConfigBackupExporter, SqliteConfigBackupExporter>();
 
         services.AddSingleton<IGameInstallChecker, GameInstallChecker>();
+        services.AddSingleton<IHostAddressProvider, HostAddressProvider>();
 
         // Phase 4 areas, each registered by its own extension. Order matters only in that the process
         // manager and the maintenance services resolve the consoles, SteamCMD, and provisioning services.

@@ -66,6 +66,17 @@ else
     </section>
 
     <section class="ark-section">
+        <SectionHead Title="Connection" />
+        <div class="form-grid" style="margin-top:14px">
+            <div class="field span-2">
+                <label for="st-public">Public address</label>
+                <RadzenTextBox id="st-public" @bind-Value="_edit.PublicAddress" autocomplete="off" Placeholder="ark.example.com" />
+                <span class="hint">What players type after <code>open</code>; leave empty on a LAN-only box. Each instance page turns it into a full join line with that instance's game port.</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="ark-section">
         <SectionHead Title="Backups" />
         <div class="form-grid" style="margin-top:14px">
             <div class="field">
@@ -179,6 +190,7 @@ else
         public int ConsoleBackfillLines { get; set; }
         public string CurseForgeApiKey { get; set; } = string.Empty;
         public string AdminWhitelist { get; set; } = string.Empty;
+        public string PublicAddress { get; set; } = string.Empty;
 
         /// <summary>The version the page loaded; the save carries it so a save from another tab is not overwritten.</summary>
         public long Version { get; set; }
@@ -211,6 +223,7 @@ else
             ConsoleBackfillLines = s.ConsoleBackfillLines,
             CurseForgeApiKey = s.CurseForgeApiKey,
             AdminWhitelist = s.AdminWhitelist,
+            PublicAddress = s.PublicAddress,
             Version = s.Version,
         };
         _host = await SettingsCommands.GetHostConfigurationAsync();
@@ -237,6 +250,7 @@ else
             ConsoleBackfillLines = e.ConsoleBackfillLines,
             CurseForgeApiKey = e.CurseForgeApiKey?.Trim() ?? string.Empty,
             AdminWhitelist = e.AdminWhitelist,
+            PublicAddress = e.PublicAddress?.Trim() ?? string.Empty,
             Version = e.Version,
         };
 

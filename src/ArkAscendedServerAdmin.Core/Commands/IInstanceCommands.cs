@@ -112,6 +112,32 @@ public sealed record BulkOutcome(int InstanceId, string Name, OperationOutcome O
 public sealed record LaunchPreview(string CommandLine, IReadOnlyList<string> Warnings, string? Problem);
 
 /// <summary>
+/// What the instance page's Connection card shows (B9): the addresses and ports players connect to, and whether
+/// the instance's firewall rule is in place. Built from the box's own network interfaces and the stored
+/// settings; nothing here contacts the network.
+/// </summary>
+/// <param name="GamePort">The UDP game port players connect to.</param>
+/// <param name="RconPort">The TCP RCON port; shown for reference, never part of an <c>open</c> string.</param>
+/// <param name="LanAddresses">The box's non-loopback IPv4 addresses on interfaces that are up, in interface order; may be empty.</param>
+/// <param name="PublicAddress"><see cref="Configuration.AppSettings.PublicAddress"/>, trimmed; empty when not set.</param>
+/// <param name="FirewallRuleName">The name the app gives the instance's inbound rules, <c>ArkAscendedServerAdmin-&lt;id&gt;</c>.</param>
+/// <param name="FirewallRuleExists">True or false when the firewall answered; null when it could not be read.</param>
+public sealed record ConnectionView(
+    int GamePort,
+    int RconPort,
+    IReadOnlyList<string> LanAddresses,
+    string PublicAddress,
+    string FirewallRuleName,
+    bool? FirewallRuleExists)
+{
+    /// <summary>Whether a public address is set, so the card has an extra <c>open</c> string to offer.</summary>
+    public bool HasPublicAddress => PublicAddress.Length > 0;
+
+    /// <summary>The console command a player types to join through <paramref name="address"/>.</summary>
+    public string OpenCommand(string address) => $"open {address}:{GamePort}";
+}
+
+/// <summary>
 /// Scoped command facade for everything an instance page or the dashboard does. Every method first
 /// awaits <see cref="Auth.IAuthorizationGuard.EnsureAuthorizedAsync"/>. Long operations (start, stop,
 /// backup, delete) complete when the underlying job completes; callers run them off the render path.
@@ -121,6 +147,13 @@ public interface IInstanceCommands
     Task<DashboardData> GetDashboardAsync(CancellationToken cancellationToken = default);
 
     Task<InstanceDetail?> GetAsync(int instanceId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The Connection card's data: the box's addresses, the ports, the public address setting, and the firewall
+    /// rule check. Null when the instance does not exist. Reads the network interfaces on every call, so the page
+    /// asks once per load.
+    /// </summary>
+    Task<ConnectionView?> GetConnectionAsync(int instanceId, CancellationToken cancellationToken = default);
 
     /// <summary>Newest first.</summary>
     Task<IReadOnlyList<BackupRecord>> GetBackupsAsync(int instanceId, CancellationToken cancellationToken = default);
