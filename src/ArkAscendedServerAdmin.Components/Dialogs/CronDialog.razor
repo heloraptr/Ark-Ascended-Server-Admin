@@ -1,0 +1,259 @@
+@* Cron builder for one scheduled action (B3). Four modes cover the usual shapes and a text box takes anything else; every mode shows the expression it produces, its friendly text, and the next three occurrences in the server's local time. Times are entered as hour and minute on the 24-hour clock, so the boxes match the rows and the history rather than the browser's locale. Closes with the expression string, or null when cancelled. *@
+@using System.Globalization
+@using ArkAscendedServerAdmin.Scheduling
+@inject DialogService Dialogs
+@inject TimeProvider Clock
+
+@{
+    var (expression, problem) = Build();
+    IReadOnlyList<DateTimeOffset> next = [];
+    if (problem is null && ScheduleOccurrences.TryParse(expression, out var parsed))
+    {
+        next = ScheduleOccurrences.NextDeadlines(parsed, Clock.GetUtcNow(), Clock.LocalTimeZone, 3);
+    }
+
+    if (problem is null && next.Count == 0)
+    {
+        problem = "The schedule never runs.";
+    }
+}
+
+<div class="cron-dialog">
+    <div class="form-grid">
+        <div class="field">
+            <label for="cron-mode">Repeat</label>
+            <RadzenDropDown id="cron-mode" TValue="Mode" @bind-Value="_mode" Data="_modes" TextProperty="Text" ValueProperty="Value" />
+        </div>
+        @if (_mode == Mode.Daily)
+        {
+            <div class="field">
+                <label for="cron-hour">Time</label>
+                <span class="cron-inline cron-clock">
+                    <RadzenNumeric TValue="int" id="cron-hour" @bind-Value="_hour" Min="0" Max="23" Format="00" ShowUpDown="false" aria-label="Hour" />
+                    <span class="faint">:</span>
+                    <RadzenNumeric TValue="int" id="cron-minute" @bind-Value="_minute" Min="0" Max="59" Format="00" ShowUpDown="false" aria-label="Minute" />
+                </span>
+                <span class="hint">The server's local time, on the 24-hour clock.</span>
+            </div>
+        }
+        else if (_mode == Mode.Hours)
+        {
+            <div class="field">
+                <label for="cron-every">Every</label>
+                <span class="cron-inline">
+                    <RadzenNumeric TValue="int" id="cron-every" @bind-Value="_everyHours" Min="1" Max="12" ShowUpDown="false" />
+                    <span class="faint">hours, at minute</span>
+                    <RadzenNumeric TValue="int" @bind-Value="_atMinute" Min="0" Max="59" ShowUpDown="false" aria-label="Minute" />
+                </span>
+                <span class="hint">Counted from midnight: every 6 hours at minute 0 is 00:00, 06:00, 12:00, and 18:00.</span>
+            </div>
+        }
+        else if (_mode == Mode.Days)
+        {
+            <div class="field span-2">
+                <label>Days</label>
+                <div class="cron-days">
+                    @foreach (var day in _dayOrder)
+                    {
+                        <div class="check-row">
+                            <RadzenCheckBox TValue="bool" @bind-Value="_days[day]" Name="@($"cron-day-{day}")" />
+                            <label for="@($"cron-day-{day}")">@_dayNames[day]</label>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="field">
+                <label for="cron-days-hour">Time</label>
+                <span class="cron-inline cron-clock">
+                    <RadzenNumeric TValue="int" id="cron-days-hour" @bind-Value="_hour" Min="0" Max="23" Format="00" ShowUpDown="false" aria-label="Hour" />
+                    <span class="faint">:</span>
+                    <RadzenNumeric TValue="int" id="cron-days-minute" @bind-Value="_minute" Min="0" Max="59" Format="00" ShowUpDown="false" aria-label="Minute" />
+                </span>
+                <span class="hint">The server's local time, on the 24-hour clock.</span>
+            </div>
+        }
+        else
+        {
+            <div class="field">
+                <label for="cron-custom">Expression</label>
+                <input type="text" id="cron-custom" class="rz-textbox mono" @bind="_custom" @bind:event="oninput" spellcheck="false" placeholder="30 3 * * *" />
+                <span class="hint">Five fields: minute, hour, day of month, month, day of week. <span class="mono">*/15 * * * *</span> is every 15 minutes; <span class="mono">0 4 1 * *</span> is 04:00 on the first of the month.</span>
+            </div>
+        }
+    </div>
+    <div class="cron-preview">
+        @if (problem is not null)
+        {
+            <span class="tone-bad">@problem</span>
+        }
+        else
+        {
+            <div><span class="faint">Expression</span> <span class="mono">@expression</span></div>
+            <div>@ScheduleDescriptions.Describe(expression)</div>
+            <div class="cron-next">
+                <span class="faint">Next</span>
+                @foreach (var deadline in next)
+                {
+                    <span class="num">@Stamp(deadline)</span>
+                }
+            </div>
+        }
+    </div>
+    <div class="form-actions" style="justify-content:flex-end;margin-top:4px">
+        <RadzenButton Text="Cancel" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="@(() => Dialogs.Close(null))" />
+        <RadzenButton Text="OK" ButtonStyle="ButtonStyle.Primary" Disabled="@(problem is not null)" Click="@(() => Dialogs.Close(expression))" />
+    </div>
+</div>
+
+@code {
+    private enum Mode { Daily, Hours, Days, Custom }
+
+    private sealed record ModeOption(string Text, Mode Value);
+
+    private static readonly ModeOption[] _modes =
+    [
+        new("Every day at", Mode.Daily),
+        new("Every N hours", Mode.Hours),
+        new("On these days", Mode.Days),
+        new("Custom expression", Mode.Custom),
+    ];
+
+    // Cron numbers the week from Sunday (0); the boxes read Monday to Sunday.
+    private static readonly int[] _dayOrder = [1, 2, 3, 4, 5, 6, 0];
+    private static readonly string[] _dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+    private Mode _mode = Mode.Daily;
+    private int _hour = 3;
+    private int _minute;
+    private int _everyHours = 6;
+    private int _atMinute;
+    private readonly bool[] _days = new bool[7];
+    private string _custom = string.Empty;
+
+    /// <summary>The expression to start from; null or blank opens the builder at 03:00 every day.</summary>
+    [Parameter]
+    public string? Cron { get; set; }
+
+    protected override void OnInitialized()
+    {
+        var cron = Cron?.Trim() ?? string.Empty;
+        _custom = cron;
+        if (cron.Length == 0)
+        {
+            return;
+        }
+
+        var fields = cron.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (fields.Length != 5 || fields[2] != "*" || fields[3] != "*" || !TryField(fields[0], 59, out var minute))
+        {
+            _mode = Mode.Custom;
+            return;
+        }
+
+        if (TryField(fields[1], 23, out var hour))
+        {
+            _hour = hour;
+            _minute = minute;
+            if (fields[4] == "*")
+            {
+                _mode = Mode.Daily;
+                return;
+            }
+
+            if (TryDays(fields[4], _days))
+            {
+                _mode = Mode.Days;
+                return;
+            }
+        }
+        else if (fields[1] == "*")
+        {
+            _mode = Mode.Hours;
+            _everyHours = 1;
+            _atMinute = minute;
+            return;
+        }
+        else if (fields[1].StartsWith("*/", StringComparison.Ordinal) && TryField(fields[1][2..], 12, out var every) && every >= 1)
+        {
+            _mode = Mode.Hours;
+            _everyHours = every;
+            _atMinute = minute;
+            return;
+        }
+
+        _mode = Mode.Custom;
+    }
+
+    // The expression the current mode produces, or the reason there is none yet.
+    private (string Expression, string? Problem) Build()
+    {
+        switch (_mode)
+        {
+            case Mode.Daily:
+                return ($"{_minute} {_hour} * * *", null);
+            case Mode.Hours:
+                return (_everyHours == 1 ? $"{_atMinute} * * * *" : $"{_atMinute} */{_everyHours} * * *", null);
+            case Mode.Days:
+                var days = DaysField();
+                return days.Length == 0 ? (string.Empty, "Choose at least one day.") : ($"{_minute} {_hour} * * {days}", null);
+            default:
+                var custom = _custom.Trim();
+                if (custom.Length == 0)
+                {
+                    return (custom, "Enter an expression.");
+                }
+
+                return ScheduleOccurrences.TryParse(custom, out _) ? (custom, null) : (custom, "Not a valid cron expression. It needs five fields: minute, hour, day of month, month, day of week.");
+        }
+    }
+
+    // Ticked days as cron day numbers, consecutive runs folded into ranges: 1-5, 0,6.
+    private string DaysField()
+    {
+        var parts = new List<string>();
+        for (var day = 0; day < 7; day++)
+        {
+            if (!_days[day])
+            {
+                continue;
+            }
+
+            var end = day;
+            while (end + 1 < 7 && _days[end + 1])
+            {
+                end++;
+            }
+
+            parts.Add(end == day ? day.ToString(CultureInfo.InvariantCulture) : $"{day}-{end}");
+            day = end;
+        }
+
+        return string.Join(',', parts);
+    }
+
+    private static bool TryField(string field, int max, out int value) =>
+        int.TryParse(field, NumberStyles.None, CultureInfo.InvariantCulture, out value) && value <= max;
+
+    // Digits and digit ranges only (1-5, 0,6, 7 for Sunday); names and steps fall back to the custom box.
+    private static bool TryDays(string field, bool[] days)
+    {
+        Array.Clear(days);
+        foreach (var part in field.Split(','))
+        {
+            var bounds = part.Split('-');
+            if (bounds.Length > 2 || !TryField(bounds[0], 7, out var from) || !TryField(bounds[^1], 7, out var to) || from > to)
+            {
+                return false;
+            }
+
+            for (var day = from; day <= to; day++)
+            {
+                days[day % 7] = true;
+            }
+        }
+
+        return true;
+    }
+
+    private static string Stamp(DateTimeOffset at) => at.ToLocalTime().ToString("ddd yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+}

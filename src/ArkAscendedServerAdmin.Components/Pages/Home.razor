@@ -122,11 +122,15 @@ else
                                     <span class="faint">no backup yet</span>
                                 }
                             </span>
+                            @if (instance.NextDeadline is { } deadline)
+                            {
+                                <span style="display:block;font-size:12px" title="@Presentation.Stamp(deadline)"><span class="faint">Next action</span> <span class="muted">@Presentation.Until(deadline, _now)</span></span>
+                            }
                         </div>
                         <div class="actions">
                             @if (runtime.State == InstanceState.Stopping && runtime.ExitRequested)
                             {
-                                <RadzenButton Text="Closing…" Icon="hourglass_top" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Warning" Disabled="true" title="Exit requested; waiting for the process to close" />
+                                <RadzenButton Text="Stopping…" Icon="hourglass_top" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Warning" Disabled="true" title="Exit requested; waiting for the process to close" />
                             }
                             else if (runtime.State == InstanceState.Stopping)
                             {

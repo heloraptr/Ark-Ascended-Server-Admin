@@ -1250,10 +1250,6 @@ h1:focus-visible {
   opacity: 0.35;
 }
 
-.mod-item .actions .is-off {
-  color: var(--ark-trace);
-}
-
 .mod-item .order {
   color: var(--ark-steel-3);
   font-size: 12px;
@@ -1843,4 +1839,134 @@ h1:focus-visible {
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
+}
+
+/* Schedule editor: rows inherited from the cluster first (locked), then the owner's own rows. The columns are the
+   kind, the command or warning (the one that stretches), the schedule, the enabled flag, and the remove button or
+   lock. The list owns the tracks and each row is a subgrid, so the content-sized columns line up across locked and
+   editable rows; the per-row template is the fallback where subgrid is unsupported. */
+.sched-list {
+  display: grid;
+  grid-template-columns: 180px minmax(140px, 3fr) minmax(max-content, 2fr) max-content max-content;
+}
+
+.sched-list > .muted {
+  grid-column: 1 / -1;
+}
+
+.sched-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: 180px minmax(140px, 3fr) minmax(max-content, 2fr) max-content max-content;
+  grid-template-columns: subgrid;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 6px 6px;
+  border-bottom: 1px solid var(--ark-hairline);
+}
+
+.sched-row.is-locked {
+  opacity: 0.6;
+}
+
+.sched-row > .rz-button,
+.sched-row.is-locked .rzi {
+  justify-self: center;
+}
+
+/* The locked text sits where the inputs' text does: 1px border plus 7px padding. */
+.sched-kind,
+.sched-row .detail {
+  padding-left: 8px;
+}
+
+.sched-row .detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sched-row .rz-textbox,
+.sched-row .rz-dropdown {
+  width: 100%;
+}
+
+.sched-kind,
+.sched-row > .faint {
+  white-space: nowrap;
+}
+
+.sched-when {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sched-desc {
+  white-space: nowrap;
+}
+
+.sched-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sched-warning .rz-numeric {
+  width: 72px;
+}
+
+.sched-add {
+  margin: 10px 0 12px;
+}
+
+.sched-history {
+  height: 280px;
+}
+
+.cron-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cron-inline .rz-numeric {
+  width: 80px;
+}
+
+.cron-clock {
+  gap: 4px;
+}
+
+.cron-clock .rz-numeric {
+  width: 56px;
+}
+
+.cron-dialog input.mono {
+  font-family: var(--ark-mono);
+}
+
+.cron-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+
+.cron-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--ark-hairline);
+  border-radius: var(--ark-radius);
+  font-size: 13px;
+}
+
+.cron-next {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
 }

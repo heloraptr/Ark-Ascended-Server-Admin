@@ -149,7 +149,7 @@ way to a page.
 | Page | Covers |
 |---|---|
 | [first-run.md](first-run.md) | After install: `/setup`, the game install, the first settings, the first cluster and instance, joining. |
-| [instances.md](instances.md) | The Instances page, start, stop, restart, re-attach, the instance page and its tabs, deleting. |
+| [instances.md](instances.md) | The Instances page, start, stop, restart, re-attach, the instance page and its tabs, scheduled actions, deleting. |
 | [clusters.md](clusters.md) | What a cluster shares, creating and editing one, transfers. |
 | [configuration-files.md](configuration-files.md) | `Game.ini` and `GameUserSettings.ini`: source and generated, overrides, the INI editor, reserved keys. |
 | [launch-options.md](launch-options.md) | The flags editor, cluster base plus instance additions, the command-line preview. |

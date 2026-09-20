@@ -1,0 +1,235 @@
+@* Scheduled actions editor over the whole list (B3). Rows inherited from the cluster are shown locked on an instance; the owner's own rows are edited on a copy and saved together, existing ids kept so their runs stay attached. Each row's schedule is a cron expression, shown as friendly text and changed through the CronDialog builder. Under the rows, the run history in a scrollable box. *@
+@using ArkAscendedServerAdmin.Commands
+@using ArkAscendedServerAdmin.Domain
+@using ArkAscendedServerAdmin.Scheduling
+@inject DialogService Dialogs
+@inject TimeProvider Clock
+
+<div class="sched-list">
+    @foreach (var locked in Rows.Where(r => r.Inherited))
+    {
+        <div class="sched-row is-locked" title="Comes from the cluster; change it on the cluster page.">
+            <span class="sched-kind">@Presentation.Label(locked.Kind)</span>
+            <span class="detail">
+                @if (locked.Kind == ScheduledActionKind.RconCommand)
+                {
+                    <span class="mono">@locked.Command</span>
+                }
+                else
+                {
+                    <text>@Presentation.Plural(locked.WarningMinutes, "minute") warning</text>
+                }
+            </span>
+            <span class="sched-when"><span class="sched-desc" title="@When(locked.Cron, locked.NextDeadline)">@locked.Description</span></span>
+            <span class="faint">@(locked.Enabled ? "enabled" : "disabled")</span>
+            <RadzenIcon Icon="lock" Style="color:var(--ark-steel-3)" />
+        </div>
+    }
+    @foreach (var row in _rows)
+    {
+        <div class="sched-row">
+            <RadzenDropDown TValue="ScheduledActionKind" @bind-Value="row.Kind" Data="_kinds" TextProperty="Text" ValueProperty="Value" aria-label="Action" />
+            @if (row.Kind == ScheduledActionKind.RconCommand)
+            {
+                <RadzenTextBox @bind-Value="row.Command" Placeholder="RCON command, e.g. SaveWorld" aria-label="RCON command" />
+            }
+            else
+            {
+                <span class="sched-warning" title="Players see a countdown broadcast each minute before the action.">
+                    <RadzenNumeric TValue="int" @bind-Value="row.WarningMinutes" Min="0" Max="60" ShowUpDown="false" aria-label="Warning minutes" />
+                    <span class="faint">min warning</span>
+                </span>
+            }
+            <span class="sched-when">
+                <span class="sched-desc" title="@When(row.Cron, row.NextDeadline)">@row.Description</span>
+                <RadzenButton Icon="edit" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Change the schedule" Disabled="Busy" Click="() => EditAsync(row)" />
+            </span>
+            <div class="check-row">
+                <RadzenCheckBox TValue="bool" @bind-Value="row.Enabled" Name="@row.Key" />
+                <label for="@row.Key">Enabled</label>
+            </div>
+            <RadzenButton Icon="close" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Remove" Disabled="Busy" Click="() => _rows.Remove(row)" />
+        </div>
+    }
+    @if (_rows.Count == 0 && !Rows.Any(r => r.Inherited))
+    {
+        <p class="muted" style="padding:10px 0">Nothing scheduled. Add an action to restart the server, send an RCON command, or wipe wild dinos on a schedule.</p>
+    }
+</div>
+<div class="sched-add">
+    <RadzenButton Text="Add action" Icon="add" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="Busy" Click="AddAsync" />
+</div>
+<p class="hint muted">Schedules run in the server's local time and mark the action itself: a restart or a wipe counts its warning down to that moment, broadcasting to players each minute, and an RCON command is sent right at it. When the clocks go forward, an occurrence in the missing hour runs right after the change; when they go back, a fixed time in the repeated hour runs once.</p>
+<Problems Items="_problems" />
+<div class="form-actions">
+    <RadzenButton Text="Save schedule" Icon="save" ButtonStyle="ButtonStyle.Primary" Disabled="Busy" Click="SaveAsync" />
+    <RadzenButton Text="Reset" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="Busy" Click="Reset" />
+</div>
+
+<div style="margin-top:22px">
+    <SectionHead Title="History" />
+    @if (Runs.Count == 0)
+    {
+        <p class="muted">No runs yet. A row is recorded here each time an occurrence passes, whether the action ran or was skipped.</p>
+    }
+    else
+    {
+        <RadzenDataGrid Data="Runs" TItem="ScheduledActionRunView" Density="Density.Compact" AllowVirtualization="true" class="sched-history">
+            <Columns>
+                <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="ScheduledFor" Title="Scheduled for" Width="150px">
+                    <Template Context="r"><span class="num">@Presentation.Stamp(r.ScheduledFor)</span></Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="StartedAt" Title="Started" Width="150px">
+                    <Template Context="r"><span class="num">@Presentation.Stamp(r.StartedAt)</span></Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="CompletedAt" Title="Ended" Width="150px">
+                    <Template Context="r">@if (r.CompletedAt is { } ended) { <span class="num">@Presentation.Stamp(ended)</span> }</Template>
+                </RadzenDataGridColumn>
+                @if (ShowInstanceColumn)
+                {
+                    <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="InstanceName" Title="Instance" Width="140px" />
+                }
+                <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="Kind" Title="Action" Width="140px">
+                    <Template Context="r">@Presentation.Label(r.Kind)</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="Outcome" Title="Outcome" Width="110px">
+                    <Template Context="r"><span class="@Presentation.Tone(r.Outcome)">@Presentation.Label(r.Outcome)</span></Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ScheduledActionRunView" Property="Reason" Title="Reason">
+                    <Template Context="r"><span class="muted" title="@r.Reason">@r.Reason</span></Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    }
+</div>
+
+@code {
+    private sealed record KindOption(string Text, ScheduledActionKind Value);
+
+    // One editable row. Id stays 0 for a row added here until the save assigns it; Description and NextDeadline follow Cron.
+    private sealed class Row
+    {
+        public string Key { get; init; } = string.Empty;
+        public int Id { get; init; }
+        public string Cron { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public DateTimeOffset? NextDeadline { get; set; }
+        public ScheduledActionKind Kind { get; set; }
+        public string Command { get; set; } = string.Empty;
+        public int WarningMinutes { get; set; }
+        public bool Enabled { get; set; }
+    }
+
+    private const string DefaultCron = "0 3 * * *";
+
+    private static readonly KindOption[] _kinds =
+    [
+        new(Presentation.Label(ScheduledActionKind.Restart), ScheduledActionKind.Restart),
+        new(Presentation.Label(ScheduledActionKind.RconCommand), ScheduledActionKind.RconCommand),
+        new(Presentation.Label(ScheduledActionKind.DinoWipe), ScheduledActionKind.DinoWipe),
+    ];
+
+    private readonly List<Row> _rows = [];
+    private IReadOnlyList<string>? _problems;
+    private IReadOnlyList<ScheduledActionView>? _source;
+    private int _next;
+
+    /// <summary>The persisted rows, inherited ones flagged; the owner's own rows are edited on a copy until saved.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ScheduledActionView> Rows { get; set; } = [];
+
+    /// <summary>The run history, newest first.</summary>
+    [Parameter]
+    public IReadOnlyList<ScheduledActionRunView> Runs { get; set; } = [];
+
+    /// <summary>Saves the whole list; the problems of a refused save are shown under the rows.</summary>
+    [Parameter, EditorRequired]
+    public Func<IReadOnlyList<ScheduledActionEdit>, Task<CommandResult>> OnSave { get; set; } = default!;
+
+    /// <summary>True on the cluster page, where the runs come from several members.</summary>
+    [Parameter]
+    public bool ShowInstanceColumn { get; set; }
+
+    [Parameter]
+    public bool Busy { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(_source, Rows))
+        {
+            _source = Rows;
+            Reset();
+        }
+    }
+
+    private void Reset()
+    {
+        _rows.Clear();
+        foreach (var row in Rows.Where(r => !r.Inherited))
+        {
+            _rows.Add(new Row
+            {
+                Key = NextKey(),
+                Id = row.Id,
+                Cron = row.Cron,
+                Description = row.Description,
+                NextDeadline = row.NextDeadline,
+                Kind = row.Kind,
+                Command = row.Command,
+                WarningMinutes = row.WarningMinutes,
+                Enabled = row.Enabled,
+            });
+        }
+
+        _problems = null;
+    }
+
+    // The builder comes first; a cancelled dialog adds nothing.
+    private async Task AddAsync()
+    {
+        if (await PickAsync("Add action", DefaultCron) is { } cron)
+        {
+            var row = new Row { Key = NextKey(), Kind = ScheduledActionKind.Restart, WarningMinutes = 10, Enabled = true };
+            Apply(row, cron);
+            _rows.Add(row);
+        }
+    }
+
+    private async Task EditAsync(Row row)
+    {
+        if (await PickAsync("Change the schedule", row.Cron) is { } cron)
+        {
+            Apply(row, cron);
+        }
+    }
+
+    private async Task<string?> PickAsync(string title, string cron) =>
+        await Dialogs.OpenAsync<CronDialog>(title, new Dictionary<string, object?> { ["Cron"] = cron }, new DialogOptions { Width = "560px" }) as string;
+
+    private void Apply(Row row, string cron)
+    {
+        row.Cron = cron;
+        row.Description = ScheduleDescriptions.Describe(cron);
+        var next = ScheduleOccurrences.TryParse(cron, out var expression) ? ScheduleOccurrences.NextDeadlines(expression, Clock.GetUtcNow(), Clock.LocalTimeZone, 1) : [];
+        row.NextDeadline = next.Count > 0 ? next[0] : null;
+    }
+
+    private string NextKey() => $"sched-on-{++_next}";
+
+    private async Task SaveAsync()
+    {
+        var edits = _rows
+            .Select(r => new ScheduledActionEdit(
+                r.Id,
+                r.Cron,
+                r.Kind,
+                r.Kind == ScheduledActionKind.RconCommand ? r.Command.Trim() : string.Empty,
+                r.WarningMinutes,
+                r.Enabled))
+            .ToList();
+        var result = await OnSave(edits);
+        _problems = result.Succeeded ? null : result.Errors;
+    }
+
+    private static string When(string cron, DateTimeOffset? next) => next is { } at ? $"{cron} · next {Presentation.Stamp(at)}" : $"{cron} · never runs again";
+}

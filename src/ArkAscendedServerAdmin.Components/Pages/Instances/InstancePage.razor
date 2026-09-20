@@ -40,7 +40,7 @@ else
         <Actions>
             @if (_runtime.State == InstanceState.Stopping && _runtime.ExitRequested)
             {
-                <RadzenButton Text="Closing…" Icon="hourglass_top" ButtonStyle="ButtonStyle.Warning" Variant="Variant.Outlined" Disabled="true" title="Exit requested; waiting for the process to close" />
+                <RadzenButton Text="Stopping…" Icon="hourglass_top" ButtonStyle="ButtonStyle.Warning" Variant="Variant.Outlined" Disabled="true" title="Exit requested; waiting for the process to close" />
             }
             else if (_runtime.State == InstanceState.Stopping)
             {
@@ -268,6 +268,17 @@ else
                         <label for="s-keep">Backups to keep</label>
                         <RadzenNumeric TValue="int?" id="s-keep" @bind-Value="_edit.BackupRetention" Min="1" Max="1000" Placeholder="default from Settings" ShowUpDown="false" />
                     </div>
+                    @if (instance.Cluster is not null)
+                    {
+                        <div class="field">
+                            <label>Cluster schedule</label>
+                            <div class="check-row">
+                                <RadzenCheckBox TValue="bool" @bind-Value="_edit.OverridesClusterSchedule" Name="s-own-schedule" />
+                                <label for="s-own-schedule">Ignore the cluster's schedule</label>
+                            </div>
+                            <span class="hint">Only the rows in this instance's own schedule run; the cluster's rows are left off the Schedule tab.</span>
+                        </div>
+                    }
                     <div class="field span-2">
                         <label>Admin whitelist</label>
                         <WhitelistEditor @bind-Value="_edit.AdminWhitelist" ClusterWhitelist="@instance.Cluster?.AdminWhitelist" />
@@ -348,6 +359,17 @@ else
                     </div>
                 }
             </RadzenTabsItem>
+
+            <RadzenTabsItem Text="Schedule">
+                @if (_schedule is null)
+                {
+                    <p class="muted">Loading…</p>
+                }
+                else
+                {
+                    <ScheduleEditor Rows="_schedule" Runs="_scheduleRuns" Busy="Busy" OnSave="SaveScheduleAsync" />
+                }
+            </RadzenTabsItem>
         </Tabs>
     </RadzenTabs>
 }
@@ -373,6 +395,8 @@ else
     private IReadOnlyList<BackupRecord>? _backups;
     private IReadOnlyList<RestoreRecord>? _restores;
     private RestoreJournal? _journal;
+    private IReadOnlyList<ScheduledActionView>? _schedule;
+    private IReadOnlyList<ScheduledActionRunView> _scheduleRuns = [];
     private LaunchPreview? _preview;
     private EditModel _edit = new();
     private IReadOnlyList<string>? _settingsProblems;
@@ -380,6 +404,8 @@ else
     private int _tab;
     private const int PlayersTab = 1;
     private const int ConfigTab = 2;
+    private const int ScheduleTab = 7;
+    private const int HistoryRuns = 200;
     private OnlinePlayers? _online;
     private string? _onlineError;
     private bool _listing;
@@ -451,6 +477,7 @@ else
             _backups = await Instances.GetBackupsAsync(Id);
             _restores = await Instances.GetRestoresAsync(Id);
             _journal = await Instances.GetRestoreJournalAsync(Id);
+            await LoadScheduleAsync();
         });
         await RefreshPreviewAsync();
     }
@@ -675,6 +702,10 @@ else
                 Notifications.Done("Saved settings");
                 _detail = await Instances.GetAsync(Id);
                 ResetEdit();
+                if (_schedule is not null)
+                {
+                    await LoadScheduleAsync();
+                }
             }
         });
         await RefreshPreviewAsync();
@@ -692,6 +723,30 @@ else
             }
         });
         await RefreshPreviewAsync();
+    }
+
+    private async Task LoadScheduleAsync()
+    {
+        var rows = await Instances.ListScheduledActionsAsync(Id);
+        var runs = await Instances.ListScheduledActionRunsAsync(Id, HistoryRuns);
+        _schedule = rows.Value ?? [];
+        _scheduleRuns = runs.Value ?? [];
+    }
+
+    /// <summary>The editor shows a refused save's problems itself; a successful save reloads the rows so the new ids and the runs follow.</summary>
+    private async Task<CommandResult> SaveScheduleAsync(IReadOnlyList<ScheduledActionEdit> rows)
+    {
+        var result = CommandResult.Fail("The schedule was not saved.");
+        await GuardedAsync(async () =>
+        {
+            result = await Instances.SaveScheduledActionsAsync(Id, rows);
+            if (result.Succeeded)
+            {
+                Notifications.Done("Saved schedule");
+                await LoadScheduleAsync();
+            }
+        });
+        return result;
     }
 
     private async Task SaveModsAsync(IReadOnlyList<ModSelection> mods)
@@ -739,12 +794,17 @@ else
         await RefreshPreviewAsync();
     }
 
-    /// <summary>The Players tab asks the server every time it is opened; nothing is cached across visits.</summary>
+    /// <summary>The Players tab asks the server every time it is opened; nothing is cached across visits. The Schedule tab reloads its rows and history each time it opens.</summary>
     private async Task OnTabChanged(int index)
     {
         if (index == PlayersTab && _runtime.State == InstanceState.Running)
         {
             await ListPlayersAsync();
+        }
+        else if (index == ScheduleTab)
+        {
+            await GuardedAsync(LoadScheduleAsync);
+            StateHasChanged();
         }
     }
 

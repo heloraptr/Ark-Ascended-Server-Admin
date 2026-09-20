@@ -16,6 +16,7 @@ start. An instance that is not in a cluster is standalone and carries the same t
 | Mods | The cluster's **Mods** tab; loaded before the member's own | A member adds mods after them, never removes one; a mod disabled on the cluster is off for every member. |
 | Launch options | The cluster's **Launch** tab, the base | A member sets any flag to **On** or **Off** instead of **Inherit**; its additional arguments are appended after the cluster's. |
 | Admin whitelist | The cluster's **Settings** tab | A member has its own list; the union is written. |
+| Scheduled actions | The cluster's **Schedule** tab | A member adds its own rows and runs both sets. **Ignore the cluster's schedule** on the member's Settings tab drops the cluster's rows for that member alone. |
 | Cluster id | `-clusterid=<id>` on every member | Cannot differ; that is the point. |
 | Transfer directory | `-ClusterDirOverride=<DataRoot>\Clusters\<slug>` on every member | Cannot differ. |
 
@@ -76,11 +77,12 @@ member at its next start.`
 
 | Tab | Content |
 |---|---|
-| **Members** | One row per member with the state triangle, name, session name, map, ports, and state label, and an arrow to the instance page. **New instance** in the header opens the wizard with this cluster already chosen. Empty: `No members yet.` with the same **New instance** button. |
+| **Members** | One row per member with the state triangle, name, session name, map, ports, and state label (with the next scheduled action under it when one applies), and an arrow to the instance page. **New instance** in the header opens the wizard with this cluster already chosen. Empty: `No members yet.` with the same **New instance** button. |
 | **Config** | The `GameUserSettings.ini` and `Game.ini` editors for the cluster's source files. Same editor as a standalone instance's ([configuration-files.md](configuration-files.md)). |
 | **Mods** | `Mandatory for every member and loaded before each member's own mods. A custom map's own mod loads ahead of these on that member alone and is not listed here.` The ordered list with **Add**, an enable/disable toggle per row, move up and down, remove, **Save mods**. A disabled mod stays listed and is left out of every member's `-mods`. |
 | **Launch** | `The base every member starts from; a member can override each flag.` The flags editor with **Default** / **On** / **Off** per flag ([launch-options.md](launch-options.md)). |
 | **Settings** | **Cluster name** (`The folder stays Clusters\<slug>.`), **Cluster id** (`Passed as -clusterid; every member must share it for transfers to work. Changing it strands existing transfers.`), **Admin whitelist** (`Merged with the Settings list and each member's own list at start.`). **Save settings**, **Reset**. |
+| **Schedule** | `Every member runs these unless it ignores the cluster's schedule on its Settings tab.` The same editor as an instance's, and the history across the members, each run naming its member ([instances.md](instances.md#scheduled-actions)). |
 
 ## Members, and why you cannot move one
 
