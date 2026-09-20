@@ -1,11 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- Domain models, INI merge, port allocation, launch-argument builder, CurseForge client, service
-       interfaces. No Windows dependencies, no DI packages: this project references nothing. -->
+       interfaces, cron schedules. No Windows dependencies, no DI packages: the only packages are the
+       cron parser (Cronos) and the cron describer (CronExpressionDescriptor) behind Scheduling. -->
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>ArkAscendedServerAdmin</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CronExpressionDescriptor" />
+    <PackageReference Include="Cronos" />
+  </ItemGroup>
 
 </Project>

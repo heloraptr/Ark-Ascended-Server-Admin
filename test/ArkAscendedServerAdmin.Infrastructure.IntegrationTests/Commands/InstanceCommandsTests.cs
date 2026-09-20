@@ -92,6 +92,9 @@ public class InstanceCommandsTests
             await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.SendRconAsync(1, "saveworld", ct));
             await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.CreateAsync(Draft(mapId), ct));
             await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.PreviewLaunchAsync(1, ct));
+            await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.ListScheduledActionsAsync(1, ct));
+            await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.SaveScheduledActionsAsync(1, [], ct));
+            await Assert.ThrowsAsync<NotAuthorizedException>(() => host.Instances.ListScheduledActionRunsAsync(1, 10, ct));
 
             Assert.Empty(host.ProcessManager.Starts);
             await using var db = host.Db();
@@ -531,7 +534,7 @@ public class InstanceCommandsTests
                     : host.ProcessManager.StartAsync(call.ArgAt<int>(0), call.ArgAt<LaunchKind>(1), call.ArgAt<CancellationToken>(2)));
             var facade = new Server.Commands.InstanceCommands(
                 host.Guard, host.Root, host.Root.Layout, host.Host, host.Settings, throwing, host.Locks, host.Journals, host.Backups, host.DeleteService, host.LayoutService,
-                host.IniStore, host.GeneratedConfig, host.Rcon, host.Console, host.Clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<Server.Commands.InstanceCommands>.Instance);
+                host.IniStore, host.RconOperations, host.Clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<Server.Commands.InstanceCommands>.Instance);
 
             var outcomes = await facade.StartManyAsync([ok.Value, busy.Value, 999], ct);
 
@@ -737,7 +740,7 @@ public class InstanceCommandsTests
         {
             var created = await host.Instances.CreateAsync(Draft(mapId), ct);
 
-            var result = await host.Instances.SaveAsync(created.Value, new InstanceEdit(" Renamed ", " New session ", 50, 7800, 27050, " a \r\n\r\n b\n", 15, 3), ct);
+            var result = await host.Instances.SaveAsync(created.Value, new InstanceEdit(" Renamed ", " New session ", 50, 7800, 27050, " a \r\n\r\n b\n", 15, 3, false), ct);
 
             Assert.True(result.Succeeded, result.Error);
             var instance = await host.InstanceAsync(created.Value, ct);
@@ -760,10 +763,10 @@ public class InstanceCommandsTests
             var one = await host.Instances.CreateAsync(Draft(mapId, "One"), ct);
             var two = await host.Instances.CreateAsync(Draft(mapId, "Two", 7779, 27021), ct);
 
-            var keep = await host.Instances.SaveAsync(two.Value, new InstanceEdit("Two", "Two session", 20, 7779, 27021, string.Empty, null, null), ct);
-            var stealName = await host.Instances.SaveAsync(two.Value, new InstanceEdit("ONE", "Two session", 20, 7779, 27021, string.Empty, null, null), ct);
-            var stealPorts = await host.Instances.SaveAsync(two.Value, new InstanceEdit("Two", "Two session", 20, 7777, 27020, string.Empty, null, null), ct);
-            var gone = await host.Instances.SaveAsync(999, new InstanceEdit("X", "X", 20, 7790, 27030, string.Empty, null, null), ct);
+            var keep = await host.Instances.SaveAsync(two.Value, new InstanceEdit("Two", "Two session", 20, 7779, 27021, string.Empty, null, null, false), ct);
+            var stealName = await host.Instances.SaveAsync(two.Value, new InstanceEdit("ONE", "Two session", 20, 7779, 27021, string.Empty, null, null, false), ct);
+            var stealPorts = await host.Instances.SaveAsync(two.Value, new InstanceEdit("Two", "Two session", 20, 7777, 27020, string.Empty, null, null, false), ct);
+            var gone = await host.Instances.SaveAsync(999, new InstanceEdit("X", "X", 20, 7790, 27030, string.Empty, null, null, false), ct);
 
             Assert.True(keep.Succeeded, keep.Error);
             Assert.Equal("An instance named 'ONE' already exists.", stealName.Error);

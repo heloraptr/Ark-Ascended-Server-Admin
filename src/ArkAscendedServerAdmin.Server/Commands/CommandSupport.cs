@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Domain;
@@ -6,6 +7,7 @@ using ArkAscendedServerAdmin.Infrastructure.Processes;
 using ArkAscendedServerAdmin.Launch;
 using ArkAscendedServerAdmin.Naming;
 using ArkAscendedServerAdmin.Ports;
+using ArkAscendedServerAdmin.Scheduling;
 using Microsoft.EntityFrameworkCore;
 
 namespace ArkAscendedServerAdmin.Server.Commands;
@@ -153,7 +155,7 @@ internal static class CommandSupport
             .ToListAsync(cancellationToken);
 
     /// <summary>The dashboard row. <paramref name="clusterMods"/> is the cluster's list for a member; the caller loads it because not every query includes the cluster.</summary>
-    public static InstanceSummary ToSummary(Instance instance, IEnumerable<ClusterMod>? clusterMods, BackupRecord? lastBackup) =>
+    public static InstanceSummary ToSummary(Instance instance, IEnumerable<ClusterMod>? clusterMods, BackupRecord? lastBackup, DateTimeOffset? nextDeadline) =>
         new(
             instance.Id,
             instance.Name,
@@ -166,7 +168,19 @@ internal static class CommandSupport
             instance.RconPort,
             instance.MaxPlayers,
             ActiveModCount(instance, clusterMods),
-            lastBackup);
+            lastBackup,
+            nextDeadline);
+
+    /// <summary>
+    /// The dashboard's next deadline for <paramref name="instance"/> (B3): the earliest upcoming occurrence over
+    /// the rows that apply to it (its own, loaded on the entity, plus <paramref name="clusterActions"/> unless it
+    /// overrides them) in the host's local zone; null when nothing is scheduled.
+    /// </summary>
+    public static DateTimeOffset? NextDeadline(Instance instance, IEnumerable<ScheduledAction>? clusterActions, TimeProvider time) =>
+        ScheduleOccurrences.NextDeadline(
+            ScheduleOccurrences.Applicable(instance, instance.ScheduledActions.Concat(clusterActions ?? [])),
+            time.GetUtcNow(),
+            time.LocalTimeZone);
 
     /// <summary>
     /// How many ids a start would put in <c>-mods</c>: the map's own mod, the enabled cluster mods, and the
@@ -187,4 +201,223 @@ internal static class CommandSupport
             .Where(b => b.InstanceId == instanceId)
             .OrderByDescending(b => b.Id) // SQLite cannot order by a DateTimeOffset column; ids are monotonic
             .FirstOrDefaultAsync(cancellationToken);
+
+    // ---- scheduled actions (B3) ---------------------------------------------------------------------
+
+    public const int MaxRconCommandLength = 512;
+
+    public const int MaxCronLength = 128;
+
+    public const int MaxWarningMinutes = 60;
+
+    /// <summary>How many upcoming occurrences a save looks at to catch a schedule that repeats inside its own countdown.</summary>
+    private const int UpcomingOccurrencesChecked = 50;
+
+    /// <summary>
+    /// The owner's rows in id order, each flagged <paramref name="inherited"/>, with the friendly text and the
+    /// next deadline after now in the host's local zone computed in memory; <paramref name="owned"/> picks the
+    /// owner.
+    /// </summary>
+    public static async Task<IReadOnlyList<ScheduledActionView>> ScheduledActionsAsync(
+        AppDbContext db,
+        Expression<Func<ScheduledAction, bool>> owned,
+        bool inherited,
+        TimeProvider time,
+        CancellationToken cancellationToken)
+    {
+        var now = time.GetUtcNow();
+        var zone = time.LocalTimeZone;
+        var rows = await db.ScheduledActions.AsNoTracking()
+            .Where(owned)
+            .OrderBy(a => a.Id)
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(a => new ScheduledActionView(
+                a.Id,
+                a.InstanceId,
+                a.ClusterId,
+                a.Cron,
+                ScheduleDescriptions.Describe(a.Cron),
+                ScheduleOccurrences.NextDeadline(a, now, zone),
+                a.Kind,
+                a.Command,
+                a.WarningMinutes,
+                a.Enabled,
+                inherited))
+            .ToList();
+    }
+
+    /// <summary>
+    /// The newest <paramref name="take"/> runs matching <paramref name="scope"/>, newest first. Ids are handed out
+    /// when a run starts, so ordering by id is ordering by <see cref="ScheduledActionRun.StartedAt"/>, which SQLite
+    /// cannot sort by; the page is sorted by the timestamp once loaded.
+    /// </summary>
+    public static async Task<IReadOnlyList<ScheduledActionRunView>> ScheduledActionRunsAsync(
+        AppDbContext db,
+        Expression<Func<ScheduledActionRun, bool>> scope,
+        int take,
+        CancellationToken cancellationToken)
+    {
+        var page = await db.ScheduledActionRuns.AsNoTracking()
+            .Where(scope)
+            .OrderByDescending(r => r.Id)
+            .Take(take)
+            .Select(r => new ScheduledActionRunView(
+                r.Id,
+                r.ScheduledActionId,
+                r.InstanceId,
+                r.Instance!.Name,
+                r.ScheduledFor,
+                r.StartedAt,
+                r.CompletedAt,
+                r.Outcome,
+                r.Reason,
+                r.ScheduledAction!.Kind))
+            .ToListAsync(cancellationToken);
+
+        return page.OrderByDescending(r => r.StartedAt).ThenByDescending(r => r.Id).ToList();
+    }
+
+    /// <summary>
+    /// The field problems in a whole-list schedule save, each naming the row by its position (1-based).
+    /// <paramref name="now"/> and <paramref name="zone"/> anchor the look-ahead that catches a schedule that
+    /// never fires or repeats inside its own warning countdown.
+    /// </summary>
+    public static IReadOnlyList<string> ValidateScheduledActions(IReadOnlyList<ScheduledActionEdit> rows, DateTimeOffset now, TimeZoneInfo zone)
+    {
+        var problems = new List<string>();
+        var seen = new HashSet<int>();
+        for (var index = 0; index < rows.Count; index++)
+        {
+            var row = rows[index];
+            var label = $"Row {index + 1}";
+            if (row.Id != 0 && !seen.Add(row.Id))
+            {
+                problems.Add($"{label} repeats scheduled action #{row.Id}.");
+            }
+
+            var cron = (row.Cron ?? string.Empty).Trim();
+            IReadOnlyList<DateTimeOffset> upcoming = [];
+            if (cron.Length > MaxCronLength)
+            {
+                problems.Add($"{label}: the schedule must be {MaxCronLength} characters or fewer.");
+            }
+            else if (!ScheduleOccurrences.TryParse(cron, out var expression))
+            {
+                problems.Add($"{label}: the schedule is not a valid cron expression.");
+            }
+            else
+            {
+                upcoming = ScheduleOccurrences.NextDeadlines(expression, now, zone, UpcomingOccurrencesChecked);
+                if (upcoming.Count == 0)
+                {
+                    problems.Add($"{label}: the schedule never runs.");
+                }
+            }
+
+            if (!Enum.IsDefined(row.Kind))
+            {
+                problems.Add($"{label}: the action kind is not recognized.");
+            }
+
+            if (row.WarningMinutes is < 0 or > MaxWarningMinutes)
+            {
+                problems.Add($"{label}: the warning must be between 0 and {MaxWarningMinutes} minutes.");
+            }
+
+            if (row.Kind == ScheduledActionKind.RconCommand)
+            {
+                if (string.IsNullOrWhiteSpace(row.Command))
+                {
+                    problems.Add($"{label}: an RCON command is required.");
+                }
+                else if (row.Command.Trim().Length > MaxRconCommandLength)
+                {
+                    problems.Add($"{label}: the RCON command must be {MaxRconCommandLength} characters or fewer.");
+                }
+            }
+
+            // Two occurrences closer than the countdown plus the runner's minute would make the second one
+            // land while the first is still counting down, and it would only ever be skipped.
+            if (upcoming.Count > 1 && row.WarningMinutes is >= 0 and <= MaxWarningMinutes)
+            {
+                var effectiveWarning = row.Kind == ScheduledActionKind.RconCommand ? 0 : row.WarningMinutes;
+                var minimumGap = TimeSpan.FromMinutes(effectiveWarning + 1);
+                for (var i = 1; i < upcoming.Count; i++)
+                {
+                    if (upcoming[i] - upcoming[i - 1] < minimumGap)
+                    {
+                        problems.Add($"{label}: the schedule repeats faster than its warning countdown.");
+                        break;
+                    }
+                }
+            }
+        }
+
+        return problems;
+    }
+
+    /// <summary>
+    /// The problems for rows whose id is not one of the owner's <paramref name="own"/> rows: unknown, another
+    /// owner's, or (on an instance, when <paramref name="inheritedIds"/> has it) the cluster's, which only the
+    /// cluster page edits. <paramref name="owner"/> is "instance" or "cluster" for the message.
+    /// </summary>
+    public static IReadOnlyList<string> ValidateScheduledActionOwnership(
+        IReadOnlyList<ScheduledActionEdit> rows,
+        IEnumerable<ScheduledAction> own,
+        string owner,
+        IReadOnlySet<int>? inheritedIds = null)
+    {
+        var ownIds = own.Select(a => a.Id).ToHashSet();
+        var problems = new List<string>();
+        for (var index = 0; index < rows.Count; index++)
+        {
+            var id = rows[index].Id;
+            if (id == 0 || ownIds.Contains(id))
+            {
+                continue;
+            }
+
+            problems.Add(inheritedIds?.Contains(id) == true
+                ? $"Row {index + 1}: scheduled action #{id} comes from the cluster; change it on the cluster page."
+                : $"Row {index + 1}: scheduled action #{id} does not belong to this {owner}.");
+        }
+
+        return problems;
+    }
+
+    /// <summary>
+    /// Applies a validated whole-list save to <paramref name="existing"/>, the owner's tracked rows: a known id is
+    /// updated in place (never deleted and re-added, which would drop its runs and trip EF over the reused key),
+    /// id zero is added with <paramref name="setOwner"/> applied, and rows left out of <paramref name="rows"/> are
+    /// removed. Every non-zero id has already been checked against <paramref name="existing"/>.
+    /// </summary>
+    public static void ApplyScheduledActions(AppDbContext db, IReadOnlyList<ScheduledAction> existing, IReadOnlyList<ScheduledActionEdit> rows, Action<ScheduledAction> setOwner)
+    {
+        var kept = new HashSet<int>();
+        foreach (var row in rows)
+        {
+            ScheduledAction target;
+            if (row.Id == 0)
+            {
+                target = new ScheduledAction();
+                setOwner(target);
+                db.ScheduledActions.Add(target);
+            }
+            else
+            {
+                target = existing.Single(a => a.Id == row.Id);
+                kept.Add(row.Id);
+            }
+
+            target.Cron = row.Cron.Trim();
+            target.Kind = row.Kind;
+            target.Command = row.Kind == ScheduledActionKind.RconCommand ? row.Command.Trim() : string.Empty;
+            target.WarningMinutes = row.WarningMinutes;
+            target.Enabled = row.Enabled;
+        }
+
+        db.ScheduledActions.RemoveRange(existing.Where(a => !kept.Contains(a.Id)));
+    }
 }

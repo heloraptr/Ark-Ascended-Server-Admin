@@ -16,6 +16,11 @@ public sealed class FastTimeProvider(DateTimeOffset start) : TimeProvider
     private readonly object _sync = new();
     private DateTimeOffset _now = start;
 
+    /// <summary>The zone <see cref="LocalTimeZone"/> reports; the machine's unless a test pins one.</summary>
+    public TimeZoneInfo Zone { get; set; } = TimeZoneInfo.Local;
+
+    public override TimeZoneInfo LocalTimeZone => Zone;
+
     public override DateTimeOffset GetUtcNow()
     {
         lock (_sync)
@@ -249,9 +254,35 @@ public sealed class FakeProcessManager(FakeMaintenanceGate? gate = null) : IProc
 
     public Task<OperationOutcome> RestartAsync(int instanceId, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-    public Task<OperationOutcome> RestartWithCountdownAsync(int instanceId, DateTimeOffset deadline, CancellationToken cancellationToken) => throw new NotSupportedException();
+    /// <summary>Restarts recorded with their deadline; scripted by <see cref="RestartOutcomes"/>, else success with the instance left Running.</summary>
+    public List<(int InstanceId, DateTimeOffset Deadline)> Restarts { get; } = [];
+
+    public ConcurrentDictionary<int, OperationOutcome> RestartOutcomes { get; } = new();
+
+    public Task<OperationOutcome> RestartWithCountdownAsync(int instanceId, DateTimeOffset deadline, CancellationToken cancellationToken)
+    {
+        lock (Restarts)
+        {
+            Restarts.Add((instanceId, deadline));
+        }
+
+        return Task.FromResult(RestartOutcomes.TryGetValue(instanceId, out var scripted) ? scripted : OperationOutcome.Success);
+    }
 
     public bool TrySkipCountdown(int instanceId) => false;
+
+    /// <summary>Countdowns recorded with their deadline and template; they complete at once with success.</summary>
+    public List<(int InstanceId, DateTimeOffset Deadline, string MessageTemplate)> Countdowns { get; } = [];
+
+    public Task<OperationOutcome> BroadcastCountdownAsync(int instanceId, DateTimeOffset deadline, string messageTemplate, CancellationToken cancellationToken)
+    {
+        lock (Countdowns)
+        {
+            Countdowns.Add((instanceId, deadline, messageTemplate));
+        }
+
+        return Task.FromResult(OperationOutcome.Success);
+    }
 
     public Task<OperationOutcome> RetryPersistIdentityAsync(int instanceId, CancellationToken cancellationToken) => throw new NotSupportedException();
 }

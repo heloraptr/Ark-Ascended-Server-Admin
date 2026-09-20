@@ -8,6 +8,7 @@ using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Provisioning;
 using ArkAscendedServerAdmin.Infrastructure.Players;
 using ArkAscendedServerAdmin.Infrastructure.Provisioning;
+using ArkAscendedServerAdmin.Infrastructure.Scheduling;
 using ArkAscendedServerAdmin.Install;
 using ArkAscendedServerAdmin.Maintenance;
 using ArkAscendedServerAdmin.Rcon;
@@ -54,9 +55,10 @@ internal sealed class CommandTestHost : IDisposable
         Recovery = Substitute.For<IMaintenanceRecovery>();
         InstallChecker = Substitute.For<IGameInstallChecker>();
 
+        RconOperations = new RconOperations(Root, Settings, ProcessManager, GeneratedConfig, Rcon, Console, Clock);
         Instances = new InstanceCommands(
             Guard, Root, Root.Layout, Host, Settings, ProcessManager, Locks, Journals, Backups, DeleteService, LayoutService, IniStore,
-            GeneratedConfig, Rcon, Console, Clock, NullLogger<InstanceCommands>.Instance);
+            RconOperations, Clock, NullLogger<InstanceCommands>.Instance);
         Clusters = new ClusterCommands(Guard, Root, Root.Layout, Instances, Locks, Journals, Clock, NullLogger<ClusterCommands>.Instance);
         Config = new ConfigCommands(Guard, Root, IniStore, NullLogger<ConfigCommands>.Instance);
         Mods = new ModCommands(Guard, Root, Settings, CurseForge, Clock, NullLogger<ModCommands>.Instance);
@@ -92,6 +94,8 @@ internal sealed class CommandTestHost : IDisposable
     public FakeConsoleService Console { get; }
 
     public ScriptedRconClient Rcon { get; }
+
+    public RconOperations RconOperations { get; }
 
     public IBackupService Backups { get; }
 

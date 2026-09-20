@@ -10,6 +10,7 @@ using ArkAscendedServerAdmin.Infrastructure.Maintenance;
 using ArkAscendedServerAdmin.Infrastructure.Players;
 using ArkAscendedServerAdmin.Infrastructure.Processes;
 using ArkAscendedServerAdmin.Infrastructure.Provisioning;
+using ArkAscendedServerAdmin.Infrastructure.Scheduling;
 using ArkAscendedServerAdmin.Infrastructure.Startup;
 using ArkAscendedServerAdmin.Install;
 using ArkAscendedServerAdmin.Startup;
@@ -51,6 +52,7 @@ public static class ServiceCollectionExtensions
         services.AddArkBackups();
         services.AddArkPlayers();
         services.AddArkMaintenance();
+        services.AddArkScheduling();
 
         services.AddSingleton<ReadinessMonitor>();
         services.AddSingleton<IReadinessMonitor>(sp => sp.GetRequiredService<ReadinessMonitor>());

@@ -58,6 +58,9 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
     /// <summary>A remainder this short at the top of a countdown pass is timer skew, not a minute worth announcing.</summary>
     private static readonly TimeSpan _countdownSlack = TimeSpan.FromSeconds(1);
 
+    /// <summary>The stop countdown's broadcast; <c>{0}</c> is "in N minute(s)" or "now" (see <see cref="BroadcastCountdownAsync"/>).</summary>
+    private const string StopCountdownTemplate = "Server shutting down {0}.";
+
     /// <summary>How long a stop waits for <c>HasExited</c> after <c>Kill</c> before reporting an unverified exit.</summary>
     public static readonly TimeSpan ExitVerificationBound = TimeSpan.FromSeconds(30);
 
@@ -714,7 +717,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             {
                 if (deadline is { } countdownDeadline)
                 {
-                    await CountdownAsync(session, rcon, countdownDeadline, timeout, token);
+                    await CountdownAsync(session, rcon, countdownDeadline, StopCountdownTemplate, timeout, token);
                 }
 
                 // No explicit saveworld: doexit saves the world itself ("Saving world..." twice in the log before "Closing by request", captured 2026-09-13).
@@ -771,12 +774,33 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         }
     }
 
+    public async Task<OperationOutcome> BroadcastCountdownAsync(int instanceId, DateTimeOffset deadline, string messageTemplate, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(messageTemplate);
+        if (!_sessions.TryGetValue(instanceId, out var session) || !GetRuntime(instanceId).HasLiveProcess)
+        {
+            return OperationOutcome.Rejected("The instance is not running.");
+        }
+
+        if (session.Rcon is not { } rcon)
+        {
+            return OperationOutcome.Rejected("No RCON credentials for this process, so nothing can be broadcast.");
+        }
+
+        var settings = await _settings.GetAsync(cancellationToken);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(_lifetime, cancellationToken);
+        await CountdownAsync(session, rcon, deadline, messageTemplate, TimeSpan.FromSeconds(settings.RconCommandTimeoutSeconds), linked.Token);
+        return OperationOutcome.Success;
+    }
+
     /// <summary>
     /// Broadcasts the minutes remaining until <paramref name="deadline"/> and returns when it passes (or the countdown
     /// is skipped). Each wait runs to the next whole-minute mark before the deadline, computed from the clock, so a
-    /// slow reply never pushes <c>doexit</c> later than the deadline plus that one reply.
+    /// slow reply never pushes <c>doexit</c> later than the deadline plus that one reply. The stop sequence and
+    /// <see cref="BroadcastCountdownAsync"/> share this loop; <paramref name="messageTemplate"/> supplies the words
+    /// around "in N minute(s)" and, for the last broadcast, "now".
     /// </summary>
-    private async Task CountdownAsync(Session session, RconEndpoint rcon, DateTimeOffset deadline, TimeSpan timeout, CancellationToken token)
+    private async Task CountdownAsync(Session session, RconEndpoint rcon, DateTimeOffset deadline, string messageTemplate, TimeSpan timeout, CancellationToken token)
     {
         using var skip = CancellationTokenSource.CreateLinkedTokenSource(token);
         session.SkipCountdown = skip;
@@ -799,7 +823,8 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
                 }
 
                 var minutes = Math.Max(1, (int)Math.Ceiling((remaining - TimeSpan.FromSeconds(1)).TotalMinutes));
-                await TryRconAsync(session, rcon, RconCommands.Broadcast($"Server shutting down in {minutes} minute{(minutes == 1 ? string.Empty : "s")}."), timeout, token);
+                var phrase = $"in {minutes} minute{(minutes == 1 ? string.Empty : "s")}";
+                await TryRconAsync(session, rcon, RconCommands.Broadcast(string.Format(CultureInfo.InvariantCulture, messageTemplate, phrase)), timeout, token);
                 var wait = remaining - TimeSpan.FromMinutes(minutes - 1);
                 try
                 {
@@ -812,7 +837,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
                 }
             }
 
-            await TryRconAsync(session, rcon, RconCommands.Broadcast("Server shutting down now."), timeout, token);
+            await TryRconAsync(session, rcon, RconCommands.Broadcast(string.Format(CultureInfo.InvariantCulture, messageTemplate, "now")), timeout, token);
         }
         finally
         {

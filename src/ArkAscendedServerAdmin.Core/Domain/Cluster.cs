@@ -28,4 +28,6 @@ public sealed class Cluster
     public List<ClusterMod> Mods { get; } = [];
 
     public List<IniDocument> IniDocuments { get; } = [];
+
+    public List<ScheduledAction> ScheduledActions { get; } = [];
 }

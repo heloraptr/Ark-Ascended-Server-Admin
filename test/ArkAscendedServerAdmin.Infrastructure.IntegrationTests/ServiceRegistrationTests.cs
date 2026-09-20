@@ -1,12 +1,14 @@
 using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Consoles;
+using ArkAscendedServerAdmin.Infrastructure.Scheduling;
 using ArkAscendedServerAdmin.Infrastructure.Startup;
 using ArkAscendedServerAdmin.Install;
 using ArkAscendedServerAdmin.Maintenance;
 using ArkAscendedServerAdmin.Players;
 using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Provisioning;
+using ArkAscendedServerAdmin.Scheduling;
 using ArkAscendedServerAdmin.Startup;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -42,6 +44,7 @@ public class ServiceRegistrationTests
             typeof(IProcessManager), typeof(IProcessReconciler), typeof(IInstanceLocks), typeof(IMaintenanceGate),
             typeof(IPlayerTracker), typeof(IBackupService), typeof(IUpdateService), typeof(IInstanceDeleteService), typeof(IMaintenanceRecovery),
             typeof(IReadinessMonitor), typeof(IStartupControl), typeof(StartupOrchestrator),
+            typeof(IRconOperations), typeof(ScheduledActionRunner),
         ];
 
         foreach (var type in required)

@@ -38,6 +38,9 @@ public static class RconCommands
     public const string DoExit = "doexit";
     public const string ListPlayers = "ListPlayers";
 
+    /// <summary>Kills every wild dino so they respawn; the scheduled dino wipe (B3) sends it at its deadline.</summary>
+    public const string DestroyWildDinos = "destroywilddinos";
+
     /// <summary>Reply to <see cref="SaveWorld"/>; the <c>.ark</c> write begins ~0.8 s after it (plan step 28).</summary>
     public const string SaveWorldReply = "World Saved";
 
