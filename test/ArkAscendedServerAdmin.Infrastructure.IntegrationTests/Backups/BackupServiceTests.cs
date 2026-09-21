@@ -296,6 +296,60 @@ public class BackupServiceTests
     }
 
     [Fact]
+    public async Task Backup_CapsTheInstancesSkippedAndFailedRows_AndLeavesTheRestAlone()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        var fixture = await Fixture.CreateAsync(root, clustered: false, ct, i => i.BackupRetention = 10);
+        var other = await TestSeed.InstanceAsync(root, "beta", clustered: false, ct, i => { i.GamePort = 7787; i.RconPort = 27030; });
+        await SeedRecordsAsync(root, fixture.Instance.Id, BackupRetention.UnsuccessfulRecordsKept + 1, 2, ct);
+        await SeedRecordsAsync(root, other.Id, BackupRetention.UnsuccessfulRecordsKept + 1, 0, ct);
+
+        var record = await fixture.Service.BackupNowAsync(fixture.Instance.Id, isManual: false, ct);
+
+        Assert.Equal(BackupOutcome.Success, record.Outcome);
+        await using var db = root.CreateDbContext();
+        // SQLite cannot order by a DateTimeOffset, so the rows come back unordered and are sorted here.
+        var rows = await db.BackupRecords.Where(r => r.InstanceId == fixture.Instance.Id).ToListAsync(ct);
+        var unsuccessful = rows.Where(r => r.Outcome != BackupOutcome.Success).OrderBy(r => r.CreatedAt).ThenBy(r => r.Id).ToList();
+        Assert.Equal(BackupRetention.UnsuccessfulRecordsKept, unsuccessful.Count);
+        Assert.DoesNotContain(unsuccessful, r => r.Reason == "attempt 1");
+        Assert.Equal("attempt 2", unsuccessful[0].Reason);
+        Assert.Equal(3, rows.Count(r => r.Outcome == BackupOutcome.Success));
+        Assert.Equal(BackupRetention.UnsuccessfulRecordsKept + 1, await db.BackupRecords.CountAsync(r => r.InstanceId == other.Id, ct));
+    }
+
+    /// <summary>Writes history straight to the table: <paramref name="unsuccessful"/> skipped or failed attempts, then <paramref name="successes"/> archives.</summary>
+    private static async Task SeedRecordsAsync(TempDataRoot root, int instanceId, int unsuccessful, int successes, CancellationToken ct)
+    {
+        await using var db = root.CreateDbContext();
+        for (var i = 1; i <= unsuccessful; i++)
+        {
+            db.BackupRecords.Add(new BackupRecord
+            {
+                InstanceId = instanceId,
+                CreatedAt = Fixture.Start.AddMinutes(-unsuccessful + i - 1),
+                Outcome = i % 2 == 0 ? BackupOutcome.Failed : BackupOutcome.Skipped,
+                Reason = $"attempt {i}",
+            });
+        }
+
+        for (var i = 1; i <= successes; i++)
+        {
+            db.BackupRecords.Add(new BackupRecord
+            {
+                InstanceId = instanceId,
+                CreatedAt = Fixture.Start.AddMinutes(-successes + i - 1),
+                Outcome = BackupOutcome.Success,
+                FileName = $"old-{i}.zip",
+                SizeBytes = 100,
+            });
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    [Fact]
     public async Task BackupNow_WaitsForTheInstanceLock()
     {
         using var root = new TempDataRoot();

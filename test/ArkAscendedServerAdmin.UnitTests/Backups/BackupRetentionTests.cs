@@ -69,6 +69,66 @@ public class BackupRetentionTests
         Assert.Equal([1], prune.Select(r => r.Id));
     }
 
+    [Fact]
+    public void WithinTheUnsuccessfulCap_NothingIsPruned()
+    {
+        var records = Unsuccessful(BackupRetention.UnsuccessfulRecordsKept);
+
+        Assert.Empty(BackupRetention.SelectUnsuccessfulForPruning(records));
+    }
+
+    [Fact]
+    public void BeyondTheUnsuccessfulCap_TheOldestArePrunedOldestFirst()
+    {
+        var records = Unsuccessful(BackupRetention.UnsuccessfulRecordsKept + 3);
+        records.Reverse();
+
+        var prune = BackupRetention.SelectUnsuccessfulForPruning(records);
+
+        Assert.Equal([1, 2, 3], prune.Select(r => r.Id));
+    }
+
+    [Fact]
+    public void SuccessfulRecords_NeverCountTowardTheUnsuccessfulCap()
+    {
+        var records = Unsuccessful(2);
+        var successes = Successes(3);
+        foreach (var success in successes)
+        {
+            success.Id += 100;
+        }
+
+        records.AddRange(successes);
+
+        var prune = BackupRetention.SelectUnsuccessfulForPruning(records, keep: 1);
+
+        Assert.Equal([1], prune.Select(r => r.Id));
+    }
+
+    [Fact]
+    public void SkippedAndFailedCountAlike()
+    {
+        var records = Unsuccessful(3);
+        records[1].Outcome = BackupOutcome.Failed;
+
+        var prune = BackupRetention.SelectUnsuccessfulForPruning(records, keep: 1);
+
+        Assert.Equal([1, 2], prune.Select(r => r.Id));
+    }
+
+    [Fact]
+    public void AKeepBelowZero_PrunesEverythingUnsuccessful()
+    {
+        var prune = BackupRetention.SelectUnsuccessfulForPruning(Unsuccessful(2), keep: -1);
+
+        Assert.Equal([1, 2], prune.Select(r => r.Id));
+    }
+
+    private static List<BackupRecord> Unsuccessful(int count) =>
+        Enumerable.Range(1, count)
+            .Select(i => new BackupRecord { Id = i, InstanceId = 1, CreatedAt = _start.AddHours(i), Outcome = BackupOutcome.Skipped, Reason = $"reason {i}" })
+            .ToList();
+
     private static List<BackupRecord> Successes(int count) =>
         Enumerable.Range(1, count)
             .Select(i => new BackupRecord { Id = i, InstanceId = 1, CreatedAt = _start.AddHours(i), Outcome = BackupOutcome.Success, FileName = $"{i}.zip", SizeBytes = 100 })

@@ -31,12 +31,12 @@ running: "The instance is not running. Start it to see who is on it."
 The command goes over RCON with the RCON command timeout from Settings, and the reply is parsed as
 lines of the form `0. Name, <id>` (a `Name, <id>` line without the index is accepted too);
 `No Players Connected` is an empty list. Everyone listed is upserted as online on that instance with
-`LastSeenAt` = now; anyone the table thought was online there but who is not in the reply is marked
-offline. A `ListPlayers` reply carries no platform, so that column stays as the last join line set
-it.
+`LastSeenAt` set to the moment the command went out; anyone the table thought was online there but
+who is not in the reply is marked offline. A `ListPlayers` reply carries no platform, so that column
+stays as the last join line set it.
 
-`ListPlayers` runs only when you ask. It answers "who is on right now" and corrects the table at the
-same time, without a timer hitting every server.
+The same command also runs on its own, in the health probe that watches every running instance, so
+the answer you get here is a check rather than the only correction the table ever gets.
 
 ## Where the names and ids come from
 
@@ -58,6 +58,14 @@ the console never waits on the database.
 The log is the source rather than a poll over RCON because the game writes the join and leave lines
 itself with a UTC stamp. That gives an exact history at no cost, and it survives service restarts
 through the backfill, including servers the service re-attached to instead of starting.
+
+The 15-second health probe fills the gaps: every `ListPlayers` reply it gets is recorded as a
+snapshot of that instance, so anyone listed is online there and anyone the table thought was on it
+but who is missing has left, which is what reconciles the table when the service re-attaches to a
+server it did not start. A reply is tagged with the session it was sent to and the moment it went
+out, so one that arrives after a restart is dropped, and a slow one never overwrites a join, a
+leave, or a later reply that landed while it was in flight, including a transfer to another
+instance. **List players** on the Players tab records its answer the same way.
 
 A join sets `IsOnline`, `LastJoinedAt`, and `LastInstance`; a leave clears `IsOnline` and sets
 `LastLeftAt`. When an instance's process is gone (a stop, a crash, or a re-attach that finds
