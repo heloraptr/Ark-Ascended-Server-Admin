@@ -1299,6 +1299,22 @@ h1:focus-visible {
   gap: 2px;
 }
 
+/* The add-from-CurseForge row under a mod list editor. The rule above it marks it as a second way in,
+   for a mod the library does not hold yet, rather than more of the save row. */
+.mod-add {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ark-hairline);
+}
+
+.mod-add .mod-grid {
+  margin-top: 6px;
+}
+
+.mod-add-problems {
+  margin-top: 12px;
+}
+
 .mod-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));

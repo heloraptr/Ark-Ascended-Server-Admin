@@ -1,4 +1,8 @@
-@* Ordered mod list: the map's own mod first (locked), locked cluster mods next (greyed), then the editable list with enable/disable, move up/down, remove, and add-from-library. Disabled entries keep their place and are left out of -mods. *@
+@* Ordered mod list: the map's own mod first (locked), locked cluster mods next (greyed), then the editable list with enable/disable, move up/down, remove, and add-from-library. Disabled entries keep their place and are left out of -mods. A mod that is not in the library yet is added from CurseForge here (issue #29) through the same facade calls the Mods page makes; the parent reloads the library through OnLibraryChanged and the new row is appended in the same step. *@
+@using System.Globalization
+@inject IModCommands ModCommands
+@inject NotificationService Notifications
+@inject NavigationManager Navigation
 
 <div class="mod-list">
     @{ var position = 0; }
@@ -75,6 +79,75 @@
     <RadzenButton Text="Save mods" Icon="save" ButtonStyle="ButtonStyle.Primary" Disabled="@(Busy || !IsDirty)" Click="SaveAsync" />
     <RadzenButton Text="Reset" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="@(Busy || !IsDirty)" Click="Reset" />
 </div>
+
+@if (_hasKey is { } hasKey)
+{
+    <div class="mod-add">
+        <div class="form-actions" style="flex-wrap:wrap;margin-top:0">
+            <span class="status">Not in the library?</span>
+            @if (hasKey)
+            {
+                <RadzenTextBox @bind-Value="_term" @oninput="@((ChangeEventArgs e) => _term = e.Value?.ToString())" Placeholder="Search CurseForge, or paste a project id" aria-label="Search CurseForge, or paste a project id" Disabled="@(Busy || _working)" Style="min-width:300px" @onkeydown="@(async (KeyboardEventArgs e) => { if (e.Key == "Enter") { await LookupAsync(); } })" />
+                <RadzenButton Text="Look up" Icon="search" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="@(Busy || _working || string.IsNullOrWhiteSpace(_term))" title="A project id is added straight away; anything else searches CurseForge" Click="LookupAsync" />
+                @if (_hits is not null)
+                {
+                    <RadzenButton Text="Clear results" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="@(Busy || _working)" Click="() => _hits = null" />
+                }
+            }
+            else
+            {
+                <RadzenNumeric TValue="int?" @bind-Value="_addId" ShowUpDown="false" Placeholder="project id" aria-label="CurseForge project id" Disabled="@(Busy || _working)" Style="width:130px" />
+                <RadzenTextBox @bind-Value="_addName" @oninput="@((ChangeEventArgs e) => _addName = e.Value?.ToString())" Placeholder="name" aria-label="Mod name" Disabled="@(Busy || _working)" Style="min-width:220px" @onkeydown="@(async (KeyboardEventArgs e) => { if (e.Key == "Enter") { await AddManualAsync(); } })" />
+                <RadzenButton Text="Add" Icon="add" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="@(Busy || _working || _addId is null || string.IsNullOrWhiteSpace(_addName))" title="Adds it to the library and to this list" Click="AddManualAsync" />
+            }
+        </div>
+        @if (_addProblems is { Count: > 0 })
+        {
+            <div class="mod-add-problems"><Problems Items="_addProblems" /></div>
+        }
+        @if (!hasKey)
+        {
+            <p class="hint muted" style="margin:6px 0 0">No CurseForge API key. Add one on the <a href="settings">Settings</a> page to search and to fetch names and thumbnails. Without it, add mods by their project id and give them a name yourself.</p>
+        }
+        else if (_hits is { Count: 0 })
+        {
+            <p class="muted" style="margin:6px 0 0">Nothing matched.</p>
+        }
+        else if (_hits is { Count: > 0 })
+        {
+            <div class="mod-grid">
+                @foreach (var hit in _hits)
+                {
+                    <div class="mod-card">
+                        <ModThumb Url="@hit.ThumbnailUrl" />
+                        <div class="body">
+                            <strong title="@hit.Name">@hit.Name</strong>
+                            <div class="summary">@hit.Summary</div>
+                            <div class="meta">
+                                <span class="num">@hit.Id</span>
+                                @if (hit.Author is not null)
+                                {
+                                    <span>@hit.Author</span>
+                                }
+                                <span>updated @Presentation.Ago(hit.DateModified, _now)</span>
+                            </div>
+                        </div>
+                        <div class="action">
+                            @if (IsListed(hit.Id))
+                            {
+                                <span class="tone-ok">listed</span>
+                            }
+                            else
+                            {
+                                <RadzenButton Text="Add" Icon="add" Size="ButtonSize.ExtraSmall" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="@(Busy || _working)" title="@(Library.Any(m => m.Id == hit.Id) ? "Add to this list" : "Add to the library and to this list")" Click="@(() => AddFromCurseForgeAsync(hit.Id))" />
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
 <p class="hint muted" style="margin-top:8px">Order matters: mods load in this order, the map's own mod first, then cluster mods. A disabled mod keeps its place but is left out of the start command. Changes to the list need a restart.</p>
 
 @code {
@@ -89,6 +162,14 @@
     private List<Row> _rows = [];
     private int? _pick;
     private IReadOnlyList<ModListItem>? _source;
+    private bool? _hasKey;
+    private bool _working;
+    private string? _term;
+    private int? _addId;
+    private string? _addName;
+    private IReadOnlyList<ModSearchHit>? _hits;
+    private IReadOnlyList<string>? _addProblems;
+    private DateTimeOffset _now = DateTimeOffset.UtcNow;
 
     /// <summary>A custom map's own mod; shown locked at position 1 and never part of the saved list.</summary>
     [Parameter]
@@ -109,10 +190,19 @@
     [Parameter]
     public EventCallback<IReadOnlyList<ModSelection>> OnSave { get; set; }
 
-    private IReadOnlyList<ModLibraryEntry> Available =>
-        Library.Where(m => m.Id != MapMod?.Id && _rows.All(x => x.Mod.Id != m.Id) && LockedMods.All(x => x.Mod.Id != m.Id)).OrderBy(m => m.Name).ToList();
+    /// <summary>
+    /// Raised after a mod was added to the library from here. The handler reloads <see cref="Library"/> only:
+    /// handing back a fresh <see cref="Mods"/> as well would reset the editable rows and drop the new one.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnLibraryChanged { get; set; }
+
+    private IReadOnlyList<ModLibraryEntry> Available => Library.Where(m => !IsListed(m.Id)).OrderBy(m => m.Name).ToList();
 
     private bool IsDirty => !_rows.Select(r => (r.Mod.Id, r.Enabled)).SequenceEqual(Mods.Select(m => (m.Mod.Id, m.Enabled)));
+
+    protected override async Task OnInitializedAsync() =>
+        await Navigation.GuardedAsync(async () => _hasKey = await ModCommands.IsApiKeyConfiguredAsync(), Notifications);
 
     protected override void OnParametersSet()
     {
@@ -122,6 +212,9 @@
             Reset();
         }
     }
+
+    /// <summary>True when the id is already on this page, locked or editable; those cannot be added twice.</summary>
+    private bool IsListed(int id) => MapMod?.Id == id || LockedMods.Any(x => x.Mod.Id == id) || _rows.Any(x => x.Mod.Id == id);
 
     private void Reset() => _rows = Mods.Select(m => new Row(m.Mod, m.Enabled)).ToList();
 
@@ -147,4 +240,94 @@
     }
 
     private Task SaveAsync() => OnSave.InvokeAsync(_rows.Select(r => new ModSelection(r.Mod.Id, r.Enabled)).ToList());
+
+    /// <summary>A bare number is a project id and goes straight in; anything else is a CurseForge search.</summary>
+    private async Task LookupAsync()
+    {
+        var term = _term?.Trim();
+        if (string.IsNullOrEmpty(term))
+        {
+            return;
+        }
+
+        if (int.TryParse(term, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
+        {
+            await AddFromCurseForgeAsync(id);
+            return;
+        }
+
+        _addProblems = null;
+        _hits = null;
+        await RunAsync(async () =>
+        {
+            var result = await ModCommands.SearchAsync(term);
+            if (result.Succeeded)
+            {
+                _hits = result.Value;
+                _now = DateTimeOffset.UtcNow;
+            }
+            else
+            {
+                _addProblems = result.Errors;
+            }
+        });
+    }
+
+    private Task AddFromCurseForgeAsync(int id) => AddToLibraryAndListAsync(id, () => ModCommands.AddAsync(id));
+
+    private Task AddManualAsync() =>
+        _addId is { } id && !string.IsNullOrWhiteSpace(_addName)
+            ? AddToLibraryAndListAsync(id, () => ModCommands.AddManualAsync(id, _addName))
+            : Task.CompletedTask;
+
+    /// <summary>
+    /// Puts the id in the library through the given facade call (skipped when it is there already), asks the
+    /// parent to reload the library, then appends the row, so one press does both halves of the job.
+    /// </summary>
+    private async Task AddToLibraryAndListAsync(int id, Func<Task<CommandResult<ModLibraryEntry>>> addToLibrary)
+    {
+        _addProblems = null;
+        await RunAsync(async () =>
+        {
+            if (IsListed(id))
+            {
+                _addProblems = [$"Mod {id} is already on this list."];
+                return;
+            }
+
+            var entry = Library.FirstOrDefault(m => m.Id == id);
+            if (entry is null)
+            {
+                var result = await addToLibrary();
+                if (!result.Succeeded)
+                {
+                    _addProblems = result.Errors;
+                    return;
+                }
+
+                entry = result.Value!;
+                await OnLibraryChanged.InvokeAsync();
+                Notifications.Done($"Added {entry.Name} to the library", "It is on this list too; Save mods keeps it there.");
+            }
+
+            _rows.Add(new Row(entry, enabled: true));
+            _term = null;
+            _addId = null;
+            _addName = null;
+        });
+    }
+
+    /// <summary>Runs a CurseForge call with the lookup controls disabled and an expired session sent to the login page.</summary>
+    private async Task RunAsync(Func<Task> action)
+    {
+        _working = true;
+        try
+        {
+            await Navigation.GuardedAsync(action, Notifications);
+        }
+        finally
+        {
+            _working = false;
+        }
+    }
 }

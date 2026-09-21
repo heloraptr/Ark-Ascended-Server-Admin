@@ -202,7 +202,7 @@ else
             </RadzenTabsItem>
 
             <RadzenTabsItem Text="Mods">
-                <ModListEditor MapMod="_detail.MapMod" LockedMods="_detail.ClusterMods" Mods="_detail.InstanceMods" Library="_library" Busy="Busy" OnSave="SaveModsAsync" />
+                <ModListEditor MapMod="_detail.MapMod" LockedMods="_detail.ClusterMods" Mods="_detail.InstanceMods" Library="_library" Busy="Busy" OnSave="SaveModsAsync" OnLibraryChanged="ReloadLibraryAsync" />
             </RadzenTabsItem>
 
             <RadzenTabsItem Text="Launch">
@@ -766,6 +766,13 @@ else
         });
         return result;
     }
+
+    /// <summary>Picks up a mod the mod list editor just added to the library, so the picker offers it as well.</summary>
+    private Task ReloadLibraryAsync() => GuardedAsync(async () =>
+    {
+        var mapMods = await ModCommands.GetMapModsAsync();
+        _library = (await ModCommands.ListLibraryAsync()).Where(m => !mapMods.ContainsKey(m.Id)).ToList();
+    });
 
     private async Task SaveModsAsync(IReadOnlyList<ModSelection> mods)
     {

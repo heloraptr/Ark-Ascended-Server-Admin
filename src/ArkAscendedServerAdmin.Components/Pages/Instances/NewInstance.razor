@@ -121,8 +121,8 @@
                 break;
 
             case 4:
-                <ModListEditor MapMod="SelectedMapMod" LockedMods="_clusterMods" Mods="_pickedMods" Library="_pickableLibrary" OnSave="@((IReadOnlyList<ModSelection> mods) => { _mods = mods; _pickedMods = mods.Select(m => new ModListItem(_library.First(x => x.Id == m.ModId), m.Enabled)).ToList(); return Task.CompletedTask; })" />
-                <p class="hint muted">Use Save mods to keep the list for the summary, or leave it empty. The library is on the <a href="mods">Mods</a> page.</p>
+                <ModListEditor MapMod="SelectedMapMod" LockedMods="_clusterMods" Mods="_pickedMods" Library="_pickableLibrary" OnLibraryChanged="ReloadLibraryAsync" OnSave="@((IReadOnlyList<ModSelection> mods) => { _mods = mods; _pickedMods = mods.Select(m => new ModListItem(_library.First(x => x.Id == m.ModId), m.Enabled)).ToList(); return Task.CompletedTask; })" />
+                <p class="hint muted">Use Save mods to keep the list for the summary, or leave it empty. Anything added from CurseForge here also joins the library on the <a href="mods">Mods</a> page.</p>
                 break;
 
             case 5:
@@ -334,6 +334,14 @@
             _mapId = (_maps.FirstOrDefault(m => m.Key.Equals("TheIsland_WP", StringComparison.OrdinalIgnoreCase)) ?? _maps.FirstOrDefault())?.Id ?? 0;
         });
     }
+
+    /// <summary>Picks up a mod the mod list editor just added to the library, so the picker offers it as well.</summary>
+    private Task ReloadLibraryAsync() => GuardedAsync(async () =>
+    {
+        _library = await Mods.ListLibraryAsync();
+        var mapMods = await Mods.GetMapModsAsync();
+        _pickableLibrary = _library.Where(m => !mapMods.ContainsKey(m.Id)).ToList();
+    });
 
     /// <summary>Mirrors the name into the session name until the owner types their own.</summary>
     private void OnNameChanged()

@@ -106,7 +106,7 @@ else
 
             <RadzenTabsItem Text="Mods">
                 <p class="muted">Mandatory for every member and loaded before each member's own mods. A custom map's own mod loads ahead of these on that member alone and is not listed here.</p>
-                <ModListEditor Mods="_detail.Mods" Library="_library" Busy="Busy" OnSave="SaveModsAsync" />
+                <ModListEditor Mods="_detail.Mods" Library="_library" Busy="Busy" OnSave="SaveModsAsync" OnLibraryChanged="ReloadLibraryAsync" />
             </RadzenTabsItem>
 
             <RadzenTabsItem Text="Launch">
@@ -290,6 +290,13 @@ else
         });
         return result;
     }
+
+    /// <summary>Picks up a mod the mod list editor just added to the library, so the picker offers it as well.</summary>
+    private Task ReloadLibraryAsync() => GuardedAsync(async () =>
+    {
+        var mapMods = await ModCommands.GetMapModsAsync();
+        _library = (await ModCommands.ListLibraryAsync()).Where(m => !mapMods.ContainsKey(m.Id)).ToList();
+    });
 
     private async Task SaveModsAsync(IReadOnlyList<ModSelection> mods)
     {
