@@ -10,4 +10,11 @@ public interface IFirewallRules
     void EnsureInstanceRules(int instanceId, int gamePort);
 
     void RemoveInstanceRules(int instanceId);
+
+    /// <summary>
+    /// Whether at least one rule named for the instance exists (B9, the Connection card). Ports are not
+    /// checked; a stale rule counts. Throws <see cref="InvalidOperationException"/> when the firewall cannot
+    /// be read, so callers can show "unknown" instead of "missing".
+    /// </summary>
+    bool InstanceRulesExist(int instanceId);
 }

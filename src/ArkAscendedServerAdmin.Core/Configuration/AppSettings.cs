@@ -51,6 +51,16 @@ public sealed record AppSettings
     public string AdminWhitelist { get; init; } = string.Empty;
 
     /// <summary>
+    /// The host name or IP address players outside the LAN connect to (B9): what they type after
+    /// <c>open</c>, so a DNS name or the router's public address. Empty on a LAN-only box; the instance page
+    /// then shows only the box's own addresses. Free text, never resolved or contacted by the app.
+    /// </summary>
+    public string PublicAddress { get; init; } = string.Empty;
+
+    /// <summary>The longest host name DNS allows; caps <see cref="PublicAddress"/>.</summary>
+    public const int PublicAddressMaxLength = 253;
+
+    /// <summary>
     /// How many times the row set has been written (B0). A loaded snapshot carries it and <c>SaveAsync</c> refuses a
     /// snapshot whose version is behind the store's, so two editors cannot overwrite each other; <c>UpdateAsync</c>
     /// mutations bump it on every actual write. Not user-editable and never validated.
@@ -83,6 +93,19 @@ public sealed record AppSettings
         if (AdminWhitelist.Split('\n').Select(l => l.Trim()).Any(l => l.Any(c => char.IsControl(c) || char.IsWhiteSpace(c))))
         {
             errors.Add($"{nameof(AdminWhitelist)} must hold one id per line with no spaces.");
+        }
+
+        if (PublicAddress.Length > PublicAddressMaxLength)
+        {
+            errors.Add($"{nameof(PublicAddress)} must be at most {PublicAddressMaxLength} characters (was {PublicAddress.Length}).");
+        }
+        else if (PublicAddress.Any(c => char.IsWhiteSpace(c) || char.IsControl(c)))
+        {
+            errors.Add($"{nameof(PublicAddress)} must be one host name or IP address with no spaces.");
+        }
+        else if (PublicAddress.Contains("://", StringComparison.Ordinal))
+        {
+            errors.Add($"{nameof(PublicAddress)} must not include a scheme such as steam:// or https://.");
         }
 
         return errors;

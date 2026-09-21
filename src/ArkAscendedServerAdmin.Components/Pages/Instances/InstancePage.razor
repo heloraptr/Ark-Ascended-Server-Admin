@@ -298,6 +298,73 @@ else
                         <span class="status">Port and player changes apply at the next start.</span>
                     }
                 </div>
+
+                <section class="ark-section" style="margin-top:28px">
+                    <SectionHead Title="Connection">
+                        <Summary>What players type to join. The addresses are read from this box's own network adapters; nothing is looked up online.</Summary>
+                        <Actions>
+                            <RadzenButton Text="Refresh" Icon="refresh" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Click="RefreshConnectionAsync" />
+                        </Actions>
+                    </SectionHead>
+                    @if (_connection is null)
+                    {
+                        <p class="muted" style="padding:10px 0">Loading…</p>
+                    }
+                    else
+                    {
+                        <dl class="kv" style="margin-top:14px">
+                            <dt>Game port</dt>
+                            <dd><span class="num">@_connection.GamePort</span> <span class="faint">UDP, with @(_connection.GamePort + 1)</span></dd>
+                            <dt>RCON port</dt>
+                            <dd><span class="num">@_connection.RconPort</span> <span class="faint">not a join port</span></dd>
+                            <dt>Firewall rule</dt>
+                            <dd class="conn-rule">
+                                <span class="mono">@_connection.FirewallRuleName</span>
+                                @if (_connection.FirewallRuleExists is true)
+                                {
+                                    <span class="tone-ok">in place</span>
+                                }
+                                else if (_connection.FirewallRuleExists is false)
+                                {
+                                    <span class="tone-warn">not found</span>
+                                }
+                                else
+                                {
+                                    <span class="muted">could not be read</span>
+                                }
+                            </dd>
+                        </dl>
+                        <div class="connect-lines">
+                            @foreach (var address in _connection.LanAddresses)
+                            {
+                                var line = _connection.OpenCommand(address);
+                                <div class="connect-line">
+                                    <span class="mono">@line</span>
+                                    <RadzenButton Icon="content_copy" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Copy" Click="@(() => CopyAsync(line))" />
+                                    <span class="faint">on this network</span>
+                                </div>
+                            }
+                            @if (_connection.HasPublicAddress)
+                            {
+                                var publicLine = _connection.OpenCommand(_connection.PublicAddress);
+                                <div class="connect-line">
+                                    <span class="mono">@publicLine</span>
+                                    <RadzenButton Icon="content_copy" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Copy" Click="@(() => CopyAsync(publicLine))" />
+                                    <span class="faint">from outside</span>
+                                </div>
+                            }
+                        </div>
+                        @if (_connection.LanAddresses.Count == 0)
+                        {
+                            <p class="connect-note">No usable IPv4 address was found on this box, so there is nothing for players on the network to type.</p>
+                        }
+                        @if (!_connection.HasPublicAddress)
+                        {
+                            <p class="connect-note">Players outside the network need a public address. Set one on the <a href="settings">Settings page</a> and it appears here as a second line.</p>
+                        }
+                        <p class="connect-note">Players paste the line into the game's console (tab), including the word <code>open</code>. The router still has to forward the game port to this box for anyone outside.</p>
+                    }
+                </section>
             </RadzenTabsItem>
 
             <RadzenTabsItem Text="Backups">
@@ -403,6 +470,7 @@ else
     private IReadOnlyList<ScheduledActionView>? _schedule;
     private IReadOnlyList<ScheduledActionRunView> _scheduleRuns = [];
     private LaunchPreview? _preview;
+    private ConnectionView? _connection;
     private EditModel _edit = new();
     private IReadOnlyList<string>? _settingsProblems;
     private bool _missing;
@@ -487,6 +555,7 @@ else
             await LoadScheduleAsync();
         });
         await RefreshPreviewAsync();
+        await RefreshConnectionAsync();
     }
 
     private async Task RefreshPreviewAsync()
@@ -501,6 +570,17 @@ else
             var result = await Instances.PreviewLaunchAsync(Id);
             _preview = result.Value ?? new LaunchPreview(string.Empty, [], result.Error);
         });
+    }
+
+    /// <summary>The Connection card reads the adapters and the firewall on every call, so it is asked once per load and after a port change.</summary>
+    private async Task RefreshConnectionAsync()
+    {
+        if (_detail is null)
+        {
+            return;
+        }
+
+        await GuardedAsync(async () => _connection = await Instances.GetConnectionAsync(Id));
     }
 
     private void ResetEdit()
@@ -727,6 +807,7 @@ else
             }
         });
         await RefreshPreviewAsync();
+        await RefreshConnectionAsync();
     }
 
     private async Task SaveLaunchFlagsAsync(LaunchFlags flags)

@@ -5,12 +5,14 @@ using ArkAscendedServerAdmin.CurseForge.Models.Services;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Backups;
 using ArkAscendedServerAdmin.Infrastructure.Data;
+using ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Processes;
 using ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Provisioning;
 using ArkAscendedServerAdmin.Infrastructure.Players;
 using ArkAscendedServerAdmin.Infrastructure.Provisioning;
 using ArkAscendedServerAdmin.Infrastructure.Scheduling;
 using ArkAscendedServerAdmin.Install;
 using ArkAscendedServerAdmin.Maintenance;
+using ArkAscendedServerAdmin.Networking;
 using ArkAscendedServerAdmin.Rcon;
 using ArkAscendedServerAdmin.Server.Commands;
 using ArkAscendedServerAdmin.Startup;
@@ -54,11 +56,13 @@ internal sealed class CommandTestHost : IDisposable
         UpdateService = Substitute.For<IUpdateService>();
         Recovery = Substitute.For<IMaintenanceRecovery>();
         InstallChecker = Substitute.For<IGameInstallChecker>();
+        Firewall = new FakeFirewall();
+        HostAddresses = new FakeHostAddressProvider();
 
         RconOperations = new RconOperations(Root, Settings, ProcessManager, GeneratedConfig, Rcon, Console, Clock);
         Instances = new InstanceCommands(
             Guard, Root, Root.Layout, Host, Settings, ProcessManager, Locks, Journals, Backups, DeleteService, LayoutService, IniStore,
-            RconOperations, Clock, NullLogger<InstanceCommands>.Instance);
+            RconOperations, Firewall, HostAddresses, Clock, NullLogger<InstanceCommands>.Instance);
         Clusters = new ClusterCommands(Guard, Root, Root.Layout, Instances, Locks, Journals, Clock, NullLogger<ClusterCommands>.Instance);
         Config = new ConfigCommands(Guard, Root, IniStore, NullLogger<ConfigCommands>.Instance);
         Mods = new ModCommands(Guard, Root, Settings, CurseForge, Clock, NullLogger<ModCommands>.Instance);
@@ -112,6 +116,10 @@ internal sealed class CommandTestHost : IDisposable
     public IMaintenanceRecovery Recovery { get; }
 
     public IGameInstallChecker InstallChecker { get; }
+
+    public FakeFirewall Firewall { get; }
+
+    public FakeHostAddressProvider HostAddresses { get; }
 
     public InstanceCommands Instances { get; }
 
@@ -187,6 +195,14 @@ internal sealed class FakeAuthorizationGuard : IAuthorizationGuard
         Checks++;
         return Deny ? throw new NotAuthorizedException() : ValueTask.CompletedTask;
     }
+}
+
+/// <summary>Hands the Connection card whatever addresses a test sets; the real one reads the box's adapters.</summary>
+internal sealed class FakeHostAddressProvider : IHostAddressProvider
+{
+    public List<string> Addresses { get; } = ["192.168.1.40"];
+
+    public IReadOnlyList<string> GetLanAddresses() => [.. Addresses];
 }
 
 /// <summary>Replies per command (case-insensitive); an unscripted command throws a <see cref="RconException"/>.</summary>

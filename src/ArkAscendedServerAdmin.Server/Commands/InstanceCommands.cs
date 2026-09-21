@@ -3,11 +3,14 @@ using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Domain;
+using ArkAscendedServerAdmin.Firewall;
 using ArkAscendedServerAdmin.Infrastructure.Data;
+using ArkAscendedServerAdmin.Infrastructure.Firewall;
 using ArkAscendedServerAdmin.Ini;
 using ArkAscendedServerAdmin.Launch;
 using ArkAscendedServerAdmin.Maintenance;
 using ArkAscendedServerAdmin.Naming;
+using ArkAscendedServerAdmin.Networking;
 using ArkAscendedServerAdmin.Ports;
 using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Provisioning;
@@ -31,6 +34,8 @@ public sealed class InstanceCommands(
     IInstanceLayoutService layoutService,
     IIniSourceStore iniStore,
     IRconOperations rconOperations,
+    IFirewallRules firewall,
+    IHostAddressProvider hostAddresses,
     TimeProvider timeProvider,
     ILogger<InstanceCommands> logger) : IInstanceCommands
 {
@@ -99,6 +104,42 @@ public sealed class InstanceCommands(
         }
 
         return new InstanceDetail(instance, clusterMods, instanceMods, mapMod);
+    }
+
+    public async Task<ConnectionView?> GetConnectionAsync(int instanceId, CancellationToken cancellationToken = default)
+    {
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var ports = await db.Instances.AsNoTracking()
+            .Where(i => i.Id == instanceId)
+            .Select(i => new { i.GamePort, i.RconPort })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (ports is null)
+        {
+            return null;
+        }
+
+        // The firewall is advisory here exactly as it is at start: a box whose firewall service is off, or an
+        // app run without the rights to read the rules, shows "unknown" rather than losing the whole card.
+        bool? ruleExists;
+        try
+        {
+            ruleExists = firewall.InstanceRulesExist(instanceId);
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning(ex, "Could not read the firewall rules for instance {InstanceId}.", instanceId);
+            ruleExists = null;
+        }
+
+        return new ConnectionView(
+            ports.GamePort,
+            ports.RconPort,
+            hostAddresses.GetLanAddresses(),
+            (await settings.GetAsync(cancellationToken)).PublicAddress.Trim(),
+            FirewallRules.RuleName(instanceId),
+            ruleExists);
     }
 
     public async Task<IReadOnlyList<BackupRecord>> GetBackupsAsync(int instanceId, CancellationToken cancellationToken = default)

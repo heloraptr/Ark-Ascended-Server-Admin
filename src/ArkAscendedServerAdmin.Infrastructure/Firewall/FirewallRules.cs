@@ -82,6 +82,20 @@ public sealed class FirewallRules(ILogger<FirewallRules> logger) : IFirewallRule
         }
     }
 
+    public bool InstanceRulesExist(int instanceId)
+    {
+        var name = RuleName(instanceId);
+        try
+        {
+            return FirewallManager.Instance.Rules.Any(rule => string.Equals(rule.Name, name, StringComparison.Ordinal));
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read firewall rules {Rule}.", name);
+            throw new InvalidOperationException($"Firewall rules '{name}' could not be read: {ex.Message}", ex);
+        }
+    }
+
     private static ushort? SinglePort(IFirewallRule rule)
     {
         var ports = rule.LocalPorts;

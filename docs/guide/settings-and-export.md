@@ -33,6 +33,7 @@ works is in SQLite, where the UI can edit it. Every path in the database is rela
 | Game install | **SteamCMD validate** | off | Adds `validate` to every install and update |
 | | **CurseForge API key** | empty | No whitespace or control characters; trimmed on save |
 | Admin whitelist | the whitelist editor | empty | One id per line, no spaces |
+| Connection | **Public address** | empty | One host name or IP, no spaces and no scheme; up to 253 characters |
 
 Each field's hint on the page says what it feeds; the pages that use them are
 [instances.md](instances.md) (stagger, countdown, timeouts, backfill, ports),
@@ -53,6 +54,12 @@ that changes nothing does not count. A save updates or inserts every changed row
 in one `SaveChanges`, then swaps the cached object. Because the cache is replaced, every
 consumer (the launch queue, the port allocator, the backup scheduler, the CurseForge handler that
 adds the `x-api-key` header) sees the new value on its next call, with no restart.
+
+**Public address** is the one field nothing on this box can work out for itself: the name or address
+players outside your network type after `open`, so a DNS name that points at your router or the
+router's own address. Leave it empty on a LAN-only box. Nothing resolves it or contacts it; each
+instance page simply joins it to that instance's game port to show a ready-made join line
+([instances.md](instances.md#connection)).
 
 The CurseForge key is stored as it is typed because, as the hint on the field says, it is your own
 key on your own box and it is only ever sent to CurseForge; the folders that hold the database and
@@ -130,6 +137,7 @@ once.
 | Save settings | `<Name> must be between <min> and <max> (was <n>).` for any numeric field, for example `StaggerDelaySeconds must be between 0 and 3600 (was 5000).` | Fix the field. Nothing was saved. |
 | Save settings | `CurseForgeApiKey must not contain whitespace or control characters.` | Re-paste the key without spaces or line breaks. |
 | Save settings | `AdminWhitelist must hold one id per line with no spaces.` | Fix the offending line in the whitelist editor. |
+| Save settings | `PublicAddress must be one host name or IP address with no spaces.`, `PublicAddress must not include a scheme such as steam:// or https://.`, or `PublicAddress must be at most 253 characters (was <n>).` | Type just the name or address players use, for example `ark.example.com` or `203.0.113.9`. |
 | Save settings | `The settings changed since they were loaded (version <n> is behind <m>); reload the page and try again.` | Another save landed after this page loaded. Press **Reset**, re-apply the edit, save again. Nothing was written. |
 | Export | The toast is missing and an error page or notification appears | `DataRoot\Exports` could not be written (disk full, or the folder ACL changed). Check the service log ([troubleshooting.md](troubleshooting.md#where-every-log-lives)). |
 | Restore | `Restore failed: <error>` | A source file could not be written, typically a folder that no longer exists because the instance was deleted outside the manager, or a permission problem. The message is the OS error. |

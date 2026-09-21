@@ -168,9 +168,48 @@ preview finds a problem while the instance is stopped.
 | **Config** | Standalone: the `GameUserSettings.ini` and `Game.ini` editors. Member: `INI files come from the <cluster> cluster.` Both: the **Overrides** table with **Add override**. [configuration-files.md](configuration-files.md). |
 | **Mods** | The ordered mod list: the map's mod and cluster mods locked, the instance's own below. Under it, "Not in the library?" takes a CurseForge project id, or a search when a key is set, and puts the mod in the library and on this list in one press. [mods.md](mods.md). |
 | **Launch** | The flags editor and `What a start would run`, the exact command line. [launch-options.md](launch-options.md). |
-| **Settings** | **Instance name**, **Session name**, **Max players**, **Game port**, **RCON port**, **Backup interval, minutes**, **Backups to keep**, **Ignore the cluster's schedule** (members only), **Admin whitelist**; **Save settings**, **Reset**. While the process is live: `Port and player changes apply at the next start.` The slug and the map cannot change. |
+| **Settings** | **Instance name**, **Session name**, **Max players**, **Game port**, **RCON port**, **Backup interval, minutes**, **Backups to keep**, **Ignore the cluster's schedule** (members only), **Admin whitelist**; **Save settings**, **Reset**. While the process is live: `Port and player changes apply at the next start.` The slug and the map cannot change. Under the form, the **Connection** card ([below](#connection)). |
 | **Backups** | The backup list with outcome, archive name, size, and trigger, a restore icon on each successful row, and the list of restores. [backups.md](backups.md). |
 | **Schedule** | The scheduled actions and their history ([below](#scheduled-actions)). |
+
+## Connection
+
+The **Connection** card at the bottom of the Settings tab answers "what do I tell people to type?".
+It sits there because everything on it follows from that tab's ports, and it is rebuilt whenever
+those ports are saved. **Refresh** rebuilds it on demand.
+
+The card lists the game port, the port one higher that the manager opens alongside it, and the RCON
+port, marked `not a join port`: the manager reaches RCON over loopback and no rule opens it to
+anyone else.
+
+Under the ports is the firewall rule the manager keeps for this instance,
+`ArkAscendedServerAdmin-<id>`: **in place** if a rule by that name exists, **not found** if it does
+not, and `could not be read` when Windows Firewall will not answer, which happens with the firewall
+service stopped or the manager running without the rights to query it. The rules are written the
+first time the instance starts, so **not found** on an instance that has never run here is expected;
+on one that has been running, something else removed them.
+
+Under that is one line per address, each a complete console command:
+
+```
+open 192.168.1.40:7777
+```
+
+The addresses come from this box's own network adapters, read fresh each time: the IPv4 addresses of
+adapters that are up, minus loopback, minus the `169.254.x.x` addresses Windows assigns when DHCP
+fails, and minus host-side virtual switches such as Hyper-V's `vEthernet` adapters when a real
+adapter is present. Nothing is looked up online, so a box with no route out still fills the card. A
+box with several adapters lists several lines; try them in order if you are not sure which network
+the players are on.
+
+If **Public address** is set on the Settings page ([settings-and-export.md](settings-and-export.md#app-settings)),
+a second kind of line appears with that address and the same game port, marked `from outside`. That
+address is only ever text the manager pastes into the line; forwarding the game port on the router
+is still your job, and without it the line will not connect.
+
+The copy icon on a line puts it on the clipboard. Players paste the whole thing, including the word
+`open`, into the game's console (the tab key). A browser that refuses clipboard access says so in a
+toast; the text is selectable either way.
 
 ## Scheduled actions
 

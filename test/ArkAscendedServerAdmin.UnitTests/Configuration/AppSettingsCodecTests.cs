@@ -31,6 +31,8 @@ public class AppSettingsCodecTests
             RconCommandTimeoutSeconds = 5,
             ConsoleBackfillLines = 500,
             CurseForgeApiKey = "$2a$10$abc",
+            AdminWhitelist = "0002abc",
+            PublicAddress = "ark.example.com",
             Version = 7,
         };
 
@@ -96,5 +98,36 @@ public class AppSettingsCodecTests
         Assert.Contains(errors, e => e.StartsWith("RconPortStep", StringComparison.Ordinal));
         Assert.Contains(errors, e => e.StartsWith("CurseForgeApiKey", StringComparison.Ordinal));
         Assert.Equal(3, errors.Count);
+    }
+
+    /// <summary>B9: a blank public address is fine, a sensible one is fine, and the bad shapes each name the field.</summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("ark.example.com")]
+    [InlineData("203.0.113.9")]
+    [InlineData("ark-01.sub.example.co.uk")]
+    public void Validate_AcceptsAPlainHostOrAddress(string address)
+    {
+        Assert.Empty(new AppSettings { PublicAddress = address }.Validate());
+    }
+
+    [Theory]
+    [InlineData("ark example.com")]
+    [InlineData("ark.example.com\t")]
+    [InlineData("https://ark.example.com")]
+    [InlineData("steam://connect/ark.example.com")]
+    public void Validate_RejectsSpacesAndSchemes(string address)
+    {
+        var errors = new AppSettings { PublicAddress = address }.Validate();
+
+        Assert.StartsWith("PublicAddress", Assert.Single(errors), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Validate_RejectsAnOverlongPublicAddress()
+    {
+        var errors = new AppSettings { PublicAddress = new string('a', AppSettings.PublicAddressMaxLength + 1) }.Validate();
+
+        Assert.Contains("at most 253 characters", Assert.Single(errors), StringComparison.Ordinal);
     }
 }

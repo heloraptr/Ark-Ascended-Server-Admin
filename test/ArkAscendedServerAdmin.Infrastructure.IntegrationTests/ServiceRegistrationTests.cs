@@ -5,6 +5,7 @@ using ArkAscendedServerAdmin.Infrastructure.Scheduling;
 using ArkAscendedServerAdmin.Infrastructure.Startup;
 using ArkAscendedServerAdmin.Install;
 using ArkAscendedServerAdmin.Maintenance;
+using ArkAscendedServerAdmin.Networking;
 using ArkAscendedServerAdmin.Players;
 using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Provisioning;
@@ -44,7 +45,7 @@ public class ServiceRegistrationTests
             typeof(IProcessManager), typeof(IProcessReconciler), typeof(IInstanceLocks), typeof(IMaintenanceGate),
             typeof(IPlayerTracker), typeof(IBackupService), typeof(IUpdateService), typeof(IInstanceDeleteService), typeof(IMaintenanceRecovery),
             typeof(IReadinessMonitor), typeof(IStartupControl), typeof(StartupOrchestrator),
-            typeof(IRconOperations), typeof(ScheduledActionRunner),
+            typeof(IRconOperations), typeof(ScheduledActionRunner), typeof(IHostAddressProvider),
         ];
 
         foreach (var type in required)
