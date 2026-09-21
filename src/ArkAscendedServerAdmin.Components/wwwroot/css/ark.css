@@ -287,6 +287,19 @@ code,
   color: var(--ark-steel-3);
 }
 
+/* The mod badge (B8): a small muted pill next to a mod, an instance row, or the instance header. The
+   whole sentence lives in its title, so the pill itself stays short. */
+.mod-changed {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--ark-hairline-2);
+  border-radius: var(--ark-radius);
+  color: var(--ark-steel-2);
+  font-size: 11.5px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
 .tone-ok {
   color: var(--ark-arm-green);
 }
@@ -1292,6 +1305,14 @@ h1:focus-visible {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* The badge inside a library row's name: the rule above would otherwise put it on a line of its own. */
+.mod-item .title strong .mod-changed {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 11.5px;
+  color: var(--ark-steel-2);
 }
 
 .mod-item .actions {

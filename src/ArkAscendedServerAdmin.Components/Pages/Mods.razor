@@ -49,7 +49,7 @@
                                     </div>
                                 </div>
                                 <div class="action">
-                                    @if (hit.InLibrary || _library.Any(m => m.Id == hit.Id))
+                                    @if (hit.InLibrary || _library.Any(m => m.Mod.Id == hit.Id))
                                     {
                                         <span class="tone-ok">in library</span>
                                     }
@@ -99,8 +99,9 @@
     else
     {
         <div class="mod-list">
-            @foreach (var mod in _library)
+            @foreach (var view in _library)
             {
+                var mod = view.Mod;
                 var usage = _usage.GetValueOrDefault(mod.Id);
                 <div class="mod-item" style="grid-template-columns: 40px minmax(0,1fr) minmax(0,1fr) auto">
                     <ModThumb Url="@mod.ThumbnailUrl" />
@@ -110,6 +111,10 @@
                             @if (_mapMods.TryGetValue(mod.Id, out var mapName))
                             {
                                 <span class="tag is-trace" title="Loads automatically, first, on every instance using this map. It cannot be picked in the instance or cluster mod lists.">map mod · @mapName</span>
+                            }
+                            @if (view.ChangedSinceLaunch)
+                            {
+                                <ModChangedBadge />
                             }
                         </strong>
                         <span><span class="num">@mod.Id</span>@(mod.DateModified is { } modified ? $" · updated {Presentation.Ago(modified, _now)}" : null)@(string.IsNullOrWhiteSpace(mod.Summary) ? null : " · " + mod.Summary)</span>
@@ -135,7 +140,7 @@
 </section>
 
 @code {
-    private IReadOnlyList<ModLibraryEntry> _library = [];
+    private IReadOnlyList<ModLibraryView> _library = [];
     private IReadOnlyDictionary<int, ModUsage> _usage = new Dictionary<int, ModUsage>();
     private IReadOnlyDictionary<int, string> _mapMods = new Dictionary<int, string>();
     private IReadOnlyList<ModSearchHit>? _hits;

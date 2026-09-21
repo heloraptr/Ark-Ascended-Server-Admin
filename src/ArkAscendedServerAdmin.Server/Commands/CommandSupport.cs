@@ -5,6 +5,7 @@ using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Infrastructure.Processes;
 using ArkAscendedServerAdmin.Launch;
+using ArkAscendedServerAdmin.Mods;
 using ArkAscendedServerAdmin.Naming;
 using ArkAscendedServerAdmin.Ports;
 using ArkAscendedServerAdmin.Scheduling;
@@ -154,9 +155,20 @@ internal static class CommandSupport
             .Select(i => new PortOwner(i.Name, i.GamePort, i.RconPort))
             .ToListAsync(cancellationToken);
 
-    /// <summary>The dashboard row. <paramref name="clusterMods"/> is the cluster's list for a member; the caller loads it because not every query includes the cluster.</summary>
-    public static InstanceSummary ToSummary(Instance instance, IEnumerable<ClusterMod>? clusterMods, BackupRecord? lastBackup, DateTimeOffset? nextDeadline) =>
-        new(
+    /// <summary>
+    /// The dashboard row. <paramref name="clusterMods"/> is the cluster's list for a member; the caller loads
+    /// it because not every query includes the cluster. <paramref name="modDates"/> is mod id to
+    /// <c>dateModified</c> for the whole library, which is what decides the "changed since last launch" flag (B8).
+    /// </summary>
+    public static InstanceSummary ToSummary(
+        Instance instance,
+        IEnumerable<ClusterMod>? clusterMods,
+        BackupRecord? lastBackup,
+        DateTimeOffset? nextDeadline,
+        IReadOnlyDictionary<int, DateTimeOffset?> modDates)
+    {
+        var modIds = ActiveModIds(instance, clusterMods);
+        return new InstanceSummary(
             instance.Id,
             instance.Name,
             instance.Slug,
@@ -167,9 +179,11 @@ internal static class CommandSupport
             instance.GamePort,
             instance.RconPort,
             instance.MaxPlayers,
-            ActiveModCount(instance, clusterMods),
+            modIds.Count,
             lastBackup,
-            nextDeadline);
+            nextDeadline,
+            ModUpdateStatus.ChangedSinceLaunch(new InstanceModLoad(instance.LastLaunchedAt, modIds), modDates));
+    }
 
     /// <summary>
     /// The dashboard's next deadline for <paramref name="instance"/> (B3): the earliest upcoming occurrence over
@@ -183,17 +197,32 @@ internal static class CommandSupport
             time.LocalTimeZone);
 
     /// <summary>
-    /// How many ids a start would put in <c>-mods</c>: the map's own mod, the enabled cluster mods, and the
+    /// The ids a start would put in <c>-mods</c>: the map's own mod, the enabled cluster mods, and the
     /// enabled instance mods, without duplicates (the same union <see cref="Launch.LaunchArgumentBuilder"/> emits).
     /// </summary>
-    public static int ActiveModCount(Instance instance, IEnumerable<ClusterMod>? clusterMods)
+    public static IReadOnlyCollection<int> ActiveModIds(Instance instance, IEnumerable<ClusterMod>? clusterMods)
     {
         IEnumerable<int> mapMod = instance.Map?.ModId is { } mapModId ? [mapModId] : [];
         return mapMod
             .Concat((clusterMods ?? []).Where(m => m.Enabled).Select(m => m.ModId))
             .Concat(instance.Mods.Where(m => m.Enabled).Select(m => m.ModId))
             .Distinct()
-            .Count();
+            .ToList();
+    }
+
+    /// <summary>Mod id to <c>dateModified</c> for every library entry, the lookup the badge decision reads (B8).</summary>
+    public static async Task<IReadOnlyDictionary<int, DateTimeOffset?>> ModDatesAsync(AppDbContext db, CancellationToken cancellationToken) =>
+        await db.ModLibrary.AsNoTracking().ToDictionaryAsync(m => m.Id, m => m.DateModified, cancellationToken);
+
+    /// <summary>What every instance would load, with the launch time the badge compares against (B8).</summary>
+    public static async Task<IReadOnlyList<InstanceModLoad>> ModLoadsAsync(AppDbContext db, CancellationToken cancellationToken)
+    {
+        var instances = await db.Instances.AsNoTracking()
+            .Include(i => i.Map)
+            .Include(i => i.Mods)
+            .Include(i => i.Cluster).ThenInclude(c => c!.Mods)
+            .ToListAsync(cancellationToken);
+        return instances.Select(i => new InstanceModLoad(i.LastLaunchedAt, ActiveModIds(i, i.Cluster?.Mods))).ToList();
     }
 
     public static Task<BackupRecord?> LastBackupAsync(AppDbContext db, int instanceId, CancellationToken cancellationToken) =>

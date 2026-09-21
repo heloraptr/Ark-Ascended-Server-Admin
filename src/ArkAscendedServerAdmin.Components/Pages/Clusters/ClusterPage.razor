@@ -212,7 +212,7 @@ else
         }
 
         var mapMods = await ModCommands.GetMapModsAsync();
-        _library = (await ModCommands.ListLibraryAsync()).Where(m => !mapMods.ContainsKey(m.Id)).ToList();
+        _library = (await ModCommands.ListLibraryAsync()).Select(v => v.Mod).Where(m => !mapMods.ContainsKey(m.Id)).ToList();
         ResetEdit();
         _now = DateTimeOffset.UtcNow;
         await LoadScheduleAsync();
@@ -295,7 +295,7 @@ else
     private Task ReloadLibraryAsync() => GuardedAsync(async () =>
     {
         var mapMods = await ModCommands.GetMapModsAsync();
-        _library = (await ModCommands.ListLibraryAsync()).Where(m => !mapMods.ContainsKey(m.Id)).ToList();
+        _library = (await ModCommands.ListLibraryAsync()).Select(v => v.Mod).Where(m => !mapMods.ContainsKey(m.Id)).ToList();
     });
 
     private async Task SaveModsAsync(IReadOnlyList<ModSelection> mods)

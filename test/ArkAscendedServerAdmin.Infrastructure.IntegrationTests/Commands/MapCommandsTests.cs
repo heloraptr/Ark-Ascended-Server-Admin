@@ -77,7 +77,7 @@ public class MapCommandsTests
         Assert.True(saved.Succeeded, saved.Error);
         Assert.Equal(4242, saved.Value!.ModId);
         // No API key in the test host, so the entry is a manual one named after the map.
-        var entry = Assert.Single(await host.Mods.ListLibraryAsync(ct), m => m.Id == 4242);
+        var entry = Assert.Single(await host.Mods.ListLibraryAsync(ct), m => m.Mod.Id == 4242).Mod;
         Assert.Equal("Custom", entry.Name);
         Assert.Equal(["Custom"], (await host.Mods.GetUsageAsync(ct))[4242].Maps);
         Assert.Equal(new Dictionary<int, string> { [4242] = "Custom" }, await host.Mods.GetMapModsAsync(ct));

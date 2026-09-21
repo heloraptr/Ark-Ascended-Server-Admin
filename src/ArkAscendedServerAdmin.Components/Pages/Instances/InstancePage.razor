@@ -40,6 +40,10 @@ else
             {
                 <span class="faint"> · </span><span class="num" title="@($"Sampled {Presentation.Clock(telemetry.SampledAt)}")">@Presentation.Telemetry(telemetry)</span>
             }
+            @if (_detail.ModsChangedSinceLaunch)
+            {
+                <span class="faint"> · </span><ModChangedBadge />
+            }
         </LeadContent>
         <Actions>
             @if (_runtime.State == InstanceState.Stopping && _runtime.ExitRequested)
@@ -547,7 +551,7 @@ else
 
             ResetEdit();
             var mapMods = await ModCommands.GetMapModsAsync();
-            _library = (await ModCommands.ListLibraryAsync()).Where(m => !mapMods.ContainsKey(m.Id)).ToList();
+            _library = (await ModCommands.ListLibraryAsync()).Select(v => v.Mod).Where(m => !mapMods.ContainsKey(m.Id)).ToList();
             _overrides = await Config.GetOverridesAsync(Id);
             _backups = await Instances.GetBackupsAsync(Id);
             _restores = await Instances.GetRestoresAsync(Id);
@@ -852,7 +856,7 @@ else
     private Task ReloadLibraryAsync() => GuardedAsync(async () =>
     {
         var mapMods = await ModCommands.GetMapModsAsync();
-        _library = (await ModCommands.ListLibraryAsync()).Where(m => !mapMods.ContainsKey(m.Id)).ToList();
+        _library = (await ModCommands.ListLibraryAsync()).Select(v => v.Mod).Where(m => !mapMods.ContainsKey(m.Id)).ToList();
     });
 
     private async Task SaveModsAsync(IReadOnlyList<ModSelection> mods)

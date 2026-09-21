@@ -9,6 +9,7 @@ using ArkAscendedServerAdmin.Infrastructure.Firewall;
 using ArkAscendedServerAdmin.Ini;
 using ArkAscendedServerAdmin.Launch;
 using ArkAscendedServerAdmin.Maintenance;
+using ArkAscendedServerAdmin.Mods;
 using ArkAscendedServerAdmin.Naming;
 using ArkAscendedServerAdmin.Networking;
 using ArkAscendedServerAdmin.Ports;
@@ -58,6 +59,7 @@ public sealed class InstanceCommands(
             .OrderBy(i => i.Name)
             .ToListAsync(cancellationToken);
 
+        var modDates = await CommandSupport.ModDatesAsync(db, cancellationToken);
         var summaries = new List<InstanceSummary>(instances.Count);
         foreach (var instance in instances)
         {
@@ -65,7 +67,8 @@ public sealed class InstanceCommands(
                 instance,
                 instance.Cluster?.Mods,
                 await CommandSupport.LastBackupAsync(db, instance.Id, cancellationToken),
-                CommandSupport.NextDeadline(instance, instance.Cluster?.ScheduledActions, timeProvider)));
+                CommandSupport.NextDeadline(instance, instance.Cluster?.ScheduledActions, timeProvider),
+                modDates));
         }
 
         return new DashboardData(clusters, summaries);
@@ -103,7 +106,17 @@ public sealed class InstanceCommands(
                 ?? new ModLibraryEntry { Id = mapModId, Name = $"Map mod {mapModId}" };
         }
 
-        return new InstanceDetail(instance, clusterMods, instanceMods, mapMod);
+        var loadedModDates = clusterMods.Concat(instanceMods)
+            .Where(m => m.Enabled)
+            .Select(m => m.Mod.DateModified)
+            .Concat(mapMod is null ? [] : [mapMod.DateModified]);
+
+        return new InstanceDetail(
+            instance,
+            clusterMods,
+            instanceMods,
+            mapMod,
+            ModUpdateStatus.ChangedSinceLaunch(instance.LastLaunchedAt, loadedModDates));
     }
 
     public async Task<ConnectionView?> GetConnectionAsync(int instanceId, CancellationToken cancellationToken = default)

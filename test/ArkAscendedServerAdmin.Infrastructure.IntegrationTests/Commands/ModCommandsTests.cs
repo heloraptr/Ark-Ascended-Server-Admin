@@ -3,6 +3,7 @@ using ArkAscendedServerAdmin.Auth;
 using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.CurseForge.Models.Mods;
 using ArkAscendedServerAdmin.Server.Commands;
+using Microsoft.EntityFrameworkCore;
 
 namespace ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Commands;
 
@@ -70,7 +71,7 @@ public class ModCommandsTests
         Assert.Equal((42, "Typed Name", CommandTestHost.Now), (manual.Value!.Id, manual.Value.Name, manual.Value.AddedAt));
         Assert.Null(manual.Value.Summary);
         Assert.Null(manual.Value.DateModified);
-        Assert.Equal("Typed Name", Assert.Single(await host.Mods.ListLibraryAsync(ct)).Name);
+        Assert.Equal("Typed Name", Assert.Single(await host.Mods.ListLibraryAsync(ct)).Mod.Name);
     }
 
     [Fact]
@@ -89,7 +90,7 @@ public class ModCommandsTests
 
         Assert.Equal(2, invalid.Errors.Count);
         Assert.True(renamed.Succeeded, renamed.Error);
-        var entry = Assert.Single(await host.Mods.ListLibraryAsync(ct));
+        var entry = Assert.Single(await host.Mods.ListLibraryAsync(ct)).Mod;
         Assert.Equal(("New", "Kept", "https://kept", DateTimeOffset.UnixEpoch), (entry.Name, entry.Summary, entry.ThumbnailUrl, entry.AddedAt));
     }
 
@@ -170,7 +171,7 @@ public class ModCommandsTests
         Assert.Equal(1, result.Value);
         var library = await host.Mods.ListLibraryAsync(ct);
         Assert.Equal(2, library.Count);
-        var refreshed = library.Single(m => m.Id == 2);
+        var refreshed = library.Single(m => m.Mod.Id == 2).Mod;
         Assert.Equal(("New name", "About it", new DateTimeOffset(Modified)), (refreshed.Name, refreshed.Summary, refreshed.DateModified));
         await host.CurseForge.Received(1).GetModsAsync(Arg.Is<IEnumerable<int>>(ids => ids.OrderBy(i => i).SequenceEqual(new[] { 1, 2 })), false, Arg.Any<CancellationToken>());
     }
@@ -186,6 +187,47 @@ public class ModCommandsTests
         Assert.True(result.Succeeded);
         Assert.Equal(0, result.Value);
         await host.CurseForge.DidNotReceiveWithAnyArgs().GetModsAsync(default!, default, ct);
+    }
+
+    /// <summary>
+    /// B8: a library row is flagged when the mod changed after the last launch of an instance that loads
+    /// it, whether it comes from the instance's own list, its cluster's list, or the map it runs.
+    /// </summary>
+    [Fact]
+    public async Task ListLibrary_FlagsModsThatChangedSinceTheLastLaunchOfAnInstanceThatLoadsThem()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var host = await StartAsync(ct, withApiKey: false);
+        foreach (var id in new[] { 1, 2, 3 })
+        {
+            await host.AddLibraryModAsync(id, $"Mod {id}", ct);
+        }
+
+        var map = await host.Maps.SaveAsync(new Domain.Map { Key = "Custom_WP", Name = "Custom", ModId = 4242 }, ct);
+        var cluster = await host.Clusters.CreateAsync("Survivors", ConfigSourceKind.Blank, null, ct);
+        Assert.True((await host.Clusters.SetModsAsync(cluster.Value, [1], ct)).Succeeded);
+        Assert.True((await host.Instances.CreateAsync(
+            new InstanceDraft { Name = "Able", MapId = map.Value!.Id, SessionName = "a", GamePort = 7777, RconPort = 27020, ClusterId = cluster.Value, Mods = [2] },
+            ct)).Succeeded);
+
+        await using (var db = host.Db())
+        {
+            db.Instances.Single().LastLaunchedAt = CommandTestHost.Now.AddHours(-1);
+            foreach (var entry in await db.ModLibrary.ToListAsync(ct))
+            {
+                entry.DateModified = CommandTestHost.Now; // every mod changed after the launch
+            }
+
+            db.ModLibrary.Single(m => m.Id == 1).DateModified = CommandTestHost.Now.AddDays(-2);
+            await db.SaveChangesAsync(ct);
+        }
+
+        var library = await host.Mods.ListLibraryAsync(ct);
+
+        Assert.False(library.Single(m => m.Mod.Id == 1).ChangedSinceLaunch); // cluster mod, but older than the launch
+        Assert.True(library.Single(m => m.Mod.Id == 2).ChangedSinceLaunch);  // the instance's own mod
+        Assert.False(library.Single(m => m.Mod.Id == 3).ChangedSinceLaunch); // in the library, loaded by nobody
+        Assert.True(library.Single(m => m.Mod.Id == 4242).ChangedSinceLaunch); // the map's own mod
     }
 
     [Fact]
@@ -213,6 +255,6 @@ public class ModCommandsTests
         Assert.Equal("Remove it from cluster Survivors, instance Able, instance Zed first.", refused.Error);
         Assert.True(removed.Succeeded);
         Assert.True(unknown.Succeeded);
-        Assert.Equal([1], (await host.Mods.ListLibraryAsync(ct)).Select(m => m.Id));
+        Assert.Equal([1], (await host.Mods.ListLibraryAsync(ct)).Select(m => m.Mod.Id));
     }
 }
