@@ -69,6 +69,13 @@ public sealed record ProbeObservation(int InstanceId, int Pid, DateTimeOffset Pr
 /// </summary>
 public sealed record RecoveryRequest(int InstanceId, int Pid, DateTimeOffset ProcessStartTime, int? ExitCode, bool StopIntent, DateTimeOffset ExitedAt);
 
+/// <summary>
+/// One resource sample of a live game process (B7): its working set, and the share of the whole box's CPU it used
+/// over the liveness tick that ended at <paramref name="SampledAt"/> (see <see cref="TelemetrySampler.CpuPercent"/>).
+/// Published through <see cref="IProcessManager.TelemetryChanged"/> and never stored.
+/// </summary>
+public sealed record InstanceTelemetry(int InstanceId, long WorkingSetBytes, double CpuPercent, DateTimeOffset SampledAt);
+
 /// <summary>Result of a management request; a rejection carries the reason the UI shows verbatim.</summary>
 public sealed record OperationOutcome(bool Succeeded, string? Error = null)
 {
@@ -138,6 +145,17 @@ public interface IProcessManager
 
     /// <summary>Raised on a background thread after every successful health probe; see <see cref="ProbeObservation"/>.</summary>
     event Action<ProbeObservation>? ProbeObserved;
+
+    /// <summary>
+    /// Raised on a background thread with a fresh <see cref="InstanceTelemetry"/> at most every
+    /// <see cref="TelemetrySampler.PublishInterval"/> per instance while its process is live, and once with null when
+    /// the process exits (B7). Kept off <see cref="RuntimeChanged"/>, which already fires on every successful probe,
+    /// so the two consumers stay separable.
+    /// </summary>
+    event Action<int, InstanceTelemetry?>? TelemetryChanged;
+
+    /// <summary>The latest published sample for the instance, or null when no process is live or none has been taken yet (B7).</summary>
+    InstanceTelemetry? GetTelemetry(int instanceId);
 
     /// <summary>
     /// One targeted process-table read for the instance's registered session (B0). Alive and Dead are conclusions;

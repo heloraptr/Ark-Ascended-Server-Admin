@@ -178,6 +178,27 @@ public sealed class FakeProcessManager(FakeMaintenanceGate? gate = null) : IProc
 
     public event Action<ProbeObservation>? ProbeObserved;
 
+    public event Action<int, InstanceTelemetry?>? TelemetryChanged;
+
+    /// <summary>Scripted samples for <see cref="GetTelemetry"/>; <see cref="Publish"/> sets or clears one and raises the event.</summary>
+    public ConcurrentDictionary<int, InstanceTelemetry> Telemetry { get; } = new();
+
+    public void Publish(int instanceId, InstanceTelemetry? sample)
+    {
+        if (sample is null)
+        {
+            Telemetry.TryRemove(instanceId, out _);
+        }
+        else
+        {
+            Telemetry[instanceId] = sample;
+        }
+
+        TelemetryChanged?.Invoke(instanceId, sample);
+    }
+
+    public InstanceTelemetry? GetTelemetry(int instanceId) => Telemetry.TryGetValue(instanceId, out var sample) ? sample : null;
+
     /// <summary>Scripted answers for <see cref="ProbeSessionAsync"/>; Unknown when absent.</summary>
     public ConcurrentDictionary<int, SessionLiveness> Liveness { get; } = new();
 

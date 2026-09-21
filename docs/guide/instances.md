@@ -24,7 +24,7 @@ final **Standalone** section for instances without a cluster. Each row shows:
 |---|---|
 | Checkbox | Adds the row to the selection. A bar appears above the groups: `2 instances selected`, **Start selected**, **Stop selected**, **Clear**. |
 | Name | The small triangle for the state, the instance name (a link to its page), the session name under it. |
-| Map | The map name and `3 mods` or `vanilla`. The count is what a start passes in `-mods`: the map's own mod, the cluster's enabled mods, and the instance's enabled mods. |
+| Map | The map name and `3 mods` or `vanilla`. The count is what a start passes in `-mods`: the map's own mod, the cluster's enabled mods, and the instance's enabled mods. While a process is live a third line shows what it is using right now, `RAM 6.2 GB · CPU 14 %`: the working set and the share of the whole machine's CPU, resampled every few seconds and never stored. |
 | Ports | `7777 game`, `27020 rcon`. |
 | State and backup | The state label ([README](README.md#instance-states)) and the last backup: `Backed up 12 min ago`, `Skipped 1 h ago`, `Failed`, or `no backup yet`. Hovering the backup shows its reason. When a scheduled action applies to the instance, a third line: `Next action 03:00`, `Next action tomorrow 03:00`, or `Next action in 12 min`; hovering it shows the full date and time ([scheduled actions](#scheduled-actions)). |
 | Actions | While a process is live: **Stop**, **Restart**, **Back up now** (enabled only when **Running**). While stopping: **Stop now** (skips the countdown), which turns into a disabled **Stopping…** once the exit has been requested. Otherwise **Start** (disabled when the state is **Unknown**). Always: **Open console**. |
@@ -155,8 +155,9 @@ waits the graceful timeout out, as described above.
 ## The instance page
 
 The header shows the name, the crumb (`Instances / <cluster>`), the state, map, ports, and slug, and
-the buttons **Start** / **Stop**, **Restart**, **Back up now**, **Stop now**, and the delete icon. Under
-it, a notice appears for **Starting, unconfirmed**, **Unreachable**, **Unknown**, or
+the buttons **Start** / **Stop**, **Restart**, **Back up now**, **Stop now**, and the delete icon;
+while a process is live the slug is followed by `RAM 6.2 GB · CPU 14 %`, the same current reading as the
+dashboard row. Under it, a notice appears for **Starting, unconfirmed**, **Unreachable**, **Unknown**, or
 **Identity not saved** (with **Retry persist**), and `Start would be refused.` whenever the launch
 preview finds a problem while the instance is stopped.
 
