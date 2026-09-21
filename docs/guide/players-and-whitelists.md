@@ -10,16 +10,26 @@ is written to the file the game reads at every start.
 ## The Players page
 
 **Players** in the sidebar lists everyone known, by name, with the columns **Name**, **Status**
-(**Online** on *instance*, or "Last seen *N* ago on *instance*"), **Platform**, **EOS id** (with a
-copy button), **First seen**, **Last joined**, **Whitelist** (a **Choose a list** drop-down of every
-cluster and instance, and **Add**), and a forget button. The summary line reads "*N* players known,
-*M* online now." The page follows the log: a join appears without a reload. Before anyone has joined
-it says "No players yet. A player appears here the moment they join a running server; nothing to
-press."
+(**Online** on *instance*, or "Last seen *N* ago on *instance*"), **Platform**, **EOS id**, **First
+seen**, **Last joined**, **Whitelist**, and a forget button. The summary line reads "*N* players
+known, *M* online now." The page follows the log: a join appears without a reload. Before anyone has
+joined it says "No players yet. A player appears here the moment they join a running server; nothing
+to press."
 
-**Add** puts the row's EOS id on the chosen cluster's or instance's whitelist (the toast says
-"Added to *X*'s whitelist"). **Forget** deletes the row; "Forgetting a player only clears this row;
-they come back on their next join."
+The table keeps every column on one line. A value too long for its column ends in an ellipsis and
+the whole of it sits in that cell's tooltip, so a name, a status line, or an id is never cut short
+without a way to read it.
+
+Beside each EOS id is a copy button (**Copy id**) that puts the whole id on the clipboard and
+answers "Copied" with the id underneath. That is the quickest way to get an id out of the manager,
+since the column is narrower than 32 characters on most windows. If the browser refuses clipboard
+access the toast says so instead.
+
+The **Whitelist** cell holds a **Choose a list** drop-down and **Add**. The drop-down mixes the
+clusters and the instances, so every entry carries a small label at its right edge saying which it
+is, *cluster* or *instance*; that label stays in view once one is chosen. **Add** puts the row's EOS
+id on the chosen list (the toast says "Added to *X*'s whitelist"). **Forget** deletes the row;
+"Forgetting a player only clears this row; they come back on their next join."
 
 ## Who is on a server right now
 
@@ -27,6 +37,16 @@ The instance **Players** tab ("On the server now") asks the server with `ListPla
 tab opens and on **List players**; both need the state **Running**. It shows **Name** and **EOS
 id** with a copy button, "No players connected", or the RCON error. When the instance is not
 running: "The instance is not running. Start it to see who is on it."
+
+Every row ends in a **Kick** button. It asks first ("Kick *name*? They can rejoin at once.") and
+then sends `KickPlayer <id>` over RCON the way the console send box sends anything else, so the
+command and the reply are echoed into the instance console. The toast reads "Kicked *name*" with
+the server's answer beneath it, which for this command is usually "(no reply)". The server is asked
+who is on again straight afterwards, so the row goes as soon as the player does.
+
+A kick is not a ban: the player can come back at once. It is there for the ordinary case of getting
+somebody off a server before a restart or a restore. Kicking needs a live process, and it is the
+only thing on this tab that changes anything on the server.
 
 The command goes over RCON with the RCON command timeout from Settings, and the reply is parsed as
 lines of the form `0. Name, <id>` (a `Name, <id>` line without the index is accepted too);
@@ -143,6 +163,8 @@ And the file is only a record, not a control: to unban, send `UnbanPlayer` from 
 | Players tab | `RCON credentials could not be read from the generated GameUserSettings.ini.` | The generated config is missing or has no `ServerAdminPassword`/`RCONPort`; restart the instance. |
 | Players tab | `RCON timeout failure: ...` / `RCON connect failure: ...` / `RCON authentication failure: ...` | The server did not answer, refused the connection, or rejected the password. See [console-and-rcon.md](console-and-rcon.md). |
 | Players tab | `The instance no longer exists.` | Deleted meanwhile. |
+| Kick | `Could not kick <name>` / `The player has no id to kick by.` | The `ListPlayers` reply gave that row a name but no id. |
+| Kick | `Could not kick <name>` / `The instance is not running, so there is nothing to send the command to.` | It stopped between the listing and the click. |
 | Whitelist editor | `Not a known player. Enter an EOS id (32 hex characters) or pick a name from the suggestions.` | The text is neither a known name nor a 32-hex or 17-digit id. |
 | Whitelist editor | `<name or id> is already on the list from Settings.` / `... from the cluster.` | Inherited; remove it there if you must. |
 | Whitelist editor | `<name or id> is already on the list.` | Duplicate on this list. |

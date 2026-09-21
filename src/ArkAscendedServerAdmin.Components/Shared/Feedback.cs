@@ -29,6 +29,7 @@ public sealed record ActionVerb(string Past, string Plain)
     public static ActionVerb Skipped { get; } = new("Skipped", "skip");
     public static ActionVerb Requeued { get; } = new("Re-queued", "re-queue");
     public static ActionVerb AddedTo { get; } = new("Added to", "add to");
+    public static ActionVerb Kicked { get; } = new("Kicked", "kick");
     public static ActionVerb SavedIdentityOf { get; } = new("Saved identity of", "save identity of");
 }
 
@@ -73,6 +74,21 @@ public static class Feedback
         if (result.Succeeded)
         {
             notifications.Done($"{verb.Past} {subject}");
+        }
+        else
+        {
+            notifications.Failed($"Could not {verb.Plain} {subject}", result.Error);
+        }
+    }
+
+    /// <summary>Reports a <see cref="CommandResult{T}"/> whose value is a line worth showing, such as an RCON reply: the verb and the value on success, the reason on rejection.</summary>
+    public static void Report(this NotificationService notifications, CommandResult<string> result, ActionVerb verb, string subject)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(verb);
+        if (result.Succeeded)
+        {
+            notifications.Done($"{verb.Past} {subject}", result.Value);
         }
         else
         {

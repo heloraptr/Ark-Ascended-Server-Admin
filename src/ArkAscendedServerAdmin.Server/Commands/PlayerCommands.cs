@@ -7,6 +7,7 @@ using ArkAscendedServerAdmin.Players;
 using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Provisioning;
 using ArkAscendedServerAdmin.Rcon;
+using ArkAscendedServerAdmin.Scheduling;
 using Microsoft.EntityFrameworkCore;
 
 namespace ArkAscendedServerAdmin.Server.Commands;
@@ -14,7 +15,7 @@ namespace ArkAscendedServerAdmin.Server.Commands;
 /// <summary>
 /// Guarded facade for the Players page and the instance Players tab. The table is fed by
 /// <see cref="IPlayerTracker"/> from the game log and the health probe; this reads it, asks one instance who is on,
-/// and forgets rows.
+/// kicks one player off it, and forgets rows.
 /// </summary>
 public sealed class PlayerCommands(
     IAuthorizationGuard guard,
@@ -23,6 +24,7 @@ public sealed class PlayerCommands(
     IProcessManager processManager,
     IGeneratedConfigWriter generatedConfig,
     IRconClient rcon,
+    IRconOperations rconOperations,
     IPlayerTracker tracker,
     TimeProvider timeProvider,
     ILogger<PlayerCommands> logger) : IPlayerCommands
@@ -86,6 +88,18 @@ public sealed class PlayerCommands(
             logger.LogWarning(ex, "ListPlayers on instance {InstanceId} failed.", instanceId);
             return CommandResult<OnlinePlayers>.Fail($"RCON {ex.Failure.ToString().ToLowerInvariant()} failure: {ex.Message}");
         }
+    }
+
+    public async Task<CommandResult<string>> KickPlayerAsync(int instanceId, string eosId, CancellationToken cancellationToken = default)
+    {
+        await guard.EnsureAuthorizedAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(eosId))
+        {
+            return CommandResult<string>.Fail("The player has no id to kick by.");
+        }
+
+        // The send itself (live-process check, credentials, console echo) is the shared path the console send box uses too.
+        return await rconOperations.ExecuteAsync(instanceId, RconCommands.KickPlayer(eosId), cancellationToken);
     }
 
     public async Task<CommandResult> DeleteAsync(int knownPlayerId, CancellationToken cancellationToken = default)

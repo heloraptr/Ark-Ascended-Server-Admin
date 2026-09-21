@@ -69,7 +69,7 @@ internal sealed class CommandTestHost : IDisposable
         Refresher = new ModMetadataRefresher(Root, Settings, CurseForge, NullLogger<ModMetadataRefresher>.Instance);
         Mods = new ModCommands(Guard, Root, Settings, CurseForge, Refresher, Clock, NullLogger<ModCommands>.Instance);
         Tracker = new PlayerTracker(Root, Console, ProcessManager, NullLogger<PlayerTracker>.Instance);
-        Players = new PlayerCommands(Guard, Root, Settings, ProcessManager, GeneratedConfig, Rcon, Tracker, Clock, NullLogger<PlayerCommands>.Instance);
+        Players = new PlayerCommands(Guard, Root, Settings, ProcessManager, GeneratedConfig, Rcon, RconOperations, Tracker, Clock, NullLogger<PlayerCommands>.Instance);
         Maps = new MapCommands(Guard, Root, Mods);
         SettingsCommands = new SettingsCommands(Guard, Settings, Exporter, Root.Layout, Host, Clock);
         Maintenance = new MaintenanceCommands(Guard, StartupControl, UpdateService, Recovery, InstallChecker, NullLogger<MaintenanceCommands>.Instance);
