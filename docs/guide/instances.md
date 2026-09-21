@@ -91,18 +91,27 @@ its whole duration, so a start, backup, or delete asked for meanwhile is refused
 3. `RCON: doexit`. The server replies `Exiting...`, saves the world itself (the log shows
    `Saving world...` before `Closing by request`), and exits with code -1, which is normal. No
    separate `saveworld` is sent.
-4. The job waits up to *Graceful stop timeout, seconds* (Settings, 60 by default) for the process to
-   exit. If it is still there: `The server did not exit within 60 s; killing pid <n>.` and the
-   process tree is killed, then up to 30 more seconds for the exit to be observed.
+4. With the command acknowledged, the job waits up to *Graceful stop timeout, seconds* (Settings, 60
+   by default) for the process to exit. If it is still there: `The server did not exit within 60 s;
+   killing pid <n>.` and the process tree is killed, then up to 30 more seconds for the exit to be
+   observed.
 5. The liveness poll sees the exit and prints `Server exited (code -1).`; the state becomes
    **Stopped** and the saved PID is cleared. The toast `Stopped <name>` arrives now, so a stop reports a
    verified exit, never a sent command.
 
-An RCON failure during the countdown or at `doexit` is logged (`RCON 'doexit' failed (Connect): ...
-Continuing with the next step.`) and the job falls through to the timeout and the kill. A process the
-manager has no RCON credentials for (re-attached without a generated `GameUserSettings.ini`) skips
-`doexit` outright: `No RCON credentials for this process; skipping doexit and waiting for the graceful
-timeout before killing.`
+Stopping an instance that is still **Starting** is the common case where `doexit` does not land: the
+game opens its RCON port late, so the command is refused or times out. There is nothing to wait for
+then — a server that did take the command answers `Exiting...` within milliseconds and only saves
+after that, so a `doexit` nobody answered means no save was ever begun. The job says as much and kills
+straight away: `RCON 'doexit' failed (Connect): ... Continuing with the next step.` followed by
+`doexit was not acknowledged; killing pid <n> now instead of waiting 60 s.` Such a stop finishes in
+seconds. A broadcast that fails during the countdown is only logged; the countdown keeps its deadline
+and the stop goes on to `doexit`.
+
+A process the manager has no RCON credentials for (re-attached without a generated
+`GameUserSettings.ini`) skips `doexit` outright and does get the full wait, since nothing was sent
+that could be in flight: `No RCON credentials for this process; skipping doexit and waiting for the
+graceful timeout before killing.`
 
 RCON is the only stop path the game offers. It saves and exits cleanly on `doexit` and has no other
 remote signal, and killing the process loses whatever was not saved. That is why the manager verifies
@@ -139,7 +148,9 @@ process name is the only option, since every instance is the same executable.
   will not guess which process belongs to the slug.
 
 An **Unreachable** re-attach (`Cannot probe RCON: ... Check ServerAdminPassword / RCONPort; the
-process is still watched for exit.`) is still stoppable; the stop skips `doexit` as described above.
+process is still watched for exit.`) is still stoppable. If the credentials were readable the stop
+sends `doexit` and kills as soon as it goes unanswered; if they were not, it skips the command and
+waits the graceful timeout out, as described above.
 
 ## The instance page
 

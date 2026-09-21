@@ -31,11 +31,15 @@ namespace ArkAscendedServerAdmin.Infrastructure.Processes;
 /// <remarks>
 /// Coordination between the stop job and the liveness loop: the liveness loop is the single owner of the
 /// "process exited" transition (console line, Stopped state, database identity clear, loop shutdown) and
-/// completes the session's exit signal last; the stop job only waits on that signal — after <c>doexit</c>
-/// for the graceful timeout, after <c>Kill</c> for the verification bound — so both paths return a
-/// verified exit. The stop intent is recorded on the session the moment a stop is accepted, under the caller's
-/// lease and before the job is dispatched, and the job marks the stop as manager-initiated again before
-/// <c>doexit</c>; either flag is how the liveness loop tells the normal exit code -1 from a crash.
+/// completes the session's exit signal last; the stop job only waits on that signal — after an acknowledged
+/// <c>doexit</c> for the graceful timeout, after <c>Kill</c> for the verification bound — so both paths return a
+/// verified exit. A <c>doexit</c> the server did not take (refused, timed out, or rejected) is followed by the kill
+/// at once: a healthy server answers it with <c>Exiting...</c> within milliseconds and saves only after that, so
+/// nothing is in flight to wait for (this is what makes a stop during startup take seconds, not the timeout). A
+/// process without RCON credentials still gets the graceful wait, since nothing was sent to it. The stop intent is
+/// recorded on the session the moment a stop is accepted, under the caller's lease and before the job is
+/// dispatched, and the job marks the stop as manager-initiated again before <c>doexit</c>; either flag is how the
+/// liveness loop tells the normal exit code -1 from a crash.
 /// <para>
 /// Ownership (B0): the per-instance locks are not reentrant, so the public operations take the lease and the
 /// <c>*Core</c> methods run under one. <see cref="StopUnderLeaseAsync"/> lets delete and restore stop under the
@@ -713,6 +717,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
                 : options.Deadline ?? (settings.PreStopBroadcastMinutes > 0 ? _time.GetUtcNow() + TimeSpan.FromMinutes(settings.PreStopBroadcastMinutes) : null);
             await SetStateAsync(session.InstanceId, InstanceState.Stopping, null, token);
 
+            var killNow = false;
             if (session.Rcon is { } rcon)
             {
                 if (deadline is { } countdownDeadline)
@@ -723,10 +728,20 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
                 // No explicit saveworld: doexit saves the world itself ("Saving world..." twice in the log before "Closing by request", captured 2026-09-13).
                 session.StopRequested = true;
                 Update(session.InstanceId, runtime => runtime with { ExitRequested = true });
-                await TryRconAsync(session, rcon, RconCommands.DoExit, timeout, token);
+                var acknowledged = await TryRconAsync(session, rcon, RconCommands.DoExit, timeout, token);
                 if (deadline is { } expected && _time.GetUtcNow() - expected is { } late && late > LateExitTolerance)
                 {
                     Append(channel, $"doexit went out {late.TotalSeconds:0} s after the deadline (a slow reply or a busy transport held it up).", ConsoleLineKind.Warning);
+                }
+
+                if (!acknowledged)
+                {
+                    // The server replies "Exiting..." in about 20 ms and only then saves and exits (spike, 2026-09-07); a doexit that
+                    // was refused, timed out, or rejected was not taken, so there is no save in flight for the graceful wait to protect.
+                    // Typical during startup, when the RCON listener is not up yet (#27).
+                    killNow = true;
+                    Append(channel, $"doexit was not acknowledged; killing pid {session.Pid} now instead of waiting {settings.GracefulStopTimeoutSeconds} s.", ConsoleLineKind.Warning);
+                    _logger.LogWarning("Instance {InstanceId}: doexit was not acknowledged; killing pid {Pid} now instead of waiting {Seconds} s.", session.InstanceId, session.Pid, settings.GracefulStopTimeoutSeconds);
                 }
             }
             else
@@ -737,10 +752,14 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             }
 
             var graceful = TimeSpan.FromSeconds(settings.GracefulStopTimeoutSeconds);
-            if (!await WaitForExitAsync(session, graceful, token))
+            if (killNow || !await WaitForExitAsync(session, graceful, token))
             {
-                Append(channel, $"The server did not exit within {settings.GracefulStopTimeoutSeconds} s; killing pid {session.Pid}.", ConsoleLineKind.Warning);
-                _logger.LogWarning("Instance {InstanceId} did not exit within {Seconds} s; killing pid {Pid}.", session.InstanceId, settings.GracefulStopTimeoutSeconds, session.Pid);
+                if (!killNow)
+                {
+                    Append(channel, $"The server did not exit within {settings.GracefulStopTimeoutSeconds} s; killing pid {session.Pid}.", ConsoleLineKind.Warning);
+                    _logger.LogWarning("Instance {InstanceId} did not exit within {Seconds} s; killing pid {Pid}.", session.InstanceId, settings.GracefulStopTimeoutSeconds, session.Pid);
+                }
+
                 try
                 {
                     session.Process.Kill(entireProcessTree: true);
@@ -868,8 +887,12 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         }
     }
 
-    /// <summary>Sends one command, logging and reporting a failure so the stop sequence falls through to its next step.</summary>
-    private async Task TryRconAsync(Session session, RconEndpoint rcon, string command, TimeSpan timeout, CancellationToken token)
+    /// <summary>
+    /// Sends one command and returns whether the server answered it. A failure is logged and reported on the console so
+    /// the caller can fall through to its next step; the stop job uses the result to choose between the graceful wait
+    /// (<c>doexit</c> acknowledged) and an immediate kill (not acknowledged).
+    /// </summary>
+    private async Task<bool> TryRconAsync(Session session, RconEndpoint rcon, string command, TimeSpan timeout, CancellationToken token)
     {
         var channel = ConsoleChannels.Instance(session.InstanceId);
         Append(channel, $"RCON: {command}", ConsoleLineKind.Info);
@@ -880,11 +903,14 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             {
                 Append(channel, reply.Trim(), ConsoleLineKind.Output);
             }
+
+            return true;
         }
         catch (RconException ex)
         {
             _logger.LogWarning(ex, "RCON '{Command}' failed for instance {InstanceId} ({Failure}).", command, session.InstanceId, ex.Failure);
             Append(channel, $"RCON '{command}' failed ({ex.Failure}): {ex.Message} Continuing with the next step.", ConsoleLineKind.Warning);
+            return false;
         }
     }
 

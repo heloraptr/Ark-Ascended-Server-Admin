@@ -1,4 +1,5 @@
 using ArkAscendedServerAdmin.Configuration;
+using ArkAscendedServerAdmin.Consoles;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Backups;
 using ArkAscendedServerAdmin.Infrastructure.Maintenance;
@@ -23,6 +24,9 @@ public class ProcessManagerLifecycleTests
 
     /// <summary>No countdown and the shortest graceful timeout the settings allow: the fake doexit never exits the stand-in, so every stop ends in a kill.</summary>
     private static readonly AppSettings _fastStop = new() { PreStopBroadcastMinutes = 0, GracefulStopTimeoutSeconds = 5 };
+
+    /// <summary>No countdown and the shipped 60 s graceful timeout, so a wait that should have been skipped shows up as a slow test.</summary>
+    private static readonly AppSettings _defaultStop = new() { PreStopBroadcastMinutes = 0 };
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -102,6 +106,67 @@ public class ProcessManagerLifecycleTests
         lease.Dispose();
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Manager.StopUnderLeaseAsync(lease, new StopOptions(), Ct));
+    }
+
+    /// <summary>
+    /// #27: a <c>doexit</c> the server never took — refused because RCON is not listening yet, or timed out — is
+    /// followed by the kill at once. The stand-in process never exits on its own, so a graceful wait would show up
+    /// both in the elapsed time and in the "did not exit within" line.
+    /// </summary>
+    [Theory]
+    [InlineData(RconFailure.Timeout)]
+    [InlineData(RconFailure.Connect)]
+    public async Task Stop_WhenDoExitIsNotAcknowledged_KillsAtOnce_WithoutTheGracefulWait(RconFailure failure)
+    {
+        using var root = new TempDataRoot();
+        var alpha = await SeedAlphaAsync(root);
+        using var game = StandInProcess.Start();
+        var console = new RecordingConsole();
+        using var harness = new ProcessManagerHarness(root, [game.As(root.Layout, "alpha")], new FakeRconClient(failure), console, new FakeOutputSourceFactory(), settings: _defaultStop);
+        await harness.Manager.ReconcileAsync(Ct);
+        Assert.True(harness.Manager.GetRuntime(alpha).HasLiveProcess);
+        var started = DateTimeOffset.UtcNow;
+
+        var outcome = await harness.Manager.StopAsync(alpha, new StopOptions(SkipCountdown: true), Ct);
+
+        var elapsed = DateTimeOffset.UtcNow - started;
+        Assert.True(outcome.Succeeded, outcome.Error);
+        Assert.True(game.Process.HasExited);
+        Assert.True(
+            elapsed < TimeSpan.FromSeconds(25),
+            $"The stop took {elapsed.TotalSeconds:0.0} s, so it sat through the {_defaultStop.GracefulStopTimeoutSeconds} s graceful timeout.");
+        var lines = console.Snapshot(ConsoleChannels.Instance(alpha));
+        var announced = Assert.Single(lines, line => line.Text.StartsWith("doexit was not acknowledged", StringComparison.Ordinal));
+        Assert.Equal($"doexit was not acknowledged; killing pid {game.Process.Id} now instead of waiting {_defaultStop.GracefulStopTimeoutSeconds} s.", announced.Text);
+        Assert.Equal(ConsoleLineKind.Warning, announced.Kind);
+        Assert.DoesNotContain(lines, line => line.Text.Contains("did not exit within", StringComparison.Ordinal));
+    }
+
+    /// <summary>The graceful path is unchanged: an acknowledged <c>doexit</c> is given the full timeout before the kill.</summary>
+    [Fact]
+    public async Task Stop_WhenDoExitIsAcknowledged_WaitsTheGracefulTimeoutBeforeKilling()
+    {
+        using var root = new TempDataRoot();
+        var alpha = await SeedAlphaAsync(root);
+        using var game = StandInProcess.Start();
+        var console = new RecordingConsole();
+        using var harness = new ProcessManagerHarness(root, [game.As(root.Layout, "alpha")], new FakeRconClient(failure: null), console, new FakeOutputSourceFactory(), settings: _fastStop);
+        await harness.Manager.ReconcileAsync(Ct);
+        Assert.True(harness.Manager.GetRuntime(alpha).HasLiveProcess);
+        var started = DateTimeOffset.UtcNow;
+
+        var outcome = await harness.Manager.StopAsync(alpha, new StopOptions(SkipCountdown: true), Ct);
+
+        var elapsed = DateTimeOffset.UtcNow - started;
+        Assert.True(outcome.Succeeded, outcome.Error);
+        Assert.True(game.Process.HasExited);
+        Assert.True(
+            elapsed >= TimeSpan.FromSeconds(_fastStop.GracefulStopTimeoutSeconds - 1),
+            $"The stop took only {elapsed.TotalSeconds:0.0} s, so it skipped the {_fastStop.GracefulStopTimeoutSeconds} s graceful wait.");
+        var lines = console.Snapshot(ConsoleChannels.Instance(alpha));
+        var announced = Assert.Single(lines, line => line.Text.Contains("did not exit within", StringComparison.Ordinal));
+        Assert.Equal($"The server did not exit within {_fastStop.GracefulStopTimeoutSeconds} s; killing pid {game.Process.Id}.", announced.Text);
+        Assert.DoesNotContain(lines, line => line.Text.StartsWith("doexit was not acknowledged", StringComparison.Ordinal));
     }
 
     private static async Task<int> SeedAlphaAsync(TempDataRoot root)
