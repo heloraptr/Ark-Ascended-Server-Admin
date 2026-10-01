@@ -118,14 +118,62 @@ public sealed class PseudoConsoleSteamCmdLauncherTests : IDisposable
     }
 
     [Fact]
-    public async Task AStartFailure_FallsBackToThePipeLauncher_WithOneNotice()
+    public async Task AStartFailure_CleansUpPromptly_AndFallsBackToThePipeLauncher_WithOneNotice()
     {
+        // CreateProcessW fails after the pseudo console exists and before any reader runs.
         var missing = new SteamCmdLaunch(Path.Combine(_directory, "missing.exe"), ["+quit"], _directory);
         var errors = new List<string>();
+        var stopwatch = Stopwatch.StartNew();
 
-        await Assert.ThrowsAsync<System.ComponentModel.Win32Exception>(() => _launcher.RunAsync(missing, _ => { }, errors.Add, Ct));
+        await Assert.ThrowsAsync<System.ComponentModel.Win32Exception>(
+            () => _launcher.RunAsync(missing, _ => { }, errors.Add, Ct).WaitAsync(TimeSpan.FromSeconds(10), Ct));
 
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5), $"took {stopwatch.Elapsed}");
         Assert.Equal([PseudoConsoleSteamCmdLauncher.FallbackNotice], errors);
+    }
+
+    [Fact]
+    public async Task AnUnexpectedReadFailure_IsReportedOnce_AndTheRealExitCodeComesBack()
+    {
+        var script = WriteScript("""
+            @echo off
+            echo first
+            ping -n 3 127.0.0.1 >nul
+            for /l %%i in (1,1,2000) do echo line %%i
+            exit /b 5
+            """);
+        var launcher = new PseudoConsoleSteamCmdLauncher(
+            NullLogger<PseudoConsoleSteamCmdLauncher>.Instance,
+            inner => new FaultyStream(inner, failOnRead: 2, endAsBrokenPipe: false));
+        var lines = new List<string>();
+        var errors = new List<string>();
+
+        var exitCode = await launcher.RunAsync(Launch(script), lines.Add, errors.Add, Ct).WaitAsync(TimeSpan.FromSeconds(30), Ct);
+
+        Assert.Equal(5, exitCode);
+        Assert.Equal([PseudoConsoleSteamCmdLauncher.OutputLostNotice], errors);
+        Assert.DoesNotContain("line 2000", lines);
+    }
+
+    [Fact]
+    public async Task ABrokenPipeAtTheEnd_IsANormalEndOfOutput()
+    {
+        var script = WriteScript("""
+            @echo off
+            echo only line
+            exit /b 0
+            """);
+        var launcher = new PseudoConsoleSteamCmdLauncher(
+            NullLogger<PseudoConsoleSteamCmdLauncher>.Instance,
+            inner => new FaultyStream(inner, failOnRead: 0, endAsBrokenPipe: true));
+        var lines = new List<string>();
+        var errors = new List<string>();
+
+        var exitCode = await launcher.RunAsync(Launch(script), lines.Add, errors.Add, Ct).WaitAsync(TimeSpan.FromSeconds(30), Ct);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(errors);
+        Assert.Equal(["only line"], lines);
     }
 
     public void Dispose()
@@ -149,4 +197,57 @@ public sealed class PseudoConsoleSteamCmdLauncherTests : IDisposable
 
     private SteamCmdLaunch Launch(string script) =>
         new(Path.Combine(Environment.SystemDirectory, "cmd.exe"), ["/c", script], _directory);
+
+    /// <summary>Wraps the pseudo console's output: throws on one read, or reports end of stream as a broken pipe.</summary>
+    private sealed class FaultyStream(Stream inner, int failOnRead, bool endAsBrokenPipe) : Stream
+    {
+        private int _reads;
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (++_reads == failOnRead)
+            {
+                throw new IOException("simulated read failure");
+            }
+
+            var read = inner.Read(buffer, offset, count);
+            return read == 0 && endAsBrokenPipe
+                ? throw new IOException("The pipe has been ended.", unchecked((int)0x8007006D))
+                : read;
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                inner.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+    }
 }

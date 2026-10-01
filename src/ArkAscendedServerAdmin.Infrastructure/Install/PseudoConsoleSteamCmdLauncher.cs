@@ -29,27 +29,54 @@ namespace ArkAscendedServerAdmin.Infrastructure.Install;
 /// SteamCMD logs in anonymously and never prompts; a prompt would wait until the run is cancelled.</item>
 /// <item>The output read end belongs to the reader thread, which closes it at end of stream. The reader
 /// never stops early: a throwing <c>onOutput</c> is caught, the first exception is kept, and draining
-/// continues, so the host can never block on a full pipe.</item>
+/// continues, so the host can never block on a full pipe. An unexpected read failure is logged and
+/// reported once, and the reader keeps reading and discarding; SteamCMD is never killed for it.</item>
 /// <item>The process handle is held until the end of the run, so its id cannot be reused while a
 /// cancellation kills the tree by id. The thread handle is closed at once.</item>
 /// <item>After the child exits (or is killed), the pseudo console is closed while the reader is still
 /// draining, then the reader is awaited. Only then is a callback exception rethrown.</item>
+/// <item>If the child never starts, no reader exists: the output read end is closed before the pseudo
+/// console, so closing the console cannot wait on output that nobody drains.</item>
 /// </list>
 /// </remarks>
-public sealed class PseudoConsoleSteamCmdLauncher(ILogger<PseudoConsoleSteamCmdLauncher> logger) : ISteamCmdProcessLauncher
+public sealed class PseudoConsoleSteamCmdLauncher : ISteamCmdProcessLauncher
 {
     /// <summary>The one line written (as a warning) when a run falls back to the pipe launcher.</summary>
     public const string FallbackNotice = "Live SteamCMD output is unavailable on this system; lines will appear when SteamCMD exits.";
+
+    /// <summary>The one line written (as a warning) when reading the pseudo console fails mid-run.</summary>
+    public const string OutputLostNotice = "Live SteamCMD output was lost; SteamCMD keeps running and its result will be reported when it exits.";
 
     /// <summary>Wide enough that SteamCMD's longest lines (install paths, progress) are never wrapped.</summary>
     private const short ConsoleColumns = 512;
 
     private const short ConsoleRows = 50;
 
+    private const int ErrorBrokenPipe = 109;
+    private const int ErrorPipeNotConnected = 233;
+
     /// <summary>How long to wait for the last output after the pseudo console is closed.</summary>
     private static readonly TimeSpan _drainTimeout = TimeSpan.FromSeconds(10);
 
+    /// <summary>Pause between reads after an unexpected read failure, so a dead handle cannot spin a core.</summary>
+    private static readonly TimeSpan _retryDelay = TimeSpan.FromMilliseconds(100);
+
+    private readonly ILogger<PseudoConsoleSteamCmdLauncher> _logger;
+    private readonly Func<Stream, Stream>? _outputFilter;
     private readonly ProcessSteamCmdLauncher _fallback = new();
+
+    public PseudoConsoleSteamCmdLauncher(ILogger<PseudoConsoleSteamCmdLauncher> logger)
+        : this(logger, outputFilter: null)
+    {
+    }
+
+    /// <summary>Test seam: <paramref name="outputFilter"/> wraps the stream the reader reads from, to inject read failures.</summary>
+    public PseudoConsoleSteamCmdLauncher(ILogger<PseudoConsoleSteamCmdLauncher> logger, Func<Stream, Stream>? outputFilter)
+    {
+        ArgumentNullException.ThrowIfNull(logger);
+        _logger = logger;
+        _outputFilter = outputFilter;
+    }
 
     public async Task<int> RunAsync(SteamCmdLaunch launch, Action<string> onOutput, Action<string> onError, CancellationToken cancellationToken)
     {
@@ -61,7 +88,7 @@ public sealed class PseudoConsoleSteamCmdLauncher(ILogger<PseudoConsoleSteamCmdL
         var console = PseudoConsole.TryCreate(out var failure);
         if (console is null)
         {
-            logger.LogWarning(failure, "Could not create a pseudo console for SteamCMD; falling back to redirected output.");
+            _logger.LogWarning(failure, "Could not create a pseudo console for SteamCMD; falling back to redirected output.");
             return await FallBackAsync(launch, onOutput, onError, cancellationToken);
         }
 
@@ -70,12 +97,19 @@ public sealed class PseudoConsoleSteamCmdLauncher(ILogger<PseudoConsoleSteamCmdL
         {
             process = console.Start(launch);
         }
-        catch (Win32Exception ex)
+        catch (Exception ex)
         {
+            // No reader exists yet; Dispose closes our output read end before the pseudo console, so the
+            // close cannot wait on output nobody will drain.
+            console.Dispose();
+            if (ex is not Win32Exception)
+            {
+                throw;
+            }
+
             // A missing executable fails again in the pipe launcher with the same exception; anything
             // specific to the pseudo console (session 0, an odd Windows build) degrades to the old output.
-            console.Dispose();
-            logger.LogWarning(ex, "Could not start SteamCMD in a pseudo console; falling back to redirected output.");
+            _logger.LogWarning(ex, "Could not start SteamCMD in a pseudo console; falling back to redirected output.");
             return await FallBackAsync(launch, onOutput, onError, cancellationToken);
         }
 
@@ -83,8 +117,9 @@ public sealed class PseudoConsoleSteamCmdLauncher(ILogger<PseudoConsoleSteamCmdL
         using (process)
         {
             var sink = new LineSink(onOutput);
+            var state = new ReaderState();
             var reader = Task.Factory.StartNew(
-                () => Drain(console.Output, new TerminalLineAssembler(sink.Deliver)),
+                () => Drain(console.Output, new TerminalLineAssembler(sink.Deliver), state, onError),
                 CancellationToken.None,
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default);
@@ -95,18 +130,20 @@ public sealed class PseudoConsoleSteamCmdLauncher(ILogger<PseudoConsoleSteamCmdL
             }
             catch (OperationCanceledException)
             {
+                state.ChildExited = true;
                 KillTree(process);
                 await WaitForExitAsync(process.Handle, CancellationToken.None);
-                await CloseAndDrainAsync(console, reader);
+                await CloseAndDrainAsync(console, reader, state);
                 throw;
             }
 
+            state.ChildExited = true;
             if (!NativeMethods.GetExitCodeProcess(process.Handle, out var exitCode))
             {
                 throw new Win32Exception(Marshal.GetLastPInvokeError(), "GetExitCodeProcess failed for SteamCMD.");
             }
 
-            await CloseAndDrainAsync(console, reader);
+            await CloseAndDrainAsync(console, reader, state);
             sink.ThrowIfFailed();
             return exitCode;
         }
@@ -118,25 +155,107 @@ public sealed class PseudoConsoleSteamCmdLauncher(ILogger<PseudoConsoleSteamCmdL
         return _fallback.RunAsync(launch, onOutput, onError, cancellationToken);
     }
 
-    private static void Drain(SafeFileHandle output, TerminalLineAssembler assembler)
+    /// <summary>
+    /// Reads until end of stream. End of stream, a broken pipe, and a handle closed under us at teardown
+    /// are the expected ends. Any other read failure is logged and, while the child still runs, reported
+    /// once with <see cref="OutputLostNotice"/>; the reader then keeps reading and discarding, so the
+    /// console host never blocks on a full pipe and SteamCMD runs on to its real exit code.
+    /// </summary>
+    private void Drain(SafeFileHandle output, TerminalLineAssembler assembler, ReaderState state, Action<string> onError)
     {
-        using var stream = new FileStream(output, FileAccess.Read, bufferSize: 0);
+        using var file = new FileStream(output, FileAccess.Read, bufferSize: 0);
+        using var stream = _outputFilter?.Invoke(file) ?? file;
         var buffer = new byte[8192];
-        try
+        var lost = false;
+        while (!state.Stopped)
         {
             int read;
-            while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+            try
+            {
+                read = stream.Read(buffer, 0, buffer.Length);
+            }
+            catch (IOException ex) when ((ex.HResult & 0xFFFF) is ErrorBrokenPipe or ErrorPipeNotConnected)
+            {
+                break;
+            }
+            catch (ObjectDisposedException)
+            {
+                break;
+            }
+            catch (IOException ex)
+            {
+                if (!lost)
+                {
+                    lost = true;
+                    _logger.LogWarning(ex, "Reading SteamCMD output from the pseudo console failed; the rest of this run's output is discarded.");
+                    if (!state.ChildExited)
+                    {
+                        onError(OutputLostNotice);
+                    }
+                }
+
+                Thread.Sleep(_retryDelay);
+                continue;
+            }
+
+            if (read == 0)
+            {
+                break;
+            }
+
+            if (!lost)
             {
                 assembler.Append(buffer.AsSpan(0, read));
             }
         }
-        catch (IOException)
+
+        if (!lost)
         {
-            // The pseudo console went away (broken pipe): that is the end of the stream.
+            assembler.Complete();
+        }
+    }
+
+    /// <summary>
+    /// Closes the pseudo console while the reader keeps draining: on some Windows builds
+    /// <c>ClosePseudoConsole</c> blocks until its final output has been read, and the reader only sees end
+    /// of stream once the console host has exited.
+    /// </summary>
+    private async Task CloseAndDrainAsync(PseudoConsole console, Task reader, ReaderState state)
+    {
+        await Task.Run(console.Close);
+        try
+        {
+            await reader.WaitAsync(_drainTimeout);
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogWarning("SteamCMD output did not reach end of stream within {Timeout}; the last lines may be missing.", _drainTimeout);
         }
 
-        assembler.Complete();
+        state.Stopped = true;
     }
+
+    /// <summary>Flags shared between <see cref="RunAsync"/> and the reader thread.</summary>
+    private sealed class ReaderState
+    {
+        private volatile bool _childExited;
+        private volatile bool _stopped;
+
+        /// <summary>Set once the child has exited or is being killed; a lost-output notice is pointless after that.</summary>
+        public bool ChildExited
+        {
+            get => _childExited;
+            set => _childExited = value;
+        }
+
+        /// <summary>Set when the run is over, so a reader stuck retrying a failing handle gives up.</summary>
+        public bool Stopped
+        {
+            get => _stopped;
+            set => _stopped = value;
+        }
+    }
+
 
     /// <summary>
     /// Hands lines to the caller's callback on the reader thread. The first exception it throws is kept
@@ -166,24 +285,6 @@ public sealed class PseudoConsoleSteamCmdLauncher(ILogger<PseudoConsoleSteamCmdL
         }
 
         public void ThrowIfFailed() => _failure?.Throw();
-    }
-
-    /// <summary>
-    /// Closes the pseudo console while the reader keeps draining: on some Windows builds
-    /// <c>ClosePseudoConsole</c> blocks until its final output has been read, and the reader only sees end
-    /// of stream once the console host has exited.
-    /// </summary>
-    private async Task CloseAndDrainAsync(PseudoConsole console, Task reader)
-    {
-        await Task.Run(console.Close);
-        try
-        {
-            await reader.WaitAsync(_drainTimeout);
-        }
-        catch (TimeoutException)
-        {
-            logger.LogWarning("SteamCMD output did not reach end of stream within {Timeout}; the last lines may be missing.", _drainTimeout);
-        }
     }
 
     private static Task WaitForExitAsync(SafeProcessHandle handle, CancellationToken cancellationToken)
@@ -375,12 +476,13 @@ public sealed class PseudoConsoleSteamCmdLauncher(ILogger<PseudoConsoleSteamCmdL
 
         public void Dispose()
         {
+            // Output first: when no reader ever ran (the child failed to start), nobody drains the pipe,
+            // and ClosePseudoConsole can wait on undrained output on some Windows builds. With a reader,
+            // the read end is normally closed already, and a read still in flight keeps the handle alive
+            // until it returns.
+            Output.Dispose();
             _handle.Dispose();
             _input.Dispose();
-
-            // Normally already closed by the reader; this covers a child that never started. A read still
-            // in flight keeps the handle alive until it returns.
-            Output.Dispose();
         }
     }
 
