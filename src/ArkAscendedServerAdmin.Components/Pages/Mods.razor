@@ -35,9 +35,9 @@
                         @foreach (var hit in _hits)
                         {
                             <div class="mod-card">
-                                <ModThumb Url="@hit.ThumbnailUrl" />
+                                <ModPageLink Url="@hit.WebsiteUrl" Name="@hit.Name" Class="is-thumb"><ModThumb Url="@hit.ThumbnailUrl" /></ModPageLink>
                                 <div class="body">
-                                    <strong title="@hit.Name">@hit.Name</strong>
+                                    <strong title="@hit.Name"><ModPageLink Url="@hit.WebsiteUrl" Name="@hit.Name">@hit.Name</ModPageLink></strong>
                                     <div class="summary">@hit.Summary</div>
                                     <div class="meta">
                                         <span class="num">@hit.Id</span>
@@ -103,11 +103,13 @@
             {
                 var mod = view.Mod;
                 var usage = _usage.GetValueOrDefault(mod.Id);
+                var meta = (mod.DateModified is { } modified ? $" · updated {Presentation.Ago(modified, _now)}" : null) + (string.IsNullOrWhiteSpace(mod.Summary) ? null : " · " + mod.Summary);
+                var usedBy = usage is { IsReferenced: true } ? string.Join(", ", usage.Maps.Select(m => $"map {m}").Concat(usage.Clusters.Select(c => $"cluster {c}")).Concat(usage.Instances)) : null;
                 <div class="mod-item" style="grid-template-columns: 40px minmax(0,1fr) minmax(0,1fr) auto">
-                    <ModThumb Url="@mod.ThumbnailUrl" />
+                    <ModPageLink Url="@mod.WebsiteUrl" Name="@mod.Name" Class="is-thumb"><ModThumb Url="@mod.ThumbnailUrl" /></ModPageLink>
                     <div class="title">
                         <strong>
-                            @mod.Name
+                            <ModPageLink Url="@mod.WebsiteUrl" Name="@mod.Name">@mod.Name</ModPageLink>
                             @if (_mapMods.TryGetValue(mod.Id, out var mapName))
                             {
                                 <span class="tag is-trace" title="Loads automatically, first, on every instance using this map. It cannot be picked in the instance or cluster mod lists.">map mod · @mapName</span>
@@ -117,12 +119,12 @@
                                 <ModChangedBadge />
                             }
                         </strong>
-                        <span><span class="num">@mod.Id</span>@(mod.DateModified is { } modified ? $" · updated {Presentation.Ago(modified, _now)}" : null)@(string.IsNullOrWhiteSpace(mod.Summary) ? null : " · " + mod.Summary)</span>
+                        <span title="@(mod.Id + meta)"><span class="num">@mod.Id</span>@meta</span>
                     </div>
                     <div class="title">
-                        @if (usage is { IsReferenced: true })
+                        @if (usedBy is not null)
                         {
-                            <span>@string.Join(", ", usage.Maps.Select(m => $"map {m}").Concat(usage.Clusters.Select(c => $"cluster {c}")).Concat(usage.Instances))</span>
+                            <span title="@usedBy">@usedBy</span>
                         }
                         else
                         {
@@ -130,7 +132,8 @@
                         }
                     </div>
                     <div class="actions">
-                        <RadzenButton Icon="open_in_new" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="Open on CurseForge" Click="@(() => Navigation.NavigateTo($"https://www.curseforge.com/ark-survival-ascended/search?search={mod.Id}", forceLoad: true))" />
+                        @* The stored page when CurseForge gave one; otherwise a CurseForge search for the id. *@
+                        <a class="rz-button rz-button-xs rz-variant-text rz-base rz-shade-default rz-button-icon-only" href="@(mod.WebsiteUrl ?? $"https://www.curseforge.com/ark-survival-ascended/search?search={mod.Id}")" target="_blank" rel="noopener noreferrer" title="@(mod.WebsiteUrl is null ? "Search CurseForge for this id" : "Open on CurseForge")"><span class="rz-button-box"><i class="notranslate rz-button-icon-left rzi" aria-hidden="true">open_in_new</i></span></a>
                         <RadzenButton Icon="close" Size="ButtonSize.ExtraSmall" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" title="@(usage is { IsReferenced: true } ? "Remove it from every list first" : "Remove from library")" Disabled="@(Busy || usage is { IsReferenced: true })" Click="@(() => RemoveAsync(mod))" />
                     </div>
                 </div>

@@ -11,9 +11,9 @@
         position++;
         <div class="mod-item is-locked" title="Map mod: it comes with the selected map and cannot be moved or removed.">
             <span class="order num">@position</span>
-            <ModThumb Url="@mapMod.ThumbnailUrl" />
+            <ModPageLink Url="@mapMod.WebsiteUrl" Name="@mapMod.Name" Class="is-thumb"><ModThumb Url="@mapMod.ThumbnailUrl" /></ModPageLink>
             <div class="title">
-                <strong>@mapMod.Name</strong>
+                <strong><ModPageLink Url="@mapMod.WebsiteUrl" Name="@mapMod.Name">@mapMod.Name</ModPageLink></strong>
                 <span>@mapMod.Id · from the map</span>
             </div>
             <div class="actions"><RadzenIcon Icon="lock" Style="color:var(--ark-steel-3)" /></div>
@@ -28,9 +28,9 @@
 
         <div class="mod-item is-locked @(item.Enabled ? null : "is-disabled")" title="@(item.Enabled ? "Cluster mod: change it on the cluster page." : "Disabled on the cluster page; not passed to any member.")">
             <span class="order num">@(item.Enabled ? position.ToString() : "–")</span>
-            <ModThumb Url="@item.Mod.ThumbnailUrl" />
+            <ModPageLink Url="@item.Mod.WebsiteUrl" Name="@item.Mod.Name" Class="is-thumb"><ModThumb Url="@item.Mod.ThumbnailUrl" /></ModPageLink>
             <div class="title">
-                <strong>@item.Mod.Name</strong>
+                <strong><ModPageLink Url="@item.Mod.WebsiteUrl" Name="@item.Mod.Name">@item.Mod.Name</ModPageLink></strong>
                 <span>@item.Mod.Id · from the cluster@(item.Enabled ? null : ", disabled there")</span>
             </div>
             <div class="actions">
@@ -53,9 +53,9 @@
 
         <div class="mod-item @(row.Enabled ? null : "is-disabled")">
             <span class="order num">@(row.Enabled ? position.ToString() : "–")</span>
-            <ModThumb Url="@row.Mod.ThumbnailUrl" />
+            <ModPageLink Url="@row.Mod.WebsiteUrl" Name="@row.Mod.Name" Class="is-thumb"><ModThumb Url="@row.Mod.ThumbnailUrl" /></ModPageLink>
             <div class="title">
-                <strong>@row.Mod.Name</strong>
+                <strong><ModPageLink Url="@row.Mod.WebsiteUrl" Name="@row.Mod.Name">@row.Mod.Name</ModPageLink></strong>
                 <span>@row.Mod.Id@(row.Enabled ? (string.IsNullOrWhiteSpace(row.Mod.Summary) ? null : " · " + row.Mod.Summary) : " · disabled, not passed to the server")</span>
             </div>
             <div class="actions">
@@ -119,9 +119,9 @@
                 @foreach (var hit in _hits)
                 {
                     <div class="mod-card">
-                        <ModThumb Url="@hit.ThumbnailUrl" />
+                        <ModPageLink Url="@hit.WebsiteUrl" Name="@hit.Name" Class="is-thumb"><ModThumb Url="@hit.ThumbnailUrl" /></ModPageLink>
                         <div class="body">
-                            <strong title="@hit.Name">@hit.Name</strong>
+                            <strong title="@hit.Name"><ModPageLink Url="@hit.WebsiteUrl" Name="@hit.Name">@hit.Name</ModPageLink></strong>
                             <div class="summary">@hit.Summary</div>
                             <div class="meta">
                                 <span class="num">@hit.Id</span>

@@ -12,6 +12,9 @@ public sealed class ModLibraryEntry
 
     public string? ThumbnailUrl { get; set; }
 
+    /// <summary>The mod's CurseForge page; null unless it passed <see cref="CurseForge.CurseForgeLinks.SafeWebsiteUrl"/>.</summary>
+    public string? WebsiteUrl { get; set; }
+
     /// <summary>CurseForge <c>dateModified</c>; drives the "updated since last start" hint.</summary>
     public DateTimeOffset? DateModified { get; set; }
 

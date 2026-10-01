@@ -1,0 +1,26 @@
+@* Wraps a mod's thumbnail or name in a link to its CurseForge page, opened in a new tab. The address was
+   checked when it was stored (CurseForgeLinks.SafeWebsiteUrl); without one, the content renders bare, so
+   manual entries and rows not refreshed yet look exactly as they did. *@
+@if (string.IsNullOrWhiteSpace(Url))
+{
+    @ChildContent
+}
+else
+{
+    <a class="mod-link @Class" href="@Url" target="_blank" rel="noopener noreferrer" title="@(Name is null ? "Open on CurseForge" : $"Open {Name} on CurseForge")">@ChildContent</a>
+}
+
+@code {
+    [Parameter]
+    public string? Url { get; set; }
+
+    /// <summary>The mod's name for the hover title, which also shows a name the row cuts short.</summary>
+    [Parameter]
+    public string? Name { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

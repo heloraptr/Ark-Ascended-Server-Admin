@@ -1296,6 +1296,27 @@ h1:focus-visible {
   color: var(--ark-steel-3);
 }
 
+/* A mod's name and thumbnail link to its CurseForge page when one is stored (ModPageLink). The name keeps
+   the row's own weight and color and only underlines on hover; the thumbnail gets a thin rim instead. */
+.mod-link {
+  color: inherit;
+}
+
+.mod-link.is-thumb {
+  display: block;
+  line-height: 0;
+  border-radius: var(--ark-radius);
+}
+
+.mod-link.is-thumb:hover {
+  text-decoration: none;
+}
+
+.mod-link.is-thumb:hover .thumb {
+  outline: 1px solid var(--ark-rim);
+  outline-offset: 1px;
+}
+
 .mod-item .title {
   min-width: 0;
 }
@@ -1309,7 +1330,9 @@ h1:focus-visible {
   text-overflow: ellipsis;
 }
 
-.mod-item .title span {
+/* The meta line under the name. Only the direct child: a descendant rule also caught the spans nested
+   inside it (the id) and inside the name (tag, badge), made them blocks, and broke the line apart. */
+.mod-item .title > span {
   display: block;
   color: var(--ark-steel-3);
   font-size: 12px;
@@ -1318,7 +1341,7 @@ h1:focus-visible {
   text-overflow: ellipsis;
 }
 
-/* The badge inside a library row's name: the rule above would otherwise put it on a line of its own. */
+/* The badge inside a library row's name, set a little apart from the name and the map tag. */
 .mod-item .title strong .mod-changed {
   display: inline-block;
   margin-left: 8px;

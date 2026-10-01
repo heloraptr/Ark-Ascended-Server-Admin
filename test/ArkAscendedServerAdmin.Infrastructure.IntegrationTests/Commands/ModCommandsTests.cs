@@ -11,11 +11,14 @@ public class ModCommandsTests
 {
     private static readonly DateTime Modified = new(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
 
-    private static Mod ApiMod(int id, string name, string summary = "About it", string thumbnail = "https://cdn/thumb.png", string author = "Author") =>
+    private const string TwoPage = "https://www.curseforge.com/ark-survival-ascended/mods/two";
+
+    private static Mod ApiMod(int id, string name, string summary = "About it", string thumbnail = "https://cdn/thumb.png", string author = "Author", string website = "") =>
         new()
         {
             Id = id,
             Name = name,
+            Links = new ModLinks { WebsiteUrl = website },
             Summary = summary,
             Logo = new ModAsset { ThumbnailUrl = thumbnail },
             Authors = [new Author { Name = author }],
@@ -100,7 +103,7 @@ public class ModCommandsTests
         var ct = TestContext.Current.CancellationToken;
         using var host = await StartAsync(ct, withApiKey: true);
         await host.AddLibraryModAsync(2, "Already here", ct);
-        host.CurseForge.SearchModsAsync("dino", Arg.Any<int?>(), Arg.Any<CancellationToken>()).Returns([ApiMod(1, "One", thumbnail: string.Empty), ApiMod(2, "Two")]);
+        host.CurseForge.SearchModsAsync("dino", Arg.Any<int?>(), Arg.Any<CancellationToken>()).Returns([ApiMod(1, "One", thumbnail: string.Empty, website: "javascript:alert(1)"), ApiMod(2, "Two", website: TwoPage)]);
 
         var blank = await host.Mods.SearchAsync("   ", ct);
         var hits = await host.Mods.SearchAsync(" dino ", ct);
@@ -109,8 +112,8 @@ public class ModCommandsTests
         Assert.Empty(blank.Value!);
         Assert.True(hits.Succeeded, hits.Error);
         Assert.Equal(2, hits.Value!.Count);
-        Assert.Equal(new ModSearchHit(1, "One", "About it", null, "Author", new DateTimeOffset(Modified), 1234, false), hits.Value[0]);
-        Assert.Equal(new ModSearchHit(2, "Two", "About it", "https://cdn/thumb.png", "Author", new DateTimeOffset(Modified), 1234, true), hits.Value[1]);
+        Assert.Equal(new ModSearchHit(1, "One", "About it", null, "Author", new DateTimeOffset(Modified), 1234, false, null), hits.Value[0]);
+        Assert.Equal(new ModSearchHit(2, "Two", "About it", "https://cdn/thumb.png", "Author", new DateTimeOffset(Modified), 1234, true, TwoPage), hits.Value[1]);
         await host.CurseForge.Received(1).SearchModsAsync("dino", Arg.Any<int?>(), Arg.Any<CancellationToken>());
     }
 
@@ -148,6 +151,44 @@ public class ModCommandsTests
         Assert.Equal(("Fetched", "Summary", "https://cdn/thumb.png", new DateTimeOffset(Modified), CommandTestHost.Now), (added.Value!.Name, added.Value.Summary, added.Value.ThumbnailUrl, added.Value.DateModified, added.Value.AddedAt));
         Assert.Equal("CurseForge could not be reached: timeout", failed.Error);
         Assert.Single(await host.Mods.ListLibraryAsync(ct));
+    }
+
+    [Fact]
+    public async Task Add_StoresTheCurseForgePageLink_OnlyWhenItIsAnHttpsCurseForgeUrl()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var host = await StartAsync(ct, withApiKey: true);
+        host.CurseForge.GetModAsync(1, Arg.Any<CancellationToken>()).Returns(ApiMod(1, "Linked", website: TwoPage));
+        host.CurseForge.GetModAsync(2, Arg.Any<CancellationToken>()).Returns(ApiMod(2, "Elsewhere", website: "https://evil.example/mods/2"));
+        host.CurseForge.GetModAsync(3, Arg.Any<CancellationToken>()).Returns(ApiMod(3, "Plain http", website: "http://www.curseforge.com/mods/3"));
+
+        var linked = await host.Mods.AddAsync(1, ct);
+        var elsewhere = await host.Mods.AddAsync(2, ct);
+        var plain = await host.Mods.AddAsync(3, ct);
+
+        Assert.Equal(TwoPage, linked.Value!.WebsiteUrl);
+        Assert.Null(elsewhere.Value!.WebsiteUrl);
+        Assert.Null(plain.Value!.WebsiteUrl);
+        await using var db = host.Db();
+        Assert.Equal(TwoPage, (await db.ModLibrary.SingleAsync(m => m.Id == 1, ct)).WebsiteUrl);
+    }
+
+    [Fact]
+    public async Task AddManual_HasNoPageLink_AndKeepsOneAlreadyStored()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var host = await StartAsync(ct, withApiKey: false);
+        await using (var db = host.Db())
+        {
+            db.ModLibrary.Add(new Domain.ModLibraryEntry { Id = 7, Name = "Old", WebsiteUrl = TwoPage, AddedAt = DateTimeOffset.UnixEpoch });
+            await db.SaveChangesAsync(ct);
+        }
+
+        var fresh = await host.Mods.AddManualAsync(8, "Typed", ct);
+        var renamed = await host.Mods.AddManualAsync(7, "New", ct);
+
+        Assert.Null(fresh.Value!.WebsiteUrl);
+        Assert.Equal(TwoPage, renamed.Value!.WebsiteUrl);
     }
 
     [Fact]

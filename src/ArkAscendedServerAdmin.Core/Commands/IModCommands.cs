@@ -2,6 +2,10 @@ using ArkAscendedServerAdmin.Domain;
 
 namespace ArkAscendedServerAdmin.Commands;
 
+/// <summary>
+/// One CurseForge search result. <paramref name="WebsiteUrl"/> is the mod's CurseForge page, null unless it passed
+/// <see cref="CurseForge.CurseForgeLinks.SafeWebsiteUrl"/>.
+/// </summary>
 public sealed record ModSearchHit(
     int Id,
     string Name,
@@ -10,7 +14,8 @@ public sealed record ModSearchHit(
     string? Author,
     DateTimeOffset DateModified,
     long DownloadCount,
-    bool InLibrary);
+    bool InLibrary,
+    string? WebsiteUrl);
 
 /// <summary>
 /// One library row as the Mods page reads it: the entry plus the mod badge (B8), which is set when the mod

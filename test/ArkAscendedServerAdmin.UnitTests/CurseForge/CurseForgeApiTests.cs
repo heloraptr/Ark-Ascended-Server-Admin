@@ -10,7 +10,7 @@ public class CurseForgeApiTests
     public async Task GetModAsync_ReturnsDeserializedMod()
     {
         var handler = new StubHttpMessageHandler()
-            .Respond("/v1/mods/929713", """{"data":{"id":929713,"name":"Awesome Spyglass","logo":{"thumbnailUrl":"https://img/thumb.png"}}}""");
+            .Respond("/v1/mods/929713", """{"data":{"id":929713,"name":"Awesome Spyglass","slug":"awesome-spyglass","links":{"websiteUrl":"https://www.curseforge.com/ark-survival-ascended/mods/awesome-spyglass"},"logo":{"thumbnailUrl":"https://img/thumb.png"}}}""");
         var api = CreateApi(handler);
 
         var mod = await api.GetModAsync(929713, TestContext.Current.CancellationToken);
@@ -18,6 +18,7 @@ public class CurseForgeApiTests
         Assert.Equal(929713, mod.Id);
         Assert.Equal("Awesome Spyglass", mod.Name);
         Assert.Equal("https://img/thumb.png", mod.Logo.ThumbnailUrl);
+        Assert.Equal("https://www.curseforge.com/ark-survival-ascended/mods/awesome-spyglass", mod.Links.WebsiteUrl);
     }
 
     [Fact]
