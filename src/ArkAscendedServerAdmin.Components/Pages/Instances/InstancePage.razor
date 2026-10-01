@@ -1,4 +1,5 @@
 @page "/instances/{Id:int}"
+@using Microsoft.Extensions.Logging
 @inherits ArkPage
 @implements IDisposable
 @inject IInstanceCommands Instances
@@ -8,6 +9,8 @@
 @inject IBackupService BackupService
 @inject IPlayerCommands PlayerCommands
 @inject IJSRuntime JS
+@inject IRconHistoryStore HistoryStore
+@inject ILogger<InstancePage> Logger
 
 @if (_detail is null)
 {
@@ -104,7 +107,7 @@ else
             <RadzenTabsItem Text="Console">
                 <ConsolePanel Channel="@ConsoleChannels.Instance(Id)" Title="@($"{instance.Name} · ShooterGame.log")" Height="calc(100vh - 290px)"
                               EmptyText="No output yet. Start the instance and the log appears here within a second of the game writing it."
-                              OnCommand="SendRconAsync" InputEnabled="@_runtime.HasLiveProcess" />
+                              OnCommand="SendRconAsync" InputEnabled="@_runtime.HasLiveProcess" History="_rconHistory" />
             </RadzenTabsItem>
 
             <RadzenTabsItem Text="Players">
@@ -473,6 +476,7 @@ else
     }
 
     private InstanceDetail? _detail;
+    private IReadOnlyList<string> _rconHistory = [];
     private InstanceRuntime _runtime = default!;
     private InstanceTelemetry? _telemetry;
     private IReadOnlyList<ModLibraryEntry> _library = [];
@@ -536,9 +540,11 @@ else
         }
 
         _loadedId = Id;
+        _rconHistory = [];
         _runtime = Processes.GetRuntime(Id);
         _telemetry = Processes.GetTelemetry(Id);
         await LoadAsync();
+        await LoadRconHistoryAsync();
 
         if (StartRequested && _detail is { } detail)
         {
@@ -657,16 +663,60 @@ else
         });
     }
 
+    /// <summary>The console's arrow-key history, from the file in the instance folder; a read failure only costs the history.</summary>
+    private async Task LoadRconHistoryAsync()
+    {
+        var id = Id;
+        if (_detail?.Instance is not { } instance || instance.Id != id)
+        {
+            return;
+        }
+
+        try
+        {
+            var history = await HistoryStore.LoadAsync(instance.Slug);
+            if (_loadedId == id)
+            {
+                _rconHistory = history;
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Logger.LogWarning(ex, "Could not read the RCON history of instance {InstanceId}.", id);
+        }
+    }
+
     private async Task SendRconAsync(string command)
     {
-        await GuardedAsync(async () =>
+        var id = Id;
+        var slug = _detail?.Instance.Slug;
+        var sent = await GuardedAsync(async () =>
         {
-            var result = await Instances.SendRconAsync(Id, command);
+            var result = await Instances.SendRconAsync(id, command);
             if (!result.Succeeded)
             {
                 Notifications.Failed("Command not sent", result.Error);
             }
         });
+
+        // Recorded after the send, failed or not, so it can be recalled and retried; the history never affects the send.
+        if (!sent || slug is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var history = await HistoryStore.AppendAsync(id, slug, command);
+            if (history is not null && _loadedId == id)
+            {
+                _rconHistory = history;
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Logger.LogWarning(ex, "Could not record an RCON command in the history of instance {InstanceId}.", id);
+        }
     }
 
     private async Task SkipCountdown()

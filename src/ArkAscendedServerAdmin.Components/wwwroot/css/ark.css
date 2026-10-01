@@ -1015,6 +1015,7 @@ h1:focus-visible {
 }
 
 .console-in {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1049,6 +1050,123 @@ h1:focus-visible {
 
 .console-in input:disabled {
   color: var(--ark-steel-3);
+}
+
+/* Command suggestions: a list that opens upward from the input, over the last lines of the output. */
+.console-suggest,
+.console-hint {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(100% + 4px);
+  z-index: 5;
+  background: var(--ark-basalt);
+  border: 1px solid var(--ark-hairline-2);
+  border-radius: var(--ark-radius);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.45);
+  font-family: var(--ark-mono);
+  font-size: 12.5px;
+}
+
+.console-suggest {
+  max-height: min(320px, 50vh);
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.console-suggest-group {
+  padding: 8px 12px 4px;
+  color: var(--ark-steel-2);
+  font-family: var(--ark-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.console-suggest-item {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 10px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.console-suggest-item:hover {
+  background: var(--ark-basalt-2);
+}
+
+.console-suggest-item.is-active {
+  background: var(--ark-rim-dim);
+  box-shadow: inset 2px 0 0 var(--ark-rim);
+}
+
+.console-suggest .name,
+.console-hint .name {
+  color: var(--ark-white);
+}
+
+.console-suggest .syntax,
+.console-hint .syntax {
+  color: var(--ark-rim);
+  white-space: pre;
+}
+
+.console-suggest .desc {
+  grid-column: 1 / -1;
+  color: var(--ark-steel-2);
+  font-family: var(--ark-sans);
+  font-size: 12px;
+}
+
+.console-hint {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 12px;
+  pointer-events: none;
+}
+
+.console-hint .desc {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ark-steel-2);
+  font-family: var(--ark-sans);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.console-browse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--ark-radius);
+  background: transparent;
+  color: var(--ark-steel-2);
+  cursor: pointer;
+}
+
+.console-browse:hover {
+  color: var(--ark-white);
+  background: var(--ark-basalt-2);
+}
+
+.console-browse:focus-visible {
+  outline: 1px solid var(--ark-rim);
+}
+
+.console-browse.is-on {
+  color: var(--ark-rim);
+  border-color: var(--ark-hairline-2);
+}
+
+.console-browse .rzi {
+  font-size: 18px;
 }
 
 /* ---- forms -------------------------------------------------------------------------------------- */

@@ -52,10 +52,46 @@ same tail ([players-and-whitelists.md](players-and-whitelists.md)).
 
 The input is enabled only while the instance has a live process (`Start the instance to send
 commands` otherwise). Type a command, press Enter or **Send**. The command is echoed as `> ListPlayers`,
-the reply follows line by line, or `(no reply)`. Arrow up and down walk the history of this tab.
+the reply follows line by line, or `(no reply)`. Anything the game's RCON accepts goes through
+unchanged.
 
-The placeholder names the commands you will use most: `ListPlayers, SaveWorld, Broadcast <message>
-…`. Anything the game's RCON accepts goes through unchanged.
+While you type the first word, a list opens above the input with the commands that match: names that
+start with what you typed come first, then names that merely contain it. Each row shows the name, the
+arguments it takes, and a line on what it does. Tab or a click puts the top match (or the row you
+moved to with the arrow keys) into the input, followed by a space when the command takes arguments,
+and leaves the cursor in the input. Escape closes the list. Once you type a space after the name, the
+list gives way to a one-line reminder of that command's arguments.
+
+The book button at the right of the input opens the whole list, grouped into players, chat and
+messages, and world and server. It works while the server is stopped too, so you can look a command
+up before starting it.
+
+The list holds the commands most admins reach for, and only ones that work over RCON on ASA. Players
+are named by EOS id, the 32-character id `ListPlayers` prints, never by Steam id. `BanPlayer` and
+`UnbanPlayer` carry a reminder that the ban list is shared by every server on the box
+([players-and-whitelists.md](players-and-whitelists.md#bans-apply-to-the-whole-box)). A command that
+is not in the list can still be typed and sent.
+
+| Key | List closed | List open |
+|---|---|---|
+| Enter | Sends the command. | Sends what is typed. If you moved onto a row with the arrow keys, puts that row in the input instead of sending. |
+| Tab | Moves the focus on, as anywhere else. | Takes the highlighted row, or the top one. |
+| Arrow up | Steps back through earlier commands. | The same, unless you are moving through the list: then one row up, and from the top row back to the input. |
+| Arrow down | Steps forward through earlier commands; past the newest, brings back what you had typed. | From the input, moves onto the first row; then one row down. |
+| Escape | Nothing. | Closes the list. |
+
+Earlier commands belong to the instance, not to the browser tab. They are kept in
+`Instances\<slug>\rcon-history.txt`, so a reload, another browser, or a service restart still finds
+them: the newest 200, one per line with the oldest first, and a command sent twice in a row is kept
+once. A command is recorded after it is sent, also when the send fails, so you can bring it back with
+arrow up and try again. Commands the manager sends on its own (the liveness probe, scheduled actions,
+the save before a backup) are never recorded, and neither is anything over 512 characters.
+
+The file sits beside the instance's `Config` folder, outside what a backup archives and what a restore
+replaces, and it goes away when the instance is deleted. You can edit or empty it by hand; blank
+lines and repeats are skipped when it is read. If a stop, backup, or other operation has the
+instance busy at the moment you send, that one command is not written to the file, though the arrow
+keys still reach it until you leave the page.
 
 A failure is appended to the console as `RCON Connect: ...` and shown as a toast.
 

@@ -62,6 +62,12 @@ bar as the text warrants:
 - `The database copy of this file is behind the file on disk.` with **Retry mirror**: `The file is
   what the game gets; the database copy only exists so a config backup is complete.`
 
+Ctrl+S (Cmd+S on a Mac) while the cursor is in the text area does the same as the save button, for
+that file only: on the **Game.ini** tab it never saves `GameUserSettings.ini`. When there is nothing
+to save, or a conflict is showing, or a save is already under way, the key does nothing, and it never
+opens the browser's own save dialog. The save button's tooltip mentions the shortcut. Text you type
+while a save is under way stays marked `unsaved changes`.
+
 Saving writes the file and updates the mirror: the toast is `Saved GameUserSettings.ini`, or
 `Saved GameUserSettings.ini` with `The file was written, but the database copy could not be updated.`
 when only the mirror failed. Every save is temp-file-and-rename, serialized per file, and checked

@@ -49,6 +49,9 @@ public static class RconCommands
 
     public const string NoPlayersReply = "No Players Connected";
 
+    /// <summary>Longest command a scheduled action may send and the console history keeps.</summary>
+    public const int MaxCommandLength = 512;
+
     public static string Broadcast(string message)
     {
         ArgumentNullException.ThrowIfNull(message);

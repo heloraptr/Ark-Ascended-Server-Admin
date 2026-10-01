@@ -72,6 +72,13 @@ public sealed class DataRootLayout
     /// <summary>Canonical INI source text for a cluster (<c>Clusters\&lt;slug&gt;\Config\</c>).</summary>
     public string ClusterConfigSourceDirectory(string slug) => Path.Combine(ClusterDirectory(slug), "Config");
 
+    /// <summary>
+    /// Commands typed into the instance's console. Beside <c>Config\</c> rather than under <c>Saved</c>: backups
+    /// archive only the world and cluster folders, a restore replaces only those, and deleting the instance
+    /// removes everything here.
+    /// </summary>
+    public string InstanceRconHistoryPath(string slug) => Path.Combine(InstanceDirectory(slug), "rcon-history.txt");
+
     /// <summary>The instance's private <c>ShooterGame\Saved</c> (a real directory next to the junctions).</summary>
     public string InstanceSavedDirectory(string slug) => Path.Combine(InstanceDirectory(slug), "ShooterGame", "Saved");
 

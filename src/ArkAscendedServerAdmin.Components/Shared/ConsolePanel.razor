@@ -34,11 +34,45 @@
     </div>
     @if (OnCommand.HasDelegate)
     {
+        var items = _input.Items;
+        var listOpen = items.Count > 0;
         <div class="console-in">
+            @if (listOpen)
+            {
+                string? group = null;
+                <div class="console-suggest" id="@_listId" role="listbox" aria-label="RCON commands" @onmousedown:preventDefault="true">
+                    @for (var i = 0; i < items.Count; i++)
+                    {
+                        var index = i;
+                        var command = items[i];
+                        if (_input.IsBrowsing && command.Group != group)
+                        {
+                            group = command.Group;
+                            <div class="console-suggest-group">@group</div>
+                        }
+
+                        <div id="@($"{_listId}-{index}")" class="console-suggest-item@(index == _input.Highlight ? " is-active" : null)" role="option"
+                             aria-selected="@(index == _input.Highlight ? "true" : "false")" @onclick="() => AcceptAsync(command)">
+                            <span class="name">@command.Name</span><span class="syntax">@command.Syntax</span>
+                            <span class="desc">@command.Description</span>
+                        </div>
+                    }
+                </div>
+            }
+            else if (_input.Hint is { } hint)
+            {
+                <div class="console-hint"><span class="name">@hint.Name</span><span class="syntax">@hint.Syntax</span><span class="desc">@hint.Description</span></div>
+            }
             <span class="prompt">rcon&gt;</span>
-            <input @ref="_input" @bind="_command" @bind:event="oninput" @onkeydown="OnKeyDown" placeholder="@(InputEnabled ? "ListPlayers, SaveWorld, Broadcast <message> …" : "Start the instance to send commands")"
-                   disabled="@(!InputEnabled || _sending)" autocomplete="off" spellcheck="false" aria-label="RCON command" />
-            <RadzenButton Text="Send" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="@(!InputEnabled || _sending || string.IsNullOrWhiteSpace(_command))" Click="SendAsync" />
+            <input @ref="_inputElement" value="@_input.Text" @oninput="OnInput" @onkeydown="OnKeyDown" @onblur="OnBlur"
+                   placeholder="@(InputEnabled ? "ListPlayers, SaveWorld, Broadcast <message> …" : "Start the instance to send commands")"
+                   disabled="@(!InputEnabled || _sending)" autocomplete="off" spellcheck="false" aria-label="RCON command"
+                   role="combobox" aria-autocomplete="list" aria-expanded="@(listOpen ? "true" : "false")" aria-controls="@_listId"
+                   aria-activedescendant="@(listOpen && _input.Highlight >= 0 ? $"{_listId}-{_input.Highlight}" : null)"
+                   data-suggesting="@(listOpen ? "true" : "false")" />
+            <button type="button" class="console-browse@(_input.IsBrowsing ? " is-on" : null)" title="Browse RCON commands" aria-label="Browse RCON commands"
+                    aria-pressed="@(_input.IsBrowsing ? "true" : "false")" @onmousedown:preventDefault="true" @onclick="ToggleBrowse"><i class="rzi">menu_book</i></button>
+            <RadzenButton Text="Send" Size="ButtonSize.Small" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="@(!InputEnabled || _sending || string.IsNullOrWhiteSpace(_input.Text))" Click="SendAsync" />
         </div>
     }
 </div>
@@ -46,17 +80,18 @@
 @code {
     private const int Visible = 800;
     private readonly List<ConsoleLine> _lines = [];
-    private readonly List<string> _history = [];
     private readonly object _gate = new();
+    private readonly RconConsoleInput _input = new();
+    private readonly string _listId = $"rcon-list-{Guid.NewGuid():N}";
     private ElementReference _output;
-    private ElementReference _input;
+    private ElementReference _inputElement;
+    private string? _keysAttachedTo;
     private bool _follow = true;
     private bool _hasBackfill;
     private bool _renderScheduled;
     private bool _sending;
-    private string _command = string.Empty;
-    private int _historyIndex = -1;
     private string? _subscribedChannel;
+    private IReadOnlyList<string>? _appliedHistory;
 
     [Parameter, EditorRequired]
     public string Channel { get; set; } = string.Empty;
@@ -78,8 +113,21 @@
     [Parameter]
     public bool InputEnabled { get; set; } = true;
 
+    /// <summary>
+    /// Earlier commands for the arrow keys, oldest first. A new list replaces what the panel holds; without one the
+    /// panel only remembers what was sent since it opened.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<string>? History { get; set; }
+
     protected override void OnParametersSet()
     {
+        if (!ReferenceEquals(History, _appliedHistory))
+        {
+            _appliedHistory = History;
+            _input.SetHistory(History ?? []);
+        }
+
         if (_subscribedChannel == Channel)
         {
             return;
@@ -89,6 +137,11 @@
         {
             Console.LineAppended += OnLineAppended;
             Console.Cleared += OnCleared;
+        }
+        else
+        {
+            // The page was reused for another instance: its input, recalled entry, and open list do not carry over.
+            _input.Reset(History ?? []);
         }
 
         _subscribedChannel = Channel;
@@ -141,15 +194,22 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_follow)
+        try
         {
-            try
+            // Arrow keys and Tab are handled here, so the browser must not also move the caret or the focus.
+            if (OnCommand.HasDelegate && _inputElement.Id is { } id && id != _keysAttachedTo)
+            {
+                _keysAttachedTo = id;
+                await JS.InvokeVoidAsync("ark.filterConsoleKeys", _inputElement);
+            }
+
+            if (_follow)
             {
                 await JS.InvokeVoidAsync("ark.scrollToBottom", _output, true);
             }
-            catch (JSDisconnectedException)
-            {
-            }
+        }
+        catch (JSDisconnectedException)
+        {
         }
     }
 
@@ -193,27 +253,43 @@
         await JS.InvokeAsync<bool>("ark.copyText", text);
     }
 
+    private void OnInput(ChangeEventArgs e) => _input.TextChanged(e.Value as string);
+
+    private void OnBlur() => _input.Close();
+
+    private async Task ToggleBrowse()
+    {
+        _input.ToggleBrowse();
+        await FocusInputAsync();
+    }
+
+    private async Task AcceptAsync(RconCommandInfo command)
+    {
+        if (!InputEnabled)
+        {
+            return; // browsing works while the server is stopped; the disabled input could not be cleared again
+        }
+
+        _input.Accept(command);
+        await FocusInputAsync();
+    }
+
     private async Task OnKeyDown(KeyboardEventArgs e)
     {
-        switch (e.Key)
+        if (e.CtrlKey || e.AltKey || e.MetaKey || e.ShiftKey)
         {
-            case "Enter":
-                await SendAsync();
-                break;
-            case "ArrowUp" when _history.Count > 0:
-                _historyIndex = _historyIndex < 0 ? _history.Count - 1 : Math.Max(0, _historyIndex - 1);
-                _command = _history[_historyIndex];
-                break;
-            case "ArrowDown" when _historyIndex >= 0:
-                _historyIndex = _historyIndex + 1 >= _history.Count ? -1 : _historyIndex + 1;
-                _command = _historyIndex < 0 ? string.Empty : _history[_historyIndex];
-                break;
+            return;
+        }
+
+        if (_input.Key(e.Key) == RconKeyOutcome.Send)
+        {
+            await SendAsync();
         }
     }
 
     private async Task SendAsync()
     {
-        var command = _command.Trim();
+        var command = _input.Text.Trim();
         if (command.Length == 0 || _sending || !InputEnabled)
         {
             return;
@@ -223,29 +299,36 @@
         try
         {
             await OnCommand.InvokeAsync(command);
-            if (_history.Count == 0 || _history[^1] != command)
+
+            // The parent may answer with the stored history; until it does (or when it keeps none) remember locally.
+            var history = _input.History.ToList();
+            if (RconHistory.Append(history, command))
             {
-                _history.Add(command);
+                _input.SetHistory(history);
             }
 
-            _historyIndex = -1;
-            _command = string.Empty;
+            _input.Sent();
         }
         finally
         {
             _sending = false;
         }
 
+        await FocusInputAsync();
+    }
+
+    private async Task FocusInputAsync()
+    {
         try
         {
-            await JS.InvokeVoidAsync("ark.focus", _input);
+            await JS.InvokeVoidAsync("ark.focus", _inputElement);
         }
         catch (JSDisconnectedException)
         {
         }
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         if (_subscribedChannel is not null)
         {
@@ -253,6 +336,15 @@
             Console.Cleared -= OnCleared;
         }
 
-        return ValueTask.CompletedTask;
+        if (_keysAttachedTo is not null)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("ark.releaseKeys", _inputElement);
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
     }
 }
