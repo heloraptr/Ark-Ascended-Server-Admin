@@ -40,7 +40,8 @@ public class SteamCmdRunnerTests
         var console = fixture.Console.Snapshot(ConsoleChannels.SteamCmd);
         Assert.Contains(console, line => line.Kind == ConsoleLineKind.Output && line.Text.Contains("progress: 50.00", StringComparison.Ordinal));
         Assert.Contains(console, line => line.Kind == ConsoleLineKind.Output && line.Text == "Success! App '2430930' fully installed.");
-        Assert.Contains(console, line => line.Kind == ConsoleLineKind.Warning && line.Text == "stderr noise");
+        // A pseudo console has one stream, so stderr arrives as ordinary output.
+        Assert.Contains(console, line => line.Kind == ConsoleLineKind.Output && line.Text == "stderr noise");
         Assert.Contains(console, line => line.Kind == ConsoleLineKind.Info && line.Text.Contains("verified", StringComparison.Ordinal));
     }
 
@@ -222,10 +223,10 @@ public class SteamCmdRunnerTests
         public void Dispose() => Root.Dispose();
     }
 
-    /// <summary>Points every launch at <c>cmd.exe /c fake-steamcmd.cmd &lt;code&gt;</c> through the real process launcher.</summary>
+    /// <summary>Points every launch at <c>cmd.exe /c fake-steamcmd.cmd &lt;code&gt;</c> through the production pseudo-console launcher.</summary>
     private sealed class ScriptedLauncher(string scriptPath, Queue<string> exitCodes) : ISteamCmdProcessLauncher
     {
-        private readonly ProcessSteamCmdLauncher _inner = new();
+        private readonly PseudoConsoleSteamCmdLauncher _inner = new(NullLogger<PseudoConsoleSteamCmdLauncher>.Instance);
 
         public List<SteamCmdLaunch> Launches { get; } = [];
 

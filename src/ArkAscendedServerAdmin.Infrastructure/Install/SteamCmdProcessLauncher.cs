@@ -4,7 +4,7 @@ namespace ArkAscendedServerAdmin.Infrastructure.Install;
 
 /// <summary>What <see cref="SteamCmdRunner"/> asks the launcher to start (plan step 20).</summary>
 /// <param name="FileName">The executable, normally <c>DataRoot\SteamCMD\steamcmd.exe</c>.</param>
-/// <param name="Arguments">Arguments in order; passed through <c>ProcessStartInfo.ArgumentList</c>, never joined by hand.</param>
+/// <param name="Arguments">Arguments in order; quoted per argument (<c>ProcessStartInfo.ArgumentList</c> or <see cref="ArkAscendedServerAdmin.Processes.WindowsCommandLine"/>), never joined by hand.</param>
 /// <param name="WorkingDirectory">The SteamCMD directory, so its own logs and update land there.</param>
 public sealed record SteamCmdLaunch(string FileName, IReadOnlyList<string> Arguments, string WorkingDirectory);
 
@@ -12,14 +12,18 @@ public sealed record SteamCmdLaunch(string FileName, IReadOnlyList<string> Argum
 /// The process seam under <see cref="SteamCmdRunner"/>: starts one child, streams its stdout/stderr
 /// line by line, and returns the exit code. Cancellation kills the child and throws
 /// <see cref="OperationCanceledException"/>. Tests substitute this to script exit codes or to point the
-/// runner at <c>cmd.exe</c>; production uses <see cref="ProcessSteamCmdLauncher"/>.
+/// runner at <c>cmd.exe</c>; production uses <see cref="PseudoConsoleSteamCmdLauncher"/>.
 /// </summary>
 public interface ISteamCmdProcessLauncher
 {
     Task<int> RunAsync(SteamCmdLaunch launch, Action<string> onOutput, Action<string> onError, CancellationToken cancellationToken);
 }
 
-/// <summary>Real <see cref="ISteamCmdProcessLauncher"/> over <see cref="Process"/> with redirected, windowless output.</summary>
+/// <summary>
+/// <see cref="ISteamCmdProcessLauncher"/> over <see cref="Process"/> with redirected, windowless output.
+/// SteamCMD block-buffers a redirected stdout, so its lines arrive together when it exits; this is the
+/// fallback for <see cref="PseudoConsoleSteamCmdLauncher"/> when no pseudo console can be created.
+/// </summary>
 public sealed class ProcessSteamCmdLauncher : ISteamCmdProcessLauncher
 {
     public async Task<int> RunAsync(SteamCmdLaunch launch, Action<string> onOutput, Action<string> onError, CancellationToken cancellationToken)

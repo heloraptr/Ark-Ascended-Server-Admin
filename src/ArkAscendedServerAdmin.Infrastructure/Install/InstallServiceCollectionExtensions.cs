@@ -17,7 +17,7 @@ public static class InstallServiceCollectionExtensions
 
         services.AddHttpClient(SteamCmdRunner.HttpClientName, client => client.Timeout = TimeSpan.FromMinutes(10));
         services.AddSingleton(new SteamCmdRetryPolicy());
-        services.AddSingleton<ISteamCmdProcessLauncher, ProcessSteamCmdLauncher>();
+        services.AddSingleton<ISteamCmdProcessLauncher, PseudoConsoleSteamCmdLauncher>();
         services.AddSingleton<SteamCmdRunner>();
         services.AddSingleton<ISteamCmdRunner>(sp => sp.GetRequiredService<SteamCmdRunner>());
         services.AddSingleton<ISteamCmdProgressMonitor>(sp => sp.GetRequiredService<SteamCmdRunner>());
