@@ -174,7 +174,7 @@ public sealed class RconConsoleInputTests
         input.TextChanged("draft");
         input.Key("ArrowUp");
 
-        input.Sent();
+        input.Sent(input.Session, "ListPlayers");
         Assert.Equal(string.Empty, input.Text);
         Assert.Equal(-1, input.HistoryIndex);
 
@@ -198,5 +198,39 @@ public sealed class RconConsoleInputTests
 
         Assert.Equal(RconKeyOutcome.Ignored, input.Key("a"));
         Assert.True(input.IsListOpen);
+    }
+
+    [Fact]
+    public void Sent_appends_locally_without_repeating_the_newest_entry()
+    {
+        var input = Create("ListPlayers");
+        input.TextChanged("SaveWorld");
+
+        input.Sent(input.Session, "SaveWorld");
+        input.Sent(input.Session, "SaveWorld");
+
+        Assert.Equal(["ListPlayers", "SaveWorld"], input.History);
+        Assert.Equal(string.Empty, input.Text);
+    }
+
+    /// <summary>
+    /// A slow send on one instance finishing after the panel was reset for another must not leak into the other
+    /// instance's history or wipe what the user has started typing there.
+    /// </summary>
+    [Fact]
+    public void A_send_that_finishes_after_a_reset_leaves_the_new_instance_alone()
+    {
+        var input = Create("ListPlayers");
+        input.TextChanged("DoExit");
+        var session = input.Session;
+
+        input.Reset(["SaveWorld"]); // the page moved to another instance while DoExit was in flight
+        input.TextChanged("Broad");
+        input.Sent(session, "DoExit");
+
+        Assert.Equal(["SaveWorld"], input.History);
+        Assert.Equal("Broad", input.Text);
+        input.Key("ArrowUp");
+        Assert.Equal("SaveWorld", input.Text);
     }
 }

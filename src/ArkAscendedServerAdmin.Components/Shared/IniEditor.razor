@@ -60,7 +60,7 @@
             <RadzenButton Text="Reload" Icon="refresh" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="_busy" Click="ReloadAsync" />
             <RadzenButton Text="@($"Save {FileName}")" Icon="save" title="Save (Ctrl+S while editing)" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Primary" Disabled="@(_busy || !_dirty || _conflict)" Click="SaveAsync" />
         </div>
-        <textarea @ref="_textarea" @bind="_text" @bind:event="oninput" @bind:after="OnTextChanged" spellcheck="false" wrap="off" aria-label="@FileName"></textarea>
+        <textarea @ref="_textarea" data-generation="@_generation" @bind="_text" @bind:event="oninput" @bind:after="OnTextChanged" spellcheck="false" wrap="off" aria-label="@FileName"></textarea>
     }
 </div>
 
@@ -153,9 +153,9 @@
 
     /// <summary>Ctrl+S in the textarea. The browser's save dialog is already suppressed; this saves when the button would.</summary>
     [JSInvokable]
-    public async Task SaveFromShortcut(string text)
+    public async Task SaveFromShortcut(string text, int generation)
     {
-        if (_document is null || _busy)
+        if (_document is null || _busy || generation != _generation)
         {
             return;
         }

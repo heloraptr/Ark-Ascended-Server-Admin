@@ -50,6 +50,12 @@ public sealed class RconConsoleInput(IReadOnlyList<RconCommandInfo> catalog)
 
     public IReadOnlyList<string> History => _history;
 
+    /// <summary>
+    /// Bumped by <see cref="Reset"/>. A send captures it before it awaits, so a send that finishes after the panel
+    /// moved to another instance cannot touch that instance's input or history.
+    /// </summary>
+    public int Session { get; private set; }
+
     /// <summary>True while the full list opened from the button is showing.</summary>
     public bool IsBrowsing => _browsing;
 
@@ -76,6 +82,7 @@ public sealed class RconConsoleInput(IReadOnlyList<RconCommandInfo> catalog)
     {
         SetHistory(history);
         Text = string.Empty;
+        Session++;
         Close();
     }
 
@@ -112,9 +119,24 @@ public sealed class RconConsoleInput(IReadOnlyList<RconCommandInfo> catalog)
         Close();
     }
 
-    /// <summary>The command went out: the input empties and the walk starts over.</summary>
-    public void Sent()
+    /// <summary>
+    /// <paramref name="command"/> went out in <paramref name="session"/>: it joins the local history (until the
+    /// parent supplies the stored one), the input empties, and the walk starts over. Ignored when the panel has been
+    /// reset for another instance since the send began.
+    /// </summary>
+    public void Sent(int session, string command)
     {
+        if (session != Session)
+        {
+            return;
+        }
+
+        var history = _history.ToList();
+        if (RconHistory.Append(history, command))
+        {
+            _history = history;
+        }
+
         Text = string.Empty;
         HistoryIndex = -1;
         Draft = string.Empty;

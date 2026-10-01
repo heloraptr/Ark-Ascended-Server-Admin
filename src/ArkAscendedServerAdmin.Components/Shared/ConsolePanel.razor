@@ -286,7 +286,8 @@
 
     private async Task OnKeyDown(KeyboardEventArgs e)
     {
-        if (e.CtrlKey || e.AltKey || e.MetaKey || e.ShiftKey)
+        // Shift+Enter sends, as it always did; any other modified key is left to the browser.
+        if (e.CtrlKey || e.AltKey || e.MetaKey || (e.ShiftKey && e.Key != "Enter"))
         {
             return;
         }
@@ -305,19 +306,12 @@
             return;
         }
 
+        var session = _input.Session; // the page may move to another instance while the send is in flight
         _sending = true;
         try
         {
             await OnCommand.InvokeAsync(command);
-
-            // The parent may answer with the stored history; until it does (or when it keeps none) remember locally.
-            var history = _input.History.ToList();
-            if (RconHistory.Append(history, command))
-            {
-                _input.SetHistory(history);
-            }
-
-            _input.Sent();
+            _input.Sent(session, command);
         }
         finally
         {

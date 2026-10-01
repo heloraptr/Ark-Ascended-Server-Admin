@@ -56,12 +56,14 @@ window.ark = {
     });
   },
   // Ctrl+S / Cmd+S in an INI textarea: never the browser's save dialog; the component decides whether to save.
-  // The current text goes along so the save never runs on a value the input event has not delivered yet.
+  // The current text goes along so the save never runs on a value the input event has not delivered yet, and so
+  // does the load generation the text belongs to, so text of a document that was just replaced is never saved.
   bindSaveShortcut(element, component) {
     window.ark._listen(element, (e) => {
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "s" || e.key === "S")) {
+      // e.code covers layouts where the S key does not type "s" (Cyrillic, Greek).
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "s" || e.key === "S" || e.code === "KeyS")) {
         e.preventDefault();
-        component.invokeMethodAsync("SaveFromShortcut", element.value).catch(() => {});
+        component.invokeMethodAsync("SaveFromShortcut", element.value, Number(element.dataset.generation)).catch(() => {});
       }
     });
   },
