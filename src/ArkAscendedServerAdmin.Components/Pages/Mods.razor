@@ -103,6 +103,8 @@
             {
                 var mod = view.Mod;
                 var usage = _usage.GetValueOrDefault(mod.Id);
+                var meta = (mod.DateModified is { } modified ? $" · updated {Presentation.Ago(modified, _now)}" : null) + (string.IsNullOrWhiteSpace(mod.Summary) ? null : " · " + mod.Summary);
+                var usedBy = usage is { IsReferenced: true } ? string.Join(", ", usage.Maps.Select(m => $"map {m}").Concat(usage.Clusters.Select(c => $"cluster {c}")).Concat(usage.Instances)) : null;
                 <div class="mod-item" style="grid-template-columns: 40px minmax(0,1fr) minmax(0,1fr) auto">
                     <ModPageLink Url="@mod.WebsiteUrl" Name="@mod.Name" Class="is-thumb"><ModThumb Url="@mod.ThumbnailUrl" /></ModPageLink>
                     <div class="title">
@@ -117,12 +119,12 @@
                                 <ModChangedBadge />
                             }
                         </strong>
-                        <span><span class="num">@mod.Id</span>@(mod.DateModified is { } modified ? $" · updated {Presentation.Ago(modified, _now)}" : null)@(string.IsNullOrWhiteSpace(mod.Summary) ? null : " · " + mod.Summary)</span>
+                        <span title="@(mod.Id + meta)"><span class="num">@mod.Id</span>@meta</span>
                     </div>
                     <div class="title">
-                        @if (usage is { IsReferenced: true })
+                        @if (usedBy is not null)
                         {
-                            <span>@string.Join(", ", usage.Maps.Select(m => $"map {m}").Concat(usage.Clusters.Select(c => $"cluster {c}")).Concat(usage.Instances))</span>
+                            <span title="@usedBy">@usedBy</span>
                         }
                         else
                         {
