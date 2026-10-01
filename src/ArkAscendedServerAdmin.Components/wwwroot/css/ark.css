@@ -419,10 +419,11 @@ h1:focus-visible {
 }
 
 .ark-brand-name {
-  font-size: 17px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.16em;
   line-height: 1;
+  white-space: nowrap;
 }
 
 .ark-brand-sub {
