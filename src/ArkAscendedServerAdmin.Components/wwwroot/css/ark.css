@@ -937,6 +937,22 @@ h1:focus-visible {
   color: var(--ark-arm-green);
 }
 
+/* The SteamCMD progress bar (Update and Setup): tall enough that the percentage sits wholly inside it, with
+   the label in the void color over the rim-cyan fill and in white over the dark track. */
+.ark-progress {
+  --rz-progressbar-height: 1.5rem;
+  --rz-progressbar-font-size: 0.8125rem;
+  --rz-progressbar-background-color: var(--ark-basalt-2);
+  --rz-progressbar-value-background-color: var(--ark-rim);
+  --rz-progressbar-color: var(--ark-white);
+  border: 1px solid var(--ark-hairline-2);
+  font-weight: 600;
+}
+
+.ark-progress .rz-progressbar-label {
+  color: var(--ark-void);
+}
+
 /* ---- console ----------------------------------------------------------------------------------- */
 
 .console {
