@@ -1296,6 +1296,27 @@ h1:focus-visible {
   color: var(--ark-steel-3);
 }
 
+/* A mod's name and thumbnail link to its CurseForge page when one is stored (ModPageLink). The name keeps
+   the row's own weight and color and only underlines on hover; the thumbnail gets a thin rim instead. */
+.mod-link {
+  color: inherit;
+}
+
+.mod-link.is-thumb {
+  display: block;
+  line-height: 0;
+  border-radius: var(--ark-radius);
+}
+
+.mod-link.is-thumb:hover {
+  text-decoration: none;
+}
+
+.mod-link.is-thumb:hover .thumb {
+  outline: 1px solid var(--ark-rim);
+  outline-offset: 1px;
+}
+
 .mod-item .title {
   min-width: 0;
 }

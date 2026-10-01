@@ -1,5 +1,6 @@
 using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Configuration;
+using ArkAscendedServerAdmin.CurseForge;
 using ArkAscendedServerAdmin.CurseForge.Models.Mods;
 using ArkAscendedServerAdmin.CurseForge.Models.Services;
 using ArkAscendedServerAdmin.Infrastructure.Data;
@@ -61,6 +62,9 @@ public sealed class ModMetadataRefresher(
                 entry.Summary = mod.Summary;
                 entry.ThumbnailUrl = NullIfEmpty(mod.Logo.ThumbnailUrl);
                 entry.DateModified = modified;
+                // The page link rides along with a real change and is never a reason to write on its own; rows
+                // stored before the link existed are back-filled out of band.
+                entry.WebsiteUrl = CurseForgeLinks.SafeWebsiteUrl(mod.Links?.WebsiteUrl);
                 changed++;
             }
         }

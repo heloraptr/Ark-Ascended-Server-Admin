@@ -1,6 +1,7 @@
 using ArkAscendedServerAdmin.Auth;
 using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Configuration;
+using ArkAscendedServerAdmin.CurseForge;
 using ArkAscendedServerAdmin.CurseForge.Models.Mods;
 using ArkAscendedServerAdmin.CurseForge.Models.Services;
 using ArkAscendedServerAdmin.Domain;
@@ -126,7 +127,7 @@ public sealed class ModCommands(
             return CommandResult<ModLibraryEntry>.Fail(ModMetadata.DescribeApiFailure(ex));
         }
 
-        return await UpsertAsync(mod.Id, mod.Name, mod.Summary, NullIfEmpty(mod.Logo.ThumbnailUrl), mod.DateModified, cancellationToken);
+        return await UpsertAsync(mod.Id, mod.Name, mod.Summary, NullIfEmpty(mod.Logo.ThumbnailUrl), CurseForgeLinks.SafeWebsiteUrl(mod.Links?.WebsiteUrl), mod.DateModified, cancellationToken);
     }
 
     public async Task<CommandResult<ModLibraryEntry>> AddManualAsync(int modId, string name, CancellationToken cancellationToken = default)
@@ -145,7 +146,7 @@ public sealed class ModCommands(
 
         return problems.Count > 0
             ? CommandResult<ModLibraryEntry>.Fail(problems)
-            : await UpsertAsync(modId, name.Trim(), null, null, null, cancellationToken);
+            : await UpsertAsync(modId, name.Trim(), null, null, null, null, cancellationToken);
     }
 
     public async Task<CommandResult<int>> RefreshMetadataAsync(CancellationToken cancellationToken = default)
@@ -175,7 +176,7 @@ public sealed class ModCommands(
         return CommandResult.Ok;
     }
 
-    private async Task<CommandResult<ModLibraryEntry>> UpsertAsync(int id, string name, string? summary, string? thumbnailUrl, DateTime? dateModified, CancellationToken cancellationToken)
+    private async Task<CommandResult<ModLibraryEntry>> UpsertAsync(int id, string name, string? summary, string? thumbnailUrl, string? websiteUrl, DateTime? dateModified, CancellationToken cancellationToken)
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var entry = await db.ModLibrary.SingleOrDefaultAsync(m => m.Id == id, cancellationToken);
@@ -188,6 +189,7 @@ public sealed class ModCommands(
         entry.Name = name;
         entry.Summary = summary ?? entry.Summary;
         entry.ThumbnailUrl = thumbnailUrl ?? entry.ThumbnailUrl;
+        entry.WebsiteUrl = websiteUrl ?? entry.WebsiteUrl;
         if (dateModified is { } modified)
         {
             entry.DateModified = new DateTimeOffset(DateTime.SpecifyKind(modified, DateTimeKind.Utc));
@@ -206,7 +208,8 @@ public sealed class ModCommands(
             mod.Authors.FirstOrDefault()?.Name,
             new DateTimeOffset(DateTime.SpecifyKind(mod.DateModified, DateTimeKind.Utc)),
             mod.DownloadCount,
-            inLibrary);
+            inLibrary,
+            CurseForgeLinks.SafeWebsiteUrl(mod.Links?.WebsiteUrl));
 
     private static string? NullIfEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 }

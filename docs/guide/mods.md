@@ -30,8 +30,9 @@ file.
 
 **With a key.** On **Mods**, *Add a mod*: type a name in "Search CurseForge, e.g. Awesome Spyglass"
 and press **Search** (or Enter). Each hit shows the thumbnail, name, summary, id, author, "updated
-*N* ago", and either **Add** or "in library". Or type a project id in "project id" and press
-**Add**; the name, summary, and thumbnail come from CurseForge.
+*N* ago", and either **Add** or "in library". The name and the thumbnail open the mod's CurseForge
+page in a new tab. Or type a project id in "project id" and press **Add**; the name, summary, and
+thumbnail come from CurseForge.
 
 **Without a key.** The page shows the notice "No CurseForge API key." with the fields **Project id**
 ("The number in the mod's CurseForge URL.") and **Name**, and **Add to library**. The entry has no
@@ -48,9 +49,20 @@ library, so a mod you have just found does not cost you the page you are on.
 Every entry shows its id, "updated *N* ago" when known, its summary, and where it is used ("map
 *X*", "cluster *Y*", or instance names) or "not used". A map's own mod carries the tag "map mod ·
 *Map name*", and a mod that has changed since a server last loaded it carries the pill
-"changed since launch" (see [When a mod changes](#when-a-mod-changes)). Each row has an open-on-CurseForge button and a remove button, which is disabled with
+"changed since launch" (see [When a mod changes](#when-a-mod-changes)). Each row has a CurseForge button and a remove button, which is disabled with
 the tooltip "Remove it from every list first" while the entry is referenced. **Refresh names** at
 the top re-fetches metadata for every entry (key required) and reports how many changed.
+
+Where CurseForge gave the mod's page address, the name and the thumbnail link to that page, and so
+does the CurseForge button; all three open a new tab. The address is kept only when it is an https
+link on curseforge.com, so anything else is dropped rather than shown. Without an address the name
+and the thumbnail are plain, and the CurseForge button searches CurseForge for the id instead.
+
+A refresh writes the address along with the rest of the metadata, so an entry added by hand gets
+its link at the first **Refresh names** or daily poll that finds its id on CurseForge. The address
+never counts as a change by itself: an entry from before the manager kept addresses gets one the next
+time CurseForge reports a change to the mod, and the address alone never moves the
+"changed since launch" pill or the count **Refresh names** reports.
 
 Usage is worked out on the spot from the cluster lists, the instance lists, and the `Maps.ModId`
 column. Removing is refused while any of them reference the id; deleting an instance or a cluster
@@ -95,6 +107,9 @@ this order, the map's own mod first, then cluster mods. A disabled mod keeps its
 of the start command. Changes to the list need a restart." The wizard's
 *Mods* step is the same editor ([instance-creation.md](../instance-creation.md)).
 
+In all of these lists, a mod's name and thumbnail link to its CurseForge page in a new tab when the
+library knows the page, the same as on the Mods page. A row without one shows them as plain text.
+
 Under the drop-down, every one of those lists carries a second way in, for a mod the library does
 not hold yet. It starts with the question "Not in the library?". With a key it is one box, "Search
 CurseForge, or paste a project id", and **Look up**: a bare number is fetched by id and added at
@@ -133,8 +148,8 @@ hunt through every list.
 
 ## Where the data lives
 
-The library is the `ModLibrary` table (id, name, summary, thumbnail URL, `DateModified`,
-`AddedAt`). Assignments are `ClusterMods` and `InstanceMods`, each with an `Order` and an `Enabled` column;
+The library is the `ModLibrary` table (id, name, summary, thumbnail URL, CurseForge page URL,
+`DateModified`, `AddedAt`). Assignments are `ClusterMods` and `InstanceMods`, each with an `Order` and an `Enabled` column;
 saving a list updates the rows in place and removes the ones that left the list. Nothing about mods is written to disk by the manager.
 
 CurseForge calls go to `https://api.curseforge.com` with `gameId=83374` (ARK: Survival Ascended):

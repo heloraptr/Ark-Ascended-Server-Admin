@@ -10,7 +10,7 @@ namespace ArkAscendedServerAdmin.Mods;
 public interface IModMetadataRefresher
 {
     /// <summary>
-    /// Updates name, summary, thumbnail, and <c>dateModified</c> for every entry and returns how many rows
+    /// Updates name, summary, thumbnail, page link, and <c>dateModified</c> for every entry and returns how many rows
     /// changed. Fails with <see cref="ModMetadata.NoApiKeyMessage"/> when no CurseForge key is configured,
     /// and with a readable sentence when the API cannot be reached.
     /// </summary>

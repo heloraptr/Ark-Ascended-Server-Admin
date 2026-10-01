@@ -94,6 +94,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             b.Property(x => x.Name).HasMaxLength(200).IsRequired();
             b.Property(x => x.Summary).HasMaxLength(2000);
             b.Property(x => x.ThumbnailUrl).HasMaxLength(500);
+            b.Property(x => x.WebsiteUrl).HasMaxLength(500);
         });
 
         modelBuilder.Entity<ClusterMod>(b =>
