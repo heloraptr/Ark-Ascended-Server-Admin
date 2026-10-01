@@ -14,11 +14,33 @@ namespace ArkAscendedServerAdmin.Infrastructure.Install;
 /// <see cref="ProcessSteamCmdLauncher"/> every line arrives in one burst when it exits; behind a console
 /// it writes each line as it happens. The pseudo console needs no desktop or window, so it works for the
 /// service in session 0. stdout and stderr share the one console stream, so every line goes to
-/// <c>onOutput</c>. If the pseudo console cannot be created, the run falls back to the pipe launcher and
-/// says so in one warning line.
+/// <c>onOutput</c>. If the pseudo console cannot be created or the child cannot be started in it, the
+/// run falls back to the pipe launcher and says so in one warning line.
 /// </summary>
+/// <remarks>
+/// Handle ownership and teardown, in order:
+/// <list type="number">
+/// <item>Two anonymous pipes are created. The console host duplicates the child ends (input read,
+/// output write) inside <c>CreatePseudoConsole</c>, and our copies are closed straight away, so the only
+/// output write end left belongs to the host and the reader sees end of stream when the host exits.</item>
+/// <item>The input write end stays open until the pseudo console is disposed, after the reader is
+/// done. Closing it early (to give SteamCMD end of input, as the pipe launcher does) makes the console
+/// host shut down and end the child at once with STATUS_CONTROL_C_EXIT before it prints anything.
+/// SteamCMD logs in anonymously and never prompts; a prompt would wait until the run is cancelled.</item>
+/// <item>The output read end belongs to the reader thread, which closes it at end of stream. The reader
+/// never stops early: a throwing <c>onOutput</c> is caught, the first exception is kept, and draining
+/// continues, so the host can never block on a full pipe.</item>
+/// <item>The process handle is held until the end of the run, so its id cannot be reused while a
+/// cancellation kills the tree by id. The thread handle is closed at once.</item>
+/// <item>After the child exits (or is killed), the pseudo console is closed while the reader is still
+/// draining, then the reader is awaited. Only then is a callback exception rethrown.</item>
+/// </list>
+/// </remarks>
 public sealed class PseudoConsoleSteamCmdLauncher(ILogger<PseudoConsoleSteamCmdLauncher> logger) : ISteamCmdProcessLauncher
 {
+    /// <summary>The one line written (as a warning) when a run falls back to the pipe launcher.</summary>
+    public const string FallbackNotice = "Live SteamCMD output is unavailable on this system; lines will appear when SteamCMD exits.";
+
     /// <summary>Wide enough that SteamCMD's longest lines (install paths, progress) are never wrapped.</summary>
     private const short ConsoleColumns = 512;
 
@@ -40,16 +62,29 @@ public sealed class PseudoConsoleSteamCmdLauncher(ILogger<PseudoConsoleSteamCmdL
         if (console is null)
         {
             logger.LogWarning(failure, "Could not create a pseudo console for SteamCMD; falling back to redirected output.");
-            onError("Live SteamCMD output is unavailable on this system; lines will appear when SteamCMD exits.");
-            return await _fallback.RunAsync(launch, onOutput, onError, cancellationToken);
+            return await FallBackAsync(launch, onOutput, onError, cancellationToken);
+        }
+
+        ChildProcess process;
+        try
+        {
+            process = console.Start(launch);
+        }
+        catch (Win32Exception ex)
+        {
+            // A missing executable fails again in the pipe launcher with the same exception; anything
+            // specific to the pseudo console (session 0, an odd Windows build) degrades to the old output.
+            console.Dispose();
+            logger.LogWarning(ex, "Could not start SteamCMD in a pseudo console; falling back to redirected output.");
+            return await FallBackAsync(launch, onOutput, onError, cancellationToken);
         }
 
         using (console)
+        using (process)
         {
-            using var process = console.Start(launch);
-            var assembler = new TerminalLineAssembler(onOutput);
+            var sink = new LineSink(onOutput);
             var reader = Task.Factory.StartNew(
-                () => Drain(console.Output, assembler),
+                () => Drain(console.Output, new TerminalLineAssembler(sink.Deliver)),
                 CancellationToken.None,
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default);
@@ -72,8 +107,15 @@ public sealed class PseudoConsoleSteamCmdLauncher(ILogger<PseudoConsoleSteamCmdL
             }
 
             await CloseAndDrainAsync(console, reader);
+            sink.ThrowIfFailed();
             return exitCode;
         }
+    }
+
+    private Task<int> FallBackAsync(SteamCmdLaunch launch, Action<string> onOutput, Action<string> onError, CancellationToken cancellationToken)
+    {
+        onError(FallbackNotice);
+        return _fallback.RunAsync(launch, onOutput, onError, cancellationToken);
     }
 
     private static void Drain(SafeFileHandle output, TerminalLineAssembler assembler)
@@ -94,6 +136,36 @@ public sealed class PseudoConsoleSteamCmdLauncher(ILogger<PseudoConsoleSteamCmdL
         }
 
         assembler.Complete();
+    }
+
+    /// <summary>
+    /// Hands lines to the caller's callback on the reader thread. The first exception it throws is kept
+    /// and later lines are dropped, but the reader keeps draining; <see cref="RunAsync"/> rethrows the
+    /// exception once the child has been reaped. (Under the pipe launcher the same exception would escape
+    /// on a thread-pool thread and take the process down.)
+    /// </summary>
+    private sealed class LineSink(Action<string> onOutput)
+    {
+        private System.Runtime.ExceptionServices.ExceptionDispatchInfo? _failure;
+
+        public void Deliver(string line)
+        {
+            if (_failure is not null)
+            {
+                return;
+            }
+
+            try
+            {
+                onOutput(line);
+            }
+            catch (Exception ex)
+            {
+                _failure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex);
+            }
+        }
+
+        public void ThrowIfFailed() => _failure?.Throw();
     }
 
     /// <summary>

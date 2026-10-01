@@ -2,6 +2,7 @@ using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Consoles;
 using ArkAscendedServerAdmin.CurseForge.Models.Services;
+using ArkAscendedServerAdmin.Infrastructure.Install;
 using ArkAscendedServerAdmin.Infrastructure.Mods;
 using ArkAscendedServerAdmin.Infrastructure.Scheduling;
 using ArkAscendedServerAdmin.Infrastructure.Startup;
@@ -14,6 +15,7 @@ using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Provisioning;
 using ArkAscendedServerAdmin.Scheduling;
 using ArkAscendedServerAdmin.Startup;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -58,6 +60,29 @@ public class ServiceRegistrationTests
         }
 
         Assert.NotEmpty(provider.GetServices<IHostedService>());
+    }
+
+    /// <summary>Binds <c>ArkAdmin:SteamCmdLiveOutput</c> the way <c>Program.cs</c> does and checks which launcher the container hands out.</summary>
+    [Theory]
+    [InlineData(null, typeof(PseudoConsoleSteamCmdLauncher))]
+    [InlineData("true", typeof(PseudoConsoleSteamCmdLauncher))]
+    [InlineData("false", typeof(ProcessSteamCmdLauncher))]
+    public void SteamCmdLiveOutput_SelectsTheLauncher(string? liveOutput, Type expected)
+    {
+        using var root = new TempDataRoot();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(liveOutput is null ? [] : [new("ArkAdmin:SteamCmdLiveOutput", liveOutput)])
+            .Build();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IHostApplicationLifetime, StubLifetime>();
+        services.AddSingleton(new HostConfiguration(root.Layout.Root, ["http://127.0.0.1:5000"], [], true, true, false, "0.0.0-test"));
+        services.Configure<SteamCmdLauncherOptions>(configuration.GetSection("ArkAdmin"));
+        services.AddArkInfrastructure(root.Layout);
+
+        using var provider = services.BuildServiceProvider();
+
+        Assert.IsType(expected, provider.GetRequiredService<ISteamCmdProcessLauncher>());
     }
 
     private sealed class StubLifetime : IHostApplicationLifetime

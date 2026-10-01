@@ -4,6 +4,7 @@ using ArkAscendedServerAdmin.Auth;
 using ArkAscendedServerAdmin.Components.Layout;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Infrastructure;
+using ArkAscendedServerAdmin.Infrastructure.Install;
 using ArkAscendedServerAdmin.Server;
 using ArkAscendedServerAdmin.Server.Auth;
 using ArkAscendedServerAdmin.Server.Components;
@@ -39,6 +40,7 @@ builder.Services.AddWindowsService(options => options.ServiceName = ServiceExten
 // ---- appsettings.json (host settings; change requires a restart) ----------------------------------
 var arkOptions = builder.Configuration.GetSection(ArkAdminOptions.SectionName).Get<ArkAdminOptions>() ?? new ArkAdminOptions();
 builder.Services.Configure<ArkAdminOptions>(builder.Configuration.GetSection(ArkAdminOptions.SectionName));
+builder.Services.Configure<SteamCmdLauncherOptions>(builder.Configuration.GetSection(ArkAdminOptions.SectionName));
 
 var layout = ServiceExtensions.ResolveDataRoot(arkOptions, builder.Environment.ContentRootPath);
 layout.EnsureDirectories(); // the Data Protection key ring needs its directory before the host builds

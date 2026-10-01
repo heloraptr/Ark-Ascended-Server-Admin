@@ -72,6 +72,62 @@ public sealed class PseudoConsoleSteamCmdLauncherTests : IDisposable
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(15), $"took {stopwatch.Elapsed}");
     }
 
+    [Fact]
+    public async Task CancellationDuringHeavyOutput_DoesNotDeadlock()
+    {
+        var script = WriteScript("""
+            @echo off
+            :loop
+            echo  Update state (0x61) downloading, progress: 15.67 (1912380961 / 12206318952) %random%
+            goto loop
+            """);
+        var lines = 0;
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(1500));
+        var stopwatch = Stopwatch.StartNew();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => _launcher.RunAsync(Launch(script), _ => Interlocked.Increment(ref lines), _ => { }, cts.Token).WaitAsync(TimeSpan.FromSeconds(30), Ct));
+
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(15), $"took {stopwatch.Elapsed}");
+        Assert.True(lines > 10, $"only {lines} lines arrived");
+    }
+
+    [Fact]
+    public async Task ACallbackThatThrows_DoesNotStopTheDrain_AndSurfacesAfterExit()
+    {
+        var script = WriteScript("""
+            @echo off
+            for /l %%i in (1,1,2000) do echo line %%i
+            exit /b 3
+            """);
+        var calls = 0;
+
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _launcher.RunAsync(
+                Launch(script),
+                _ =>
+                {
+                    calls++;
+                    throw new InvalidOperationException("subscriber failed");
+                },
+                _ => { },
+                Ct).WaitAsync(TimeSpan.FromSeconds(30), Ct));
+
+        Assert.Equal("subscriber failed", thrown.Message);
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task AStartFailure_FallsBackToThePipeLauncher_WithOneNotice()
+    {
+        var missing = new SteamCmdLaunch(Path.Combine(_directory, "missing.exe"), ["+quit"], _directory);
+        var errors = new List<string>();
+
+        await Assert.ThrowsAsync<System.ComponentModel.Win32Exception>(() => _launcher.RunAsync(missing, _ => { }, errors.Add, Ct));
+
+        Assert.Equal([PseudoConsoleSteamCmdLauncher.FallbackNotice], errors);
+    }
+
     public void Dispose()
     {
         try
