@@ -100,6 +100,7 @@
     private bool _hasBackfill;
     private bool _renderScheduled;
     private bool _sending;
+    private bool _focusAfterRender;
     private string? _subscribedChannel;
     private IReadOnlyList<string>? _appliedHistory;
 
@@ -217,6 +218,12 @@
             {
                 await JS.InvokeVoidAsync("ark.scrollToBottom", _output, true);
             }
+
+            if (_focusAfterRender && !_sending)
+            {
+                _focusAfterRender = false;
+                await JS.InvokeVoidAsync("ark.focus", _inputElement);
+            }
         }
         catch (JSDisconnectedException)
         {
@@ -318,7 +325,9 @@
             _sending = false;
         }
 
-        await FocusInputAsync();
+        // The input is disabled while a send is in flight, which drops its focus, and it is still disabled in
+        // the browser until the next render; focusing here would do nothing, so it happens after that render.
+        _focusAfterRender = true;
     }
 
     private async Task FocusInputAsync()
