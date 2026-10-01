@@ -102,7 +102,64 @@ public class TerminalLineAssemblerTests
     [Fact]
     public void OtherCsiAndSingleCharacterEscapes_AreDropped()
     {
-        Assert.Equal(["abcdef"], Feed("a\u001b[1;1Hb\u001b[Kc\u001b7d\u001b(Be\u001b[38;5;196mf\r\n"));
+        Assert.Equal(["abcdef"], Feed("a\u001b[?25lb\u001b[Kc\u001b7d\u001b(Be\u001b[38;5;196mf\r\n"));
+    }
+
+    /// <summary>Verbatim from ConPTY for a script that alternates <c>echo line N</c> and <c>echo.</c>.</summary>
+    [Fact]
+    public void RowsSkippedByACursorMove_EndTheLine_AndBecomeOneBlankLine()
+    {
+        var lines = Feed(
+            "\u001b[?25l\u001b[2J\u001b[m\u001b[Hline 1\r\n\u001b]0;C:\\Windows\\System32\\cmd.exe\u0007\u001b[?25h"
+            + "\u001b[?25l\r\nline 2\u001b[5;1Hline 3\u001b[7;1Hline 4\u001b[9;1Hline 5\r\n\u001b[?25h");
+
+        Assert.Equal(["line 1", "line 2", "", "line 3", "", "line 4", "", "line 5"], lines);
+    }
+
+    [Fact]
+    public void ALongJump_GivesOneBlankLine_NotOnePerRow()
+    {
+        Assert.Equal(["a", "", "b"], Feed("a\u001b[20;1Hb\r\n"));
+    }
+
+    [Fact]
+    public void CursorDownAndNextLine_AlsoEndTheLine()
+    {
+        Assert.Equal(["a", "b", "", "c"], Feed("a\u001b[Bb\u001b[3Ec\r\n"));
+    }
+
+    [Fact]
+    public void AMoveUpOrToColumnOne_EndsALineWithText_WithoutABlankLine()
+    {
+        Assert.Equal(["a", "b", "c"], Feed("\u001b[5;1Ha\u001b[2;1Hb\u001b[2;1Hc\r\n"));
+    }
+
+    [Fact]
+    public void HomeAfterClear_EmitsNothing()
+    {
+        Assert.Equal(["first"], Feed("\u001b[2J\u001b[H\u001b[2J\u001b[1;1Hfirst\r\n"));
+    }
+
+    [Fact]
+    public void AColumnPastOne_PadsTheLine()
+    {
+        var lines = Feed("x\r\n\u001b[2;2HUpdate state (0x61) downloading, progress: 15.67 (1912380961 / 12206318952)\r\n");
+
+        Assert.Equal(" Update state (0x61) downloading, progress: 15.67 (1912380961 / 12206318952)", lines[1]);
+        Assert.True(SteamCmdOutput.TryParseProgress(lines[1], out _));
+    }
+
+    [Fact]
+    public void TheRowNeverPassesTheBottomOfTheScreen()
+    {
+        // Three rows: line ends at the bottom scroll, so a move along row 3 afterwards stays on the same line.
+        var lines = new List<string>();
+        var assembler = new TerminalLineAssembler(lines.Add, screenRows: 3);
+
+        assembler.Append("a\r\nb\r\nc\r\nd\r\nab\u001b[3;5Hcd\r\n"u8);
+        assembler.Complete();
+
+        Assert.Equal(["a", "b", "c", "d", "ab  cd"], lines);
     }
 
     [Fact]

@@ -7,8 +7,10 @@ namespace ArkAscendedServerAdmin.Install;
 /// renders the child's screen as VT output, so the stream carries cursor, mode, and title sequences
 /// around the text; this strips CSI, OSC/DCS-style strings, and single-character escapes, ends a line at
 /// <c>\n</c> or <c>\r\n</c>, treats a bare <c>\r</c> as "overwrite the current line", and drops blank
-/// lines made only of escape sequences. Bytes may arrive in any chunking: a split UTF-8 character,
-/// escape sequence, or line carries over to the next <see cref="Append"/>.
+/// lines made only of escape sequences. It also tracks the cursor row, because ConPTY skips blank rows
+/// with a cursor move instead of line ends; without that, the lines around a blank line run together.
+/// Bytes may arrive in any chunking: a split UTF-8 character, escape sequence, or line carries over to
+/// the next <see cref="Append"/>.
 /// </summary>
 public sealed class TerminalLineAssembler
 {
@@ -28,15 +30,26 @@ public sealed class TerminalLineAssembler
     private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
     private readonly StringBuilder _line = new();
     private readonly StringBuilder _csiParameters = new();
+    private readonly int _screenRows;
     private char[] _chars = new char[1024];
     private State _state = State.Text;
     private bool _pendingCarriageReturn;
     private bool _lineHasEscapes;
+    private int _row = 1;
+    private bool _emittedAny;
+    private bool _lastWasBlank;
 
-    public TerminalLineAssembler(Action<string> onLine)
+    /// <param name="onLine">Receives each completed line.</param>
+    /// <param name="screenRows">
+    /// The pseudo console's height. Line ends at the bottom row scroll instead of moving the cursor, so the
+    /// tracked row never goes past it.
+    /// </param>
+    public TerminalLineAssembler(Action<string> onLine, int screenRows = int.MaxValue)
     {
         ArgumentNullException.ThrowIfNull(onLine);
+        ArgumentOutOfRangeException.ThrowIfLessThan(screenRows, 1);
         _onLine = onLine;
+        _screenRows = screenRows;
     }
 
     private enum State
@@ -149,6 +162,7 @@ public sealed class TerminalLineAssembler
             case '\n':
                 _pendingCarriageReturn = false;
                 EmitLine();
+                _row = Math.Min(_row + 1, _screenRows);
                 return;
 
             case '\r':
@@ -217,11 +231,7 @@ public sealed class TerminalLineAssembler
         else if (c is >= '@' and <= '~')
         {
             _state = State.Text;
-            if (c == 'C')
-            {
-                // ConPTY may compress a run of blanks into "cursor forward"; keep the spacing.
-                AppendCursorForward();
-            }
+            ExecuteCsi(c);
         }
         else if (c == Escape)
         {
@@ -231,15 +241,88 @@ public sealed class TerminalLineAssembler
         // Intermediates (0x20-0x2F) and stray control characters inside a sequence are ignored.
     }
 
-    private void AppendCursorForward()
+    private void ExecuteCsi(char final)
     {
-        var parameters = _csiParameters.ToString();
-        var count = parameters.Length == 0
-            ? 1
-            : int.TryParse(parameters, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var parsed) ? parsed : 0;
-        for (var i = 0; i < Math.Min(count, MaxCursorForward); i++)
+        // Private sequences (ESC [ ? 25 h and friends) only switch modes.
+        if (_csiParameters.Length > 0 && _csiParameters[0] is '<' or '=' or '>' or '?')
         {
-            AppendText(' ');
+            return;
+        }
+
+        switch (final)
+        {
+            case 'C':
+                // ConPTY may compress a run of blanks into "cursor forward"; keep the spacing.
+                for (var i = 0; i < Math.Min(Parameter(0), MaxCursorForward); i++)
+                {
+                    AppendText(' ');
+                }
+
+                break;
+
+            case 'H' or 'f':
+                MoveTo(Parameter(0), Parameter(1));
+                break;
+
+            case 'd':
+                MoveTo(Parameter(0), column: null);
+                break;
+
+            case 'B':
+                MoveTo(_row + Parameter(0), column: null);
+                break;
+
+            case 'E':
+                MoveTo(_row + Parameter(0), column: 1);
+                break;
+        }
+    }
+
+    /// <summary>The <paramref name="index"/>th numeric parameter of the current CSI sequence; missing, empty, or zero means 1.</summary>
+    private int Parameter(int index)
+    {
+        var parts = _csiParameters.ToString().Split(';');
+        return index < parts.Length
+            && int.TryParse(parts[index], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var value)
+            && value > 0
+                ? value
+                : 1;
+    }
+
+    /// <summary>
+    /// A cursor move. ConPTY skips rows that the child left blank by moving the cursor down instead of
+    /// sending line ends, so a move to a lower row ends the pending line, and the skipped rows become one
+    /// blank line (never more, and never at the very start or right after another blank line). A move up,
+    /// or to column one of the current row, ends the pending line only if it has text. A column past one
+    /// pads the line with spaces up to that column, which keeps a leading space ConPTY expressed as a
+    /// cursor position.
+    /// </summary>
+    private void MoveTo(int row, int? column)
+    {
+        row = Math.Clamp(row, 1, _screenRows);
+        _pendingCarriageReturn = false;
+        if (row > _row)
+        {
+            var skipped = row - _row - 1;
+            EmitLine();
+            if (skipped > 0 && _emittedAny && !_lastWasBlank)
+            {
+                Emit(string.Empty);
+            }
+        }
+        else if ((row < _row || column == 1) && _line.Length > 0)
+        {
+            EmitLine();
+        }
+
+        _row = row;
+        if (column is > 1)
+        {
+            var target = Math.Min(column.Value - 1, MaxCursorForward);
+            while (_line.Length < target)
+            {
+                _line.Append(' ');
+            }
         }
     }
 
@@ -262,12 +345,21 @@ public sealed class TerminalLineAssembler
     private void EmitLine()
     {
         var text = _line.ToString();
-        var noise = text.Length == 0 && _lineHasEscapes;
+
+        // Blank (or padding-only) lines made of escape sequences are screen noise, not output.
+        var noise = _lineHasEscapes && string.IsNullOrWhiteSpace(text);
         _line.Clear();
         _lineHasEscapes = false;
         if (!noise)
         {
-            _onLine(text);
+            Emit(text);
         }
+    }
+
+    private void Emit(string text)
+    {
+        _emittedAny = true;
+        _lastWasBlank = text.Length == 0;
+        _onLine(text);
     }
 }

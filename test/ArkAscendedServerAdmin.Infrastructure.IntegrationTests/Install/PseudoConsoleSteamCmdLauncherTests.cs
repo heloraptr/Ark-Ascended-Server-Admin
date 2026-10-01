@@ -118,7 +118,7 @@ public sealed class PseudoConsoleSteamCmdLauncherTests : IDisposable
     }
 
     [Fact]
-    public async Task AStartFailure_CleansUpPromptly_AndFallsBackToThePipeLauncher_WithOneNotice()
+    public async Task AMissingExecutable_FailsPromptly_WithoutTheFallbackNotice()
     {
         // CreateProcessW fails after the pseudo console exists and before any reader runs.
         var missing = new SteamCmdLaunch(Path.Combine(_directory, "missing.exe"), ["+quit"], _directory);
@@ -129,7 +129,44 @@ public sealed class PseudoConsoleSteamCmdLauncherTests : IDisposable
             () => _launcher.RunAsync(missing, _ => { }, errors.Add, Ct).WaitAsync(TimeSpan.FromSeconds(10), Ct));
 
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5), $"took {stopwatch.Elapsed}");
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public async Task AnotherStartFailure_CleansUpPromptly_AndFallsBackToThePipeLauncher_WithOneNotice()
+    {
+        // The file exists but is not a program, so CreateProcessW fails (bad exe format) after the pseudo
+        // console exists; the pipe launcher then fails the same way, which proves it was tried.
+        var notAProgram = Path.Combine(_directory, "not-a-program.exe");
+        File.WriteAllText(notAProgram, "not a program");
+        var errors = new List<string>();
+        var stopwatch = Stopwatch.StartNew();
+
+        await Assert.ThrowsAsync<System.ComponentModel.Win32Exception>(
+            () => _launcher.RunAsync(new SteamCmdLaunch(notAProgram, ["+quit"], _directory), _ => { }, errors.Add, Ct).WaitAsync(TimeSpan.FromSeconds(10), Ct));
+
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5), $"took {stopwatch.Elapsed}");
         Assert.Equal([PseudoConsoleSteamCmdLauncher.FallbackNotice], errors);
+    }
+
+    [Fact]
+    public async Task LinesAroundBlankLines_ArriveAloneAndInOrder_PastTheBottomOfTheConsole()
+    {
+        // ConPTY skips blank rows with a cursor move; 300 numbered lines scroll well past its 50 rows.
+        var script = WriteScript("""
+            @echo off
+            for /l %%i in (1,1,300) do (
+            echo line %%i
+            echo.
+            )
+            exit /b 0
+            """);
+        var lines = new List<string>();
+
+        var exitCode = await _launcher.RunAsync(Launch(script), lines.Add, _ => { }, Ct).WaitAsync(TimeSpan.FromSeconds(30), Ct);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(Enumerable.Range(1, 300).Select(i => $"line {i}"), lines.Where(line => line.Length > 0));
     }
 
     [Fact]

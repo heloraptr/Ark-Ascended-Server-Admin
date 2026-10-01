@@ -26,7 +26,7 @@ namespace ArkAscendedServerAdmin.Infrastructure.Install;
 /// <item>The input write end stays open until the pseudo console is disposed, after the reader is
 /// done. Closing it early (to give SteamCMD end of input, as the pipe launcher does) makes the console
 /// host shut down and end the child at once with STATUS_CONTROL_C_EXIT before it prints anything.
-/// SteamCMD logs in anonymously and never prompts; a prompt would wait until the run is cancelled.</item>
+/// SteamCMD logs in anonymously and never prompts; a prompt would wait until the run is canceled.</item>
 /// <item>The output read end belongs to the reader thread, which closes it at end of stream. The reader
 /// never stops early: a throwing <c>onOutput</c> is caught, the first exception is kept, and draining
 /// continues, so the host can never block on a full pipe. An unexpected read failure is logged and
@@ -102,13 +102,15 @@ public sealed class PseudoConsoleSteamCmdLauncher : ISteamCmdProcessLauncher
             // No reader exists yet; Dispose closes our output read end before the pseudo console, so the
             // close cannot wait on output nobody will drain.
             console.Dispose();
-            if (ex is not Win32Exception)
+            // A missing executable is not a pseudo console problem: the pipe launcher would only fail the
+            // same way after a misleading notice, so it is reported as is.
+            if (ex is not Win32Exception || (Path.IsPathFullyQualified(launch.FileName) && !File.Exists(launch.FileName)))
             {
                 throw;
             }
 
-            // A missing executable fails again in the pipe launcher with the same exception; anything
-            // specific to the pseudo console (session 0, an odd Windows build) degrades to the old output.
+            // Anything else (an access check that only fails in session 0, an odd Windows build) degrades
+            // to the old output; a failure that is not about the pseudo console recurs there unchanged.
             _logger.LogWarning(ex, "Could not start SteamCMD in a pseudo console; falling back to redirected output.");
             return await FallBackAsync(launch, onOutput, onError, cancellationToken);
         }
@@ -119,7 +121,7 @@ public sealed class PseudoConsoleSteamCmdLauncher : ISteamCmdProcessLauncher
             var sink = new LineSink(onOutput);
             var state = new ReaderState();
             var reader = Task.Factory.StartNew(
-                () => Drain(console.Output, new TerminalLineAssembler(sink.Deliver), state, onError),
+                () => Drain(console.Output, new TerminalLineAssembler(sink.Deliver, ConsoleRows), state, onError),
                 CancellationToken.None,
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default);
@@ -256,7 +258,6 @@ public sealed class PseudoConsoleSteamCmdLauncher : ISteamCmdProcessLauncher
         }
     }
 
-
     /// <summary>
     /// Hands lines to the caller's callback on the reader thread. The first exception it throws is kept
     /// and later lines are dropped, but the reader keeps draining; <see cref="RunAsync"/> rethrows the
@@ -310,7 +311,12 @@ public sealed class PseudoConsoleSteamCmdLauncher : ISteamCmdProcessLauncher
         }
     }
 
-    private static void KillTree(ChildProcess process)
+    /// <summary>
+    /// Kills the child and its descendants. The tree kill runs first, while the root is still alive, because
+    /// descendants are found through it; it is best effort. TerminateProcess on our own handle then
+    /// guarantees the root is gone, so the wait for its exit that follows always ends.
+    /// </summary>
+    private void KillTree(ChildProcess process)
     {
         // The process handle stays open until we dispose it, so the pid cannot have been reused.
         try
@@ -318,10 +324,14 @@ public sealed class PseudoConsoleSteamCmdLauncher : ISteamCmdProcessLauncher
             using var child = Process.GetProcessById(process.Id);
             child.Kill(entireProcessTree: true);
         }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception)
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception or AggregateException)
         {
-            // Already gone.
+            // Already gone, or part of the tree could not be killed; the root is handled below.
+            _logger.LogDebug(ex, "Killing the SteamCMD process tree was incomplete.");
         }
+
+        // Fails harmlessly (access denied) when the process has already exited.
+        NativeMethods.TerminateProcess(process.Handle, 1);
     }
 
     /// <summary>A started child: its process handle and id. The thread handle is closed at once.</summary>
@@ -603,5 +613,10 @@ public sealed class PseudoConsoleSteamCmdLauncher : ISteamCmdProcessLauncher
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool CloseHandle(IntPtr hObject);
+
+        [DllImport("kernel32.dll", ExactSpelling = true, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool TerminateProcess(SafeProcessHandle hProcess, uint uExitCode);
     }
 }
