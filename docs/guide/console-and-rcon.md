@@ -68,7 +68,8 @@ up before starting it.
 
 The list holds the commands most admins reach for, and only ones that work over RCON on ASA. Players
 are named by EOS id, the 32-character id `ListPlayers` prints, never by Steam id. `BanPlayer` and
-`UnbanPlayer` carry a reminder that the ban list is shared by every server on the box
+`UnbanPlayer` show an amber note, in the list and in the reminder line alike, that they act on every
+managed instance on this machine, not just this one, because all of them share one ban list
 ([players-and-whitelists.md](players-and-whitelists.md#bans-apply-to-the-whole-box)). A command that
 is not in the list can still be typed and sent.
 

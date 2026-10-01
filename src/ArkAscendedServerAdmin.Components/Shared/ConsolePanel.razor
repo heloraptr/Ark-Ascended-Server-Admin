@@ -55,13 +55,23 @@
                              aria-selected="@(index == _input.Highlight ? "true" : "false")" @onclick="() => AcceptAsync(command)">
                             <span class="name">@command.Name</span><span class="syntax">@command.Syntax</span>
                             <span class="desc">@command.Description</span>
+                            @if (command.Note is { } note)
+                            {
+                                <span class="note"><i class="rzi" aria-hidden="true">warning</i>@note</span>
+                            }
                         </div>
                     }
                 </div>
             }
             else if (_input.Hint is { } hint)
             {
-                <div class="console-hint"><span class="name">@hint.Name</span><span class="syntax">@hint.Syntax</span><span class="desc">@hint.Description</span></div>
+                <div class="console-hint">
+                    <div class="line"><span class="name">@hint.Name</span><span class="syntax">@hint.Syntax</span><span class="desc">@hint.Description</span></div>
+                    @if (hint.Note is { } note)
+                    {
+                        <div class="note"><i class="rzi" aria-hidden="true">warning</i>@note</div>
+                    }
+                </div>
             }
             <span class="prompt">rcon&gt;</span>
             <input @ref="_inputElement" value="@_input.Text" @oninput="OnInput" @onkeydown="OnKeyDown" @onblur="OnBlur"

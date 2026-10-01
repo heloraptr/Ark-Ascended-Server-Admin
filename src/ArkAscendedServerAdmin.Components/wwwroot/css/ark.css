@@ -1120,11 +1120,14 @@ h1:focus-visible {
 }
 
 .console-hint {
+  padding: 5px 12px;
+  pointer-events: none;
+}
+
+.console-hint .line {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  padding: 5px 12px;
-  pointer-events: none;
 }
 
 .console-hint .desc {
@@ -1135,6 +1138,27 @@ h1:focus-visible {
   font-size: 12px;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* A warning that belongs to the command, in the amber of the warning notices; wraps rather than truncates. */
+.console-suggest .note,
+.console-hint .note {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 2px;
+  color: var(--ark-trace);
+  font-family: var(--ark-sans);
+  font-size: 12px;
+  white-space: normal;
+}
+
+.console-suggest .note .rzi,
+.console-hint .note .rzi {
+  flex: none;
+  font-size: 15px;
+  line-height: 1.1;
 }
 
 .console-browse {

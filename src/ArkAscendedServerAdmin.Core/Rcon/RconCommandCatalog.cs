@@ -3,9 +3,10 @@ namespace ArkAscendedServerAdmin.Rcon;
 /// <summary>
 /// One entry of the console's command suggestions: <paramref name="Name"/> as typed, the arguments it takes in
 /// <paramref name="Syntax"/> (empty when it takes none), a one-line <paramref name="Description"/>, and the
-/// <paramref name="Group"/> it is listed under when the full list is browsed.
+/// <paramref name="Group"/> it is listed under when the full list is browsed. <paramref name="Note"/> is a warning shown
+/// apart from the description wherever the command appears; null for most commands.
 /// </summary>
-public sealed record RconCommandInfo(string Name, string Syntax, string Description, string Group)
+public sealed record RconCommandInfo(string Name, string Syntax, string Description, string Group, string? Note = null)
 {
     public bool TakesArguments => Syntax.Length > 0;
 }
@@ -25,8 +26,8 @@ public static class RconCommandCatalog
     [
         new("ListPlayers", "", "Lists connected players with their EOS ids.", PlayersGroup),
         new("KickPlayer", "<EOS id>", "Disconnects a player; they can join again at once.", PlayersGroup),
-        new("BanPlayer", "<EOS id>", "Bans and disconnects a player. The ban list is shared by every server on this box.", PlayersGroup),
-        new("UnbanPlayer", "<EOS id>", "Lifts a ban. The ban list is shared by every server on this box.", PlayersGroup),
+        new("BanPlayer", "<EOS id>", "Bans a player and disconnects them.", PlayersGroup, SharedBanListNote("Bans the player")),
+        new("UnbanPlayer", "<EOS id>", "Lifts a player's ban.", PlayersGroup, SharedBanListNote("Lifts the ban")),
         new("AllowPlayerToJoinNoCheck", "<EOS id>", "Adds a player to the server's join whitelist; applies at once.", PlayersGroup),
         new("DisallowPlayerToJoinNoCheck", "<EOS id>", "Removes a player from the server's join whitelist.", PlayersGroup),
         new("RenamePlayer", "\"<current name>\" <new name>", "Renames a player's survivor.", PlayersGroup),
@@ -46,6 +47,10 @@ public static class RconCommandCatalog
         new("SetTimeOfDay", "<hh:mm[:ss]>", "Sets the in-game time of day.", WorldGroup),
         new("GetGameLog", "", "Returns the latest game log entries and writes them to a dated file.", WorldGroup),
     ];
+
+    /// <summary>The game keeps one <c>BanList.txt</c> in the shared install, so a ban or unban reaches every instance.</summary>
+    private static string SharedBanListNote(string action) =>
+        $"{action} on every managed instance on this machine, not just this one: they all share one ban list.";
 
     /// <summary>Group names in the order the full list shows them.</summary>
     public static IReadOnlyList<string> Groups { get; } = [PlayersGroup, ChatGroup, WorldGroup];

@@ -92,10 +92,27 @@ public sealed class RconCommandSuggesterTests
     }
 
     [Fact]
-    public void Ban_commands_say_the_list_is_shared_by_the_box()
+    public void Ban_commands_carry_the_shared_ban_list_as_a_note_not_in_the_description()
     {
-        Assert.Contains("every server on this box", RconCommandCatalog.Find("banplayer")!.Description, StringComparison.Ordinal);
-        Assert.Contains("every server on this box", RconCommandCatalog.Find("UnbanPlayer")!.Description, StringComparison.Ordinal);
+        var ban = RconCommandCatalog.Find("banplayer")!;
+        var unban = RconCommandCatalog.Find("UnbanPlayer")!;
+
+        Assert.Equal("Bans the player on every managed instance on this machine, not just this one: they all share one ban list.", ban.Note);
+        Assert.Equal("Lifts the ban on every managed instance on this machine, not just this one: they all share one ban list.", unban.Note);
+        Assert.DoesNotContain("ban list", ban.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ban list", unban.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(["BanPlayer", "UnbanPlayer"], RconCommandCatalog.All.Where(c => c.Note is not null).Select(c => c.Name));
+    }
+
+    [Fact]
+    public void The_note_travels_with_suggestions_and_the_argument_hint()
+    {
+        var suggested = RconCommandSuggester.Suggest("ban", RconCommandCatalog.All);
+        Assert.Equal(["BanPlayer", "UnbanPlayer"], suggested.Select(c => c.Name));
+        Assert.All(suggested, c => Assert.NotNull(c.Note));
+
+        Assert.NotNull(RconCommandSuggester.ArgumentHint("BanPlayer 0002abc", RconCommandCatalog.All)?.Note);
+        Assert.Null(new RconCommandInfo("X", "", "Y", "Z").Note);
     }
 
     [Fact]
