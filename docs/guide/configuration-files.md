@@ -70,7 +70,8 @@ while a save is under way stays marked `unsaved changes`.
 
 Saving writes the file and updates the mirror: the toast is `Saved GameUserSettings.ini`, or
 `Saved GameUserSettings.ini` with `The file was written, but the database copy could not be updated.`
-when only the mirror failed. Every save is temp-file-and-rename, serialized per file, and checked
+when only the mirror failed. A save keeps the file's own line endings (Windows CRLF for a new
+file), so an edit changes only the lines you touched. Every save is temp-file-and-rename, serialized per file, and checked
 against the hash the editor loaded. The mirror row (`IniDocuments`: owner, file, text, SHA-256, time)
 is updated after the file; a mirror failure never fails the save. Changes take effect at the
 instance's next start; a running server keeps the generated files it launched with.

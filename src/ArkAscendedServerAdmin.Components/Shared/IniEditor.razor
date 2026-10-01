@@ -121,7 +121,8 @@
 
     private void OnTextChanged()
     {
-        _dirty = _document is not null && !string.Equals(_text, _document.Text, StringComparison.Ordinal);
+        // The text area reports LF whatever the file uses; the save puts the file's own endings back.
+        _dirty = _document is not null && !IniLineEndings.Equivalent(_text, _document.Text);
         Analyze();
     }
 
@@ -161,7 +162,7 @@
 
         // The browser reports the value with LF line ends, so only a difference beyond those means an input event is
         // still on its way; adopting the value otherwise would turn a CRLF file dirty without a keystroke.
-        if (!string.Equals(text.ReplaceLineEndings("\n"), _text.ReplaceLineEndings("\n"), StringComparison.Ordinal))
+        if (!IniLineEndings.Equivalent(text, _text))
         {
             _text = text;
             OnTextChanged();
@@ -199,8 +200,8 @@
 
             if (current)
             {
-                _document = document with { Text = text, Sha256 = result.NewSha256!, UpdatedAt = DateTimeOffset.UtcNow, MirrorStale = result.MirrorFailed };
-                _dirty = !string.Equals(_text, text, StringComparison.Ordinal);
+                _document = document with { Text = result.WrittenText ?? text, Sha256 = result.NewSha256!, UpdatedAt = DateTimeOffset.UtcNow, MirrorStale = result.MirrorFailed };
+                _dirty = !IniLineEndings.Equivalent(_text, text);
                 _mirrorStale = result.MirrorFailed;
             }
 

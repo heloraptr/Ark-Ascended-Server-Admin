@@ -47,9 +47,10 @@ public sealed record IniSourceDocument(string Text, string Sha256, DateTimeOffse
 /// <param name="Error">Set on rejection, e.g. "changed since you opened it — reload".</param>
 /// <param name="NewSha256">The hash of the saved text, which the editor keeps for its next save.</param>
 /// <param name="MirrorFailed">The file write succeeded but the database mirror did not; the UI shows a warning with retry.</param>
-public sealed record IniSaveResult(bool Succeeded, string? Error, string? NewSha256, bool MirrorFailed)
+/// <param name="WrittenText">The text as written: the saved text in the line endings of the file it replaced (see <see cref="Ini.IniLineEndings"/>).</param>
+public sealed record IniSaveResult(bool Succeeded, string? Error, string? NewSha256, bool MirrorFailed, string? WrittenText = null)
 {
-    public static IniSaveResult Saved(string sha256, bool mirrorFailed) => new(true, null, sha256, mirrorFailed);
+    public static IniSaveResult Saved(string sha256, bool mirrorFailed, string? writtenText = null) => new(true, null, sha256, mirrorFailed, writtenText);
 
     public static IniSaveResult Rejected(string error) => new(false, error, null, false);
 }
