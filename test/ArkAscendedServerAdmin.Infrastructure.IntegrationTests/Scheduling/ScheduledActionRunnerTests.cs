@@ -2,6 +2,7 @@ using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Scheduling;
 using ArkAscendedServerAdmin.Infrastructure.Startup;
+using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Rcon;
 using ArkAscendedServerAdmin.Scheduling;
 using Microsoft.EntityFrameworkCore;
@@ -164,6 +165,66 @@ public class ScheduledActionRunnerTests
         var run = Assert.Single(await f.RunsAsync(ct));
         Assert.Equal((ScheduledActionOutcome.Skipped, ScheduledActionRunner.LockBusyReason), (run.Outcome, run.Reason));
         Assert.Empty(f.Rcon.Calls);
+        Assert.Equal(_noon + ScheduledActionRunner.LockRetryDelay, f.Clock.GetUtcNow()); // one retry, then the skip
+    }
+
+    /// <summary>A lock held for a moment (a console history write) costs one short wait, not the occurrence.</summary>
+    [Fact]
+    public async Task InstanceLockBusyOnlyBriefly_RunsAfterOneRetry()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        var f = await Fixture.CreateAsync(root, _noon, TimeZoneInfo.Utc, ct, busyAttempts: 1);
+        var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
+        await f.ActionAsync(instance.Id, null, AtNoon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
+        f.Processes.Set(instance.Id, InstanceState.Running);
+
+        await f.TickAsync(ct);
+
+        var run = Assert.Single(await f.RunsAsync(ct));
+        Assert.Equal(ScheduledActionOutcome.Succeeded, run.Outcome);
+        Assert.Single(f.Rcon.Calls);
+        Assert.Equal(2, f.LockAttempts!.Attempts);
+        Assert.Equal(_noon + ScheduledActionRunner.LockRetryDelay, f.Clock.GetUtcNow());
+
+        await f.TickAsync(ct); // the same minute again: the occurrence is already claimed
+        Assert.Single(await f.RunsAsync(ct));
+        Assert.Single(f.Rcon.Calls);
+    }
+
+    [Fact]
+    public async Task InstanceLockBusyOnBothTries_IsSkippedOnceWithTheReason()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        var f = await Fixture.CreateAsync(root, _noon, TimeZoneInfo.Utc, ct, busyAttempts: 2);
+        var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
+        await f.ActionAsync(instance.Id, null, AtNoon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
+        f.Processes.Set(instance.Id, InstanceState.Running);
+
+        await f.TickAsync(ct);
+
+        var run = Assert.Single(await f.RunsAsync(ct));
+        Assert.Equal((ScheduledActionOutcome.Skipped, ScheduledActionRunner.LockBusyReason), (run.Outcome, run.Reason));
+        Assert.Empty(f.Rcon.Calls);
+        Assert.Equal(2, f.LockAttempts!.Attempts);
+    }
+
+    [Fact]
+    public async Task InstanceLockFree_TakesNoDelay()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        var f = await Fixture.CreateAsync(root, _noon, TimeZoneInfo.Utc, ct, busyAttempts: 0);
+        var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
+        await f.ActionAsync(instance.Id, null, AtNoon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
+        f.Processes.Set(instance.Id, InstanceState.Running);
+
+        await f.TickAsync(ct);
+
+        Assert.Equal(ScheduledActionOutcome.Succeeded, Assert.Single(await f.RunsAsync(ct)).Outcome);
+        Assert.Equal(1, f.LockAttempts!.Attempts);
+        Assert.Equal(_noon, f.Clock.GetUtcNow()); // FastTimeProvider advances only when a delay is taken
     }
 
     // ---- clock changes (Cronos' rules, US Eastern) -------------------------------------------------
@@ -379,6 +440,9 @@ public class ScheduledActionRunnerTests
 
         public required FastTimeProvider Clock { get; init; }
 
+        /// <summary>Set when the fixture was built with <c>busyAttempts</c>: counts the runner's lock attempts.</summary>
+        public BusyFirstLocks? LockAttempts { get; init; }
+
         /// <summary>One tick, then every detached run it started.</summary>
         public async Task TickAsync(CancellationToken ct)
         {
@@ -411,7 +475,7 @@ public class ScheduledActionRunnerTests
             return await db.ScheduledActionRuns.AsNoTracking().OrderBy(r => r.Id).ToListAsync(ct);
         }
 
-        public static async Task<Fixture> CreateAsync(TempDataRoot root, DateTimeOffset start, TimeZoneInfo zone, CancellationToken ct)
+        public static async Task<Fixture> CreateAsync(TempDataRoot root, DateTimeOffset start, TimeZoneInfo zone, CancellationToken ct, int? busyAttempts = null)
         {
             await root.InitializeAsync(ct);
             var clock = new FastTimeProvider(start) { Zone = zone };
@@ -419,8 +483,26 @@ public class ScheduledActionRunnerTests
             var processes = new FakeProcessManager(gate);
             var locks = new FakeInstanceLocks();
             var rcon = new RecordingRconOperations();
-            var runner = new ScheduledActionRunner(root, processes, locks, gate, rcon, new ReadinessMonitor(clock, NullLogger<ReadinessMonitor>.Instance), clock, NullLogger<ScheduledActionRunner>.Instance);
-            return new Fixture { Root = root, Runner = runner, Processes = processes, Locks = locks, Gate = gate, Rcon = rcon, Clock = clock };
+            var attempts = busyAttempts is { } busy ? new BusyFirstLocks(locks, busy) : null;
+            var runner = new ScheduledActionRunner(root, processes, (IInstanceLocks?)attempts ?? locks, gate, rcon, new ReadinessMonitor(clock, NullLogger<ReadinessMonitor>.Instance), clock, NullLogger<ScheduledActionRunner>.Instance);
+            return new Fixture { Root = root, Runner = runner, Processes = processes, Locks = locks, Gate = gate, Rcon = rcon, Clock = clock, LockAttempts = attempts };
         }
+    }
+
+    /// <summary>Reports the lock busy for the first <c>busy</c> attempts (a brief holder), then defers to the real locks.</summary>
+    private sealed class BusyFirstLocks(FakeInstanceLocks inner, int busy) : IInstanceLocks
+    {
+        private int _attempts;
+
+        public int Attempts => Volatile.Read(ref _attempts);
+
+        public IInstanceLease? TryAcquire(int instanceId) =>
+            Interlocked.Increment(ref _attempts) <= busy ? null : inner.TryAcquire(instanceId);
+
+        public Task<IInstanceLease> AcquireAsync(int instanceId, CancellationToken cancellationToken) => inner.AcquireAsync(instanceId, cancellationToken);
+
+        public IDisposable? TryReserveCluster(int clusterId) => inner.TryReserveCluster(clusterId);
+
+        public bool IsClusterReserved(int clusterId) => inner.IsClusterReserved(clusterId);
     }
 }

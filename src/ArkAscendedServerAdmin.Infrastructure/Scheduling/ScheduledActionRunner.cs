@@ -62,6 +62,12 @@ public sealed class ScheduledActionRunner(
     /// <summary>The instance lock was held by something other than a scheduled action (a stop, a backup, a restore).</summary>
     public static string LockBusyReason { get; } = $"The instance is busy ({ProcessManager.OperationInProgress}).";
 
+    /// <summary>
+    /// How long a due action waits before its one second try for a busy instance lock. Long enough to outlast the
+    /// few milliseconds a console history write holds it; a lock still held after that is a real operation.
+    /// </summary>
+    public static TimeSpan LockRetryDelay { get; } = TimeSpan.FromMilliseconds(250);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         try
@@ -207,7 +213,7 @@ public sealed class ScheduledActionRunner(
                 {
                     Skip(run, ActionInProgressReason);
                 }
-                else if ((lease = locks.TryAcquire(instance.Id)) is null)
+                else if ((lease = await TryLeaseAsync(instance.Id, action.Id, cancellationToken)) is null)
                 {
                     Skip(run, LockBusyReason);
                 }
@@ -230,6 +236,24 @@ public sealed class ScheduledActionRunner(
                 _inFlight[instance.Id] = RunOneAsync(run.Id, instance.Id, action, occurrence.Deadline, lease!, cancellationToken);
             }
         }
+    }
+
+    /// <summary>
+    /// The instance lease, tried a second time after <see cref="LockRetryDelay"/> when the first try finds it held.
+    /// The occurrence is claimed only after this returns, so the retry can neither run it twice nor move it into
+    /// another minute (due rows are computed from the tick's own clock reading). Instances are evaluated in turn,
+    /// so a busy one holds the rest of the tick up by the delay at most once per due action.
+    /// </summary>
+    private async Task<IInstanceLease?> TryLeaseAsync(int instanceId, int actionId, CancellationToken cancellationToken)
+    {
+        if (locks.TryAcquire(instanceId) is { } lease)
+        {
+            return lease;
+        }
+
+        logger.LogDebug("Scheduled action {ActionId}: instance {InstanceId} is busy; trying once more in {Delay} ms.", actionId, instanceId, LockRetryDelay.TotalMilliseconds);
+        await Task.Delay(LockRetryDelay, timeProvider, cancellationToken);
+        return locks.TryAcquire(instanceId);
     }
 
     /// <summary>Completes when every detached run has finished; for tests.</summary>

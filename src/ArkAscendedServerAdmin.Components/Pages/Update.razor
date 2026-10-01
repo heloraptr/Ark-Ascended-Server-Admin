@@ -60,7 +60,7 @@
         @if (_progress is { } progress)
         {
             <div>
-                <RadzenProgressBar Value="@Math.Round(progress.Percent, 1)" ShowValue="true" Style="height:8px" />
+                <RadzenProgressBar Value="@Math.Round(progress.Percent, 1)" ShowValue="true" class="ark-progress" />
                 <span class="hint muted">@progress.State · @Presentation.Bytes(progress.Done) of @Presentation.Bytes(progress.Total)</span>
             </div>
         }

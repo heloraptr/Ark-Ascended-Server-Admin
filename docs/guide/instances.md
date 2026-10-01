@@ -256,7 +256,7 @@ when it started and ended, the action, the outcome, and a reason.
 | **Done** | The action finished. |
 | **In progress** | It is running now. |
 | **Failed** | The server refused it or the command returned an error; the reason says which. |
-| **Skipped** | The time passed without the action: `The server is not running.`, `An update is in progress.`, `Another action is in progress.`, or the instance was busy with an operation. |
+| **Skipped** | The time passed without the action: `The server is not running.`, `An update is in progress.`, `Another action is in progress.`, or the instance was busy with an operation. A busy instance is tried once more a quarter of a second later before the action is skipped. |
 | **Interrupted** | The service stopped while the action was in flight (`The service was restarted before the action finished.`). Nothing is retried; the next occurrence is normal. |
 
 A skipped occurrence is recorded so a missed action is visible rather than silent. Runs older than

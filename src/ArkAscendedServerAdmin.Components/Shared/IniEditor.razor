@@ -1,8 +1,10 @@
 @* Source INI editor (plan step 16): optimistic concurrency on the SHA-256, reserved-key warnings, mirror retry. *@
 @using ArkAscendedServerAdmin.Ini
+@implements IAsyncDisposable
 @inject IConfigCommands Config
 @inject NotificationService Notifications
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 <div class="ini-editor">
     @if (_document is null)
@@ -56,9 +58,9 @@
             }
             <span class="spacer"></span>
             <RadzenButton Text="Reload" Icon="refresh" Size="ButtonSize.Small" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="_busy" Click="ReloadAsync" />
-            <RadzenButton Text="@($"Save {FileName}")" Icon="save" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Primary" Disabled="@(_busy || !_dirty || _conflict)" Click="SaveAsync" />
+            <RadzenButton Text="@($"Save {FileName}")" Icon="save" title="Save (Ctrl+S while editing)" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Primary" Disabled="@(_busy || !_dirty || _conflict)" Click="SaveAsync" />
         </div>
-        <textarea @bind="_text" @bind:event="oninput" @bind:after="OnTextChanged" spellcheck="false" wrap="off" aria-label="@FileName"></textarea>
+        <textarea @ref="_textarea" data-generation="@_generation" @bind="_text" @bind:event="oninput" @bind:after="OnTextChanged" spellcheck="false" wrap="off" aria-label="@FileName"></textarea>
     }
 </div>
 
@@ -72,6 +74,10 @@
     private bool _passwordMissing;
     private IReadOnlyList<IniReservedKeyHit> _reserved = [];
     private (IniOwner Owner, IniFile File)? _loaded;
+    private ElementReference _textarea;
+    private DotNetObjectReference<IniEditor>? _self;
+    private string? _shortcutBoundTo;
+    private int _generation; // bumped by every load, so a save that outlives it leaves the new document alone
 
     [Parameter, EditorRequired]
     public IniOwner Owner { get; set; } = default!;
@@ -100,6 +106,7 @@
     private async Task ReloadAsync()
     {
         _busy = true;
+        _generation++;
         await Navigation.GuardedAsync(async () =>
         {
             _document = await Config.LoadIniAsync(Owner, File);
@@ -114,7 +121,8 @@
 
     private void OnTextChanged()
     {
-        _dirty = _document is not null && !string.Equals(_text, _document.Text, StringComparison.Ordinal);
+        // The text area reports LF whatever the file uses; the save puts the file's own endings back.
+        _dirty = _document is not null && !IniLineEndings.Equivalent(_text, _document.Text);
         Analyze();
     }
 
@@ -124,39 +132,94 @@
         _passwordMissing = File == IniFile.GameUserSettings && string.IsNullOrWhiteSpace(IniText.Parse(_text).Get(IniGenerator.ServerSettingsSection, "ServerAdminPassword"));
     }
 
-    private async Task SaveAsync()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_document is null)
+        // Ctrl+S is bound to this textarea only: both editors are in the page at once, and each saves its own file.
+        if (_document is null || _textarea.Id is not { } id || id == _shortcutBoundTo)
         {
             return;
         }
 
+        try
+        {
+            _self ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("ark.bindSaveShortcut", _textarea, _self);
+            _shortcutBoundTo = id;
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    /// <summary>Ctrl+S in the textarea. The browser's save dialog is already suppressed; this saves when the button would.</summary>
+    [JSInvokable]
+    public async Task SaveFromShortcut(string text, int generation)
+    {
+        if (_document is null || _busy || generation != _generation)
+        {
+            return;
+        }
+
+        // The browser reports the value with LF line ends, so only a difference beyond those means an input event is
+        // still on its way; adopting the value otherwise would turn a CRLF file dirty without a keystroke.
+        if (!IniLineEndings.Equivalent(text, _text))
+        {
+            _text = text;
+            OnTextChanged();
+        }
+
+        if (_dirty && !_conflict)
+        {
+            await SaveAsync();
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_document is not { } document || _busy)
+        {
+            return;
+        }
+
+        // Typing goes on while the save is in flight: what was sent is what becomes the saved document, and the
+        // editor is dirty again if the text moved on meanwhile.
+        var (owner, file, generation, text, fileName) = (Owner, File, _generation, _text, FileName);
         _busy = true;
         await Navigation.GuardedAsync(async () =>
         {
-            var result = await Config.SaveIniAsync(Owner, File, _text, _document.Sha256);
+            var result = await Config.SaveIniAsync(owner, file, text, document.Sha256);
+            var current = generation == _generation; // false when a load (another file, or a reload) happened meanwhile
             if (!result.Succeeded)
             {
-                _conflict = true;
-                Notifications.Failed($"Could not save {FileName}", result.Error);
+                _conflict |= current;
+                Notifications.Failed($"Could not save {fileName}", result.Error);
                 return;
             }
 
-            _document = _document with { Text = _text, Sha256 = result.NewSha256!, UpdatedAt = DateTimeOffset.UtcNow, MirrorStale = result.MirrorFailed };
-            _dirty = false;
-            _mirrorStale = result.MirrorFailed;
+            if (current)
+            {
+                _document = document with { Text = result.WrittenText ?? text, Sha256 = result.NewSha256!, UpdatedAt = DateTimeOffset.UtcNow, MirrorStale = result.MirrorFailed };
+                _dirty = !IniLineEndings.Equivalent(_text, text);
+                _mirrorStale = result.MirrorFailed;
+            }
+
             if (result.MirrorFailed)
             {
-                Notifications.Warn($"Saved {FileName}", "The file was written, but the database copy could not be updated.");
+                Notifications.Warn($"Saved {fileName}", "The file was written, but the database copy could not be updated.");
             }
             else
             {
-                Notifications.Done($"Saved {FileName}");
+                Notifications.Done($"Saved {fileName}");
             }
 
             await OnSaved.InvokeAsync();
         }, Notifications);
-        _busy = false;
+        if (generation == _generation)
+        {
+            _busy = false; // otherwise the load that superseded this save owns the flag
+        }
     }
 
     private async Task RetryMirrorAsync()
@@ -176,5 +239,21 @@
             }
         }, Notifications);
         _busy = false;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_shortcutBoundTo is not null)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("ark.releaseKeys", _textarea);
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+
+        _self?.Dispose();
     }
 }

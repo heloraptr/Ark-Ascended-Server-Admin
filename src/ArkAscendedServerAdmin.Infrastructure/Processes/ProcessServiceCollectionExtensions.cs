@@ -12,8 +12,8 @@ namespace ArkAscendedServerAdmin.Infrastructure.Processes;
 public static class ProcessServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the concurrency primitives (plan step 19), the RCON client (23), the WMI enumerator and
-    /// process manager (21–25), and the firewall rules (26) as singletons. <see cref="IProcessReconciler"/>
+    /// Registers the concurrency primitives (plan step 19), the RCON client (23), the console's RCON history, the
+    /// WMI enumerator and process manager (21–25), and the firewall rules (26) as singletons. <see cref="IProcessReconciler"/>
     /// resolves to the process manager, replacing the Phase 1 no-op registered by
     /// <c>AddArkInfrastructure</c> whichever order the two are called in. Requires <c>HostConfiguration</c>,
     /// <c>IInstanceLayoutService</c>, <c>IGeneratedConfigWriter</c>, <c>IOutputSourceFactory</c>, and
@@ -32,6 +32,7 @@ public static class ProcessServiceCollectionExtensions
         services.TryAddSingleton<IProjectionSynchronizer, NoProjectionSynchronizer>(); // B5 replaces it with the list synchronizer
 
         services.AddSingleton<IRconClient, CoreRconClient>();
+        services.AddSingleton<IRconHistoryStore, RconHistoryStore>();
         services.AddSingleton<IGameProcessEnumerator, WmiGameProcessEnumerator>();
         services.AddSingleton<IFirewallRules, FirewallRules>();
 

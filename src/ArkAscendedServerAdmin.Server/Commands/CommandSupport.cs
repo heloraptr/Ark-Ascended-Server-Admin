@@ -8,6 +8,7 @@ using ArkAscendedServerAdmin.Launch;
 using ArkAscendedServerAdmin.Mods;
 using ArkAscendedServerAdmin.Naming;
 using ArkAscendedServerAdmin.Ports;
+using ArkAscendedServerAdmin.Rcon;
 using ArkAscendedServerAdmin.Scheduling;
 using Microsoft.EntityFrameworkCore;
 
@@ -233,7 +234,7 @@ internal static class CommandSupport
 
     // ---- scheduled actions (B3) ---------------------------------------------------------------------
 
-    public const int MaxRconCommandLength = 512;
+    public const int MaxRconCommandLength = RconCommands.MaxCommandLength;
 
     public const int MaxCronLength = 128;
 

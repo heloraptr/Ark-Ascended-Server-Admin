@@ -4,6 +4,7 @@ using System.Text;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Data;
+using ArkAscendedServerAdmin.Ini;
 using ArkAscendedServerAdmin.Provisioning;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -64,16 +65,20 @@ public sealed class IniSourceStore(
         await gate.WaitAsync(cancellationToken);
         try
         {
-            var (_, currentSha256, _) = await ReadFileAsync(path, cancellationToken);
+            var (currentText, currentSha256, _) = await ReadFileAsync(path, cancellationToken);
             if (!HashEquals(currentSha256, expectedSha256))
             {
                 return IniSaveResult.Rejected(ChangedSinceOpened);
             }
 
-            var newSha256 = ComputeSha256(text);
-            await AtomicFile.WriteAllTextAsync(path, text, cancellationToken);
-            var mirrored = await TryMirrorAsync(owner, file, text, newSha256, cancellationToken);
-            return IniSaveResult.Saved(newSha256, mirrorFailed: !mirrored);
+            // Every caller's text is written in the line endings of the file it replaces (CRLF for a new file), so a
+            // browser edit, which always arrives as LF, changes only the lines that were edited. The hash and the
+            // mirror are of exactly what lands on disk.
+            var written = IniLineEndings.Apply(text, IniLineEndings.Detect(currentText));
+            var newSha256 = ComputeSha256(written);
+            await AtomicFile.WriteAllTextAsync(path, written, cancellationToken);
+            var mirrored = await TryMirrorAsync(owner, file, written, newSha256, cancellationToken);
+            return IniSaveResult.Saved(newSha256, mirrorFailed: !mirrored, written);
         }
         finally
         {

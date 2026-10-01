@@ -13,6 +13,7 @@ using ArkAscendedServerAdmin.Networking;
 using ArkAscendedServerAdmin.Players;
 using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Provisioning;
+using ArkAscendedServerAdmin.Rcon;
 using ArkAscendedServerAdmin.Scheduling;
 using ArkAscendedServerAdmin.Startup;
 using Microsoft.Extensions.Configuration;
@@ -50,7 +51,7 @@ public class ServiceRegistrationTests
             typeof(IProcessManager), typeof(IProcessReconciler), typeof(IInstanceLocks), typeof(IMaintenanceGate),
             typeof(IPlayerTracker), typeof(IBackupService), typeof(IUpdateService), typeof(IInstanceDeleteService), typeof(IMaintenanceRecovery),
             typeof(IReadinessMonitor), typeof(IStartupControl), typeof(StartupOrchestrator),
-            typeof(IRconOperations), typeof(ScheduledActionRunner), typeof(IHostAddressProvider),
+            typeof(IRconOperations), typeof(IRconHistoryStore), typeof(ScheduledActionRunner), typeof(IHostAddressProvider),
             typeof(ICurseForgeApi), typeof(IModMetadataRefresher), typeof(ModMetadataPoll),
         ];
 

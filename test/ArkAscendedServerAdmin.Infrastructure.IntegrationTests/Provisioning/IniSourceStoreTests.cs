@@ -218,4 +218,54 @@ public class IniSourceStoreTests
         Assert.True(document.MirrorStale);
         Assert.Equal(Text + "Edited=1\r\n", document.Text);
     }
+
+    /// <summary>
+    /// The editor sends LF text whatever the file uses. A one-line edit must change that line only: the bytes on
+    /// disk keep the file's own endings, and the hash and the mirror are of those bytes.
+    /// </summary>
+    [Theory]
+    [InlineData("\r\n")]
+    [InlineData("\n")]
+    public async Task Save_KeepsTheFilesLineEndings_SoAnEditChangesOnlyItsLine(string newline)
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        var ids = await Seed.CreateAsync(root, ct);
+        var store = CreateStore(root);
+        var owner = IniOwner.ForCluster(ids.ClusterId);
+        string[] lines = ["[ServerSettings]", "ServerAdminPassword=hunter2", "MaxPlayers=10", "", "[SessionSettings]", "SessionName=Test"];
+        var path = ClusterFile(root, IniFile.GameUserSettings);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllBytesAsync(path, System.Text.Encoding.UTF8.GetBytes(string.Join(newline, lines) + newline), ct);
+        var loaded = await store.LoadAsync(owner, IniFile.GameUserSettings, ct);
+
+        var edited = loaded.Text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace("MaxPlayers=10", "MaxPlayers=20", StringComparison.Ordinal);
+        var result = await store.SaveAsync(owner, IniFile.GameUserSettings, edited, loaded.Sha256, ct);
+
+        Assert.True(result.Succeeded);
+        var expected = string.Join(newline, lines).Replace("MaxPlayers=10", "MaxPlayers=20", StringComparison.Ordinal) + newline;
+        Assert.Equal(System.Text.Encoding.UTF8.GetBytes(expected), await File.ReadAllBytesAsync(path, ct));
+        Assert.Equal(expected, result.WrittenText);
+        Assert.Equal(IniSourceStore.ComputeSha256(expected), result.NewSha256);
+
+        var reloaded = await store.LoadAsync(owner, IniFile.GameUserSettings, ct);
+        Assert.Equal(result.NewSha256, reloaded.Sha256);
+        Assert.False(reloaded.MirrorStale);
+        await using var db = root.CreateDbContext();
+        Assert.Equal(expected, (await db.IniDocuments.SingleAsync(d => d.ClusterId == ids.ClusterId && d.File == IniFile.GameUserSettings, ct)).Text);
+    }
+
+    [Fact]
+    public async Task Save_OfANewFile_WritesCrLf()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        var ids = await Seed.CreateAsync(root, ct);
+        var store = CreateStore(root);
+
+        var result = await store.SaveAsync(IniOwner.ForCluster(ids.ClusterId), IniFile.Game, "[A]\nB=1\n", EmptyHash, ct);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("[A]\r\nB=1\r\n", await File.ReadAllTextAsync(ClusterFile(root, IniFile.Game), ct));
+    }
 }
