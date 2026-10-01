@@ -24,15 +24,11 @@ public static class RconCommandCatalog
 
     public static IReadOnlyList<RconCommandInfo> All { get; } =
     [
-        new("ListPlayers", "", "Lists connected players with their EOS ids.", PlayersGroup),
-        new("KickPlayer", "<EOS id>", "Disconnects a player; they can join again at once.", PlayersGroup),
-        new("BanPlayer", "<EOS id>", "Bans a player and disconnects them.", PlayersGroup, SharedBanListNote("Bans the player")),
-        new("UnbanPlayer", "<EOS id>", "Lifts a player's ban.", PlayersGroup, SharedBanListNote("Lifts the ban")),
-        new("AllowPlayerToJoinNoCheck", "<EOS id>", "Adds a player to the server's join whitelist; applies at once.", PlayersGroup),
-        new("DisallowPlayerToJoinNoCheck", "<EOS id>", "Removes a player from the server's join whitelist.", PlayersGroup),
-        new("RenamePlayer", "\"<current name>\" <new name>", "Renames a player's survivor.", PlayersGroup),
-        new("RenameTribe", "\"<tribe name>\" <new name>", "Renames a tribe.", PlayersGroup),
-        new("GetTribeIdPlayerList", "<tribe id>", "Lists the members of a tribe.", PlayersGroup),
+        new("SaveWorld", "", "Writes the world to disk now.", WorldGroup),
+        new("DoExit", "", "Saves and shuts the server down; the manager notices the exit.", WorldGroup),
+        new("DestroyWildDinos", "", "Removes every wild creature so they respawn; tames are untouched.", WorldGroup),
+        new("SetTimeOfDay", "<hh:mm[:ss]>", "Sets the in-game time of day.", WorldGroup),
+        new("GetGameLog", "", "Returns the latest game log entries and writes them to a dated file.", WorldGroup),
 
         new("Broadcast", "<message>", "Shows a message in the middle of every player's screen.", ChatGroup),
         new("ServerChat", "<message>", "Sends a chat message to every player.", ChatGroup),
@@ -41,11 +37,15 @@ public static class RconCommandCatalog
         new("GetChat", "", "Returns the recent chat, the same lines the players see.", ChatGroup),
         new("SetMessageOfTheDay", "<message>", "Sets the message shown to players when they join.", ChatGroup),
 
-        new("SaveWorld", "", "Writes the world to disk now.", WorldGroup),
-        new("DoExit", "", "Saves and shuts the server down; the manager notices the exit.", WorldGroup),
-        new("DestroyWildDinos", "", "Removes every wild creature so they respawn; tames are untouched.", WorldGroup),
-        new("SetTimeOfDay", "<hh:mm[:ss]>", "Sets the in-game time of day.", WorldGroup),
-        new("GetGameLog", "", "Returns the latest game log entries and writes them to a dated file.", WorldGroup),
+        new("ListPlayers", "", "Lists connected players with their EOS ids.", PlayersGroup),
+        new("KickPlayer", "<EOS id>", "Disconnects a player; they can join again at once.", PlayersGroup),
+        new("AllowPlayerToJoinNoCheck", "<EOS id>", "Adds a player to the server's join whitelist; applies at once.", PlayersGroup),
+        new("DisallowPlayerToJoinNoCheck", "<EOS id>", "Removes a player from the server's join whitelist.", PlayersGroup),
+        new("RenamePlayer", "\"<current name>\" <new name>", "Renames a player's survivor.", PlayersGroup),
+        new("RenameTribe", "\"<tribe name>\" <new name>", "Renames a tribe.", PlayersGroup),
+        new("GetTribeIdPlayerList", "<tribe id>", "Lists the members of a tribe.", PlayersGroup),
+        new("BanPlayer", "<EOS id>", "Bans a player and disconnects them.", PlayersGroup, SharedBanListNote("Bans the player")),
+        new("UnbanPlayer", "<EOS id>", "Lifts a player's ban.", PlayersGroup, SharedBanListNote("Lifts the ban")),
     ];
 
     /// <summary>The game keeps one <c>BanList.txt</c> in the shared install, so a ban or unban reaches every instance.</summary>
@@ -53,7 +53,7 @@ public static class RconCommandCatalog
         $"{action} on every managed instance on this machine, not just this one: they all share one ban list.";
 
     /// <summary>Group names in the order the full list shows them.</summary>
-    public static IReadOnlyList<string> Groups { get; } = [PlayersGroup, ChatGroup, WorldGroup];
+    public static IReadOnlyList<string> Groups { get; } = [WorldGroup, ChatGroup, PlayersGroup];
 
     /// <summary>The entry named <paramref name="name"/>, ignoring case; null when it is not in the catalog.</summary>
     public static RconCommandInfo? Find(string name) =>

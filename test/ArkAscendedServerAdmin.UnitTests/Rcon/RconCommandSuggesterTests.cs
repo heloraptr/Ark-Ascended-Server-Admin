@@ -89,6 +89,9 @@ public sealed class RconCommandSuggesterTests
         // Listed group by group, so the browsed list needs no sorting.
         var groupOrder = all.Select(c => RconCommandCatalog.Groups.ToList().IndexOf(c.Group)).ToList();
         Assert.Equal(groupOrder.Order(), groupOrder);
+
+        Assert.Equal(["World and server", "Chat and messages", "Players"], RconCommandCatalog.Groups);
+        Assert.Equal(["BanPlayer", "UnbanPlayer"], all.TakeLast(2).Select(c => c.Name));
     }
 
     [Fact]

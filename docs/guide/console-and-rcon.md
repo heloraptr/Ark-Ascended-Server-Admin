@@ -62,8 +62,8 @@ moved to with the arrow keys) into the input, followed by a space when the comma
 and leaves the cursor in the input. Escape closes the list. Once you type a space after the name, the
 list gives way to a one-line reminder of that command's arguments.
 
-The book button at the right of the input opens the whole list, grouped into players, chat and
-messages, and world and server. It works while the server is stopped too, so you can look a command
+The book button at the right of the input opens the whole list, grouped into world and server,
+chat and messages, and players. It works while the server is stopped too, so you can look a command
 up before starting it.
 
 The list holds the commands most admins reach for, and only ones that work over RCON on ASA. Players
