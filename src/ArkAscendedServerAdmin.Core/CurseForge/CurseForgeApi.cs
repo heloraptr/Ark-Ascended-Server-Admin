@@ -2,7 +2,6 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using ArkAscendedServerAdmin.CurseForge.Models;
 using ArkAscendedServerAdmin.CurseForge.Models.Mods;
-using ArkAscendedServerAdmin.CurseForge.Models.Services;
 
 namespace ArkAscendedServerAdmin.CurseForge;
 
@@ -13,6 +12,12 @@ namespace ArkAscendedServerAdmin.CurseForge;
 public class CurseForgeApi(HttpClient http, ApiOptions options) : ICurseForgeApi
 {
     private const int PageSize = 50;
+
+    /// <summary>
+    /// The most results one search returns: two pages. A broad term can match thousands of mods, and walking
+    /// them all is many slow requests that CurseForge refuses past 10,000 anyway; a narrower term is the better fix.
+    /// </summary>
+    public const int MaxSearchResults = 2 * PageSize;
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -26,7 +31,7 @@ public class CurseForgeApi(HttpClient http, ApiOptions options) : ICurseForgeApi
         return (await GetListResponseAsync<Category>(res, cancellationToken)).Data;
     }
 
-    public async Task<List<Mod>> SearchModsAsync(string searchTerm, int? categoryId = null, CancellationToken cancellationToken = default)
+    public async Task<ModSearchResult> SearchModsAsync(string searchTerm, int? categoryId = null, CancellationToken cancellationToken = default)
     {
         var results = new List<Mod>();
         var encodedSearchTerm = Uri.EscapeDataString(searchTerm);
@@ -36,27 +41,33 @@ public class CurseForgeApi(HttpClient http, ApiOptions options) : ICurseForgeApi
             baseEndpoint += $"&categoryId={categoryId.Value}";
         }
 
-        var page = 0;
-        int totalCount;
-
-        do
+        var totalCount = 0;
+        while (results.Count < MaxSearchResults)
         {
             var endpoint = baseEndpoint;
-            if (page > 0)
+            if (results.Count > 0)
             {
-                endpoint += $"&index={page * PageSize}";
+                endpoint += $"&index={results.Count}";
             }
 
             using var res = await http.GetAsync(endpoint, cancellationToken);
             var response = await GetListResponseAsync<Mod>(res, cancellationToken);
             results.AddRange(response.Data);
-
             totalCount = response.Pagination?.TotalCount ?? results.Count;
-            page++;
-        }
-        while (results.Count < totalCount);
 
-        return results;
+            // An empty or short page means CurseForge has nothing further to give, whatever its total says.
+            if (response.Data.Count < PageSize || results.Count >= totalCount)
+            {
+                break;
+            }
+        }
+
+        if (results.Count > MaxSearchResults)
+        {
+            results.RemoveRange(MaxSearchResults, results.Count - MaxSearchResults);
+        }
+
+        return new ModSearchResult(results, totalCount);
     }
 
     public async Task<List<Mod>> GetModsAsync(IEnumerable<int> modIds, bool pcOnly = true, CancellationToken cancellationToken = default)

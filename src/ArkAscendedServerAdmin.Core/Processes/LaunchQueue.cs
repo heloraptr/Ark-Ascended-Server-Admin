@@ -66,7 +66,7 @@ public sealed class LaunchQueue : IDisposable
         if (cancellationToken.CanBeCanceled)
         {
             entry.CallerCancellation = cancellationToken.Register(
-                () => entry.TryComplete(OperationOutcome.Rejected("Launch cancelled before it started.")));
+                () => entry.TryComplete(OperationOutcome.Rejected("Launch canceled before it started.")));
         }
 
         lock (_sync)
@@ -153,7 +153,7 @@ public sealed class LaunchQueue : IDisposable
             }
 
             // Detach the caller's cancellation first (Dispose waits for an in-flight callback), so a
-            // launch that starts can no longer be reported as cancelled.
+            // launch that starts can no longer be reported as canceled.
             entry.CallerCancellation.Dispose();
             if (entry.Completion.Task.IsCompleted)
             {

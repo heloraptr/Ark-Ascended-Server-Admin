@@ -25,14 +25,18 @@
                 {
                     <Problems Items="@([_searchError])" />
                 }
-                @if (_hits is { Count: 0 })
+                @if (_search is { Hits.Count: 0 })
                 {
                     <p class="muted">Nothing matched.</p>
                 }
-                else if (_hits is { Count: > 0 })
+                else if (_search is { Hits.Count: > 0 })
                 {
+                    if (Presentation.SearchCutOff(_search) is { } cutOff)
+                    {
+                        <p class="muted">@cutOff</p>
+                    }
                     <div class="mod-grid">
-                        @foreach (var hit in _hits)
+                        @foreach (var hit in _search.Hits)
                         {
                             <div class="mod-card">
                                 <ModPageLink Url="@hit.WebsiteUrl" Name="@hit.Name" Class="is-thumb"><ModThumb Url="@hit.ThumbnailUrl" /></ModPageLink>
@@ -146,7 +150,7 @@
     private IReadOnlyList<ModLibraryView> _library = [];
     private IReadOnlyDictionary<int, ModUsage> _usage = new Dictionary<int, ModUsage>();
     private IReadOnlyDictionary<int, string> _mapMods = new Dictionary<int, string>();
-    private IReadOnlyList<ModSearchHit>? _hits;
+    private ModSearchHits? _search;
     private string? _searchError;
     private string? _term;
     private int? _addId;
@@ -172,7 +176,7 @@
         await GuardedAsync(async () =>
         {
             var result = await ModCommands.SearchAsync(_term ?? string.Empty);
-            _hits = result.Value;
+            _search = result.Value;
             _searchError = result.Error;
         });
     }

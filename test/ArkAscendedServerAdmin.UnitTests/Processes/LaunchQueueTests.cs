@@ -309,7 +309,7 @@ public class LaunchQueueTests
     }
 
     [Fact]
-    public async Task CancelledExclusiveWait_ReopensTheGate()
+    public async Task CanceledExclusiveWait_ReopensTheGate()
     {
         var gate = new MaintenanceGate();
         var shared = gate.TryAcquireShared();

@@ -89,9 +89,9 @@
             {
                 <RadzenTextBox @bind-Value="_term" @oninput="@((ChangeEventArgs e) => _term = e.Value?.ToString())" Placeholder="Search CurseForge, or paste a project id" aria-label="Search CurseForge, or paste a project id" Disabled="@(Busy || _working)" Style="min-width:300px" @onkeydown="@(async (KeyboardEventArgs e) => { if (e.Key == "Enter") { await LookupAsync(); } })" />
                 <RadzenButton Text="Look up" Icon="search" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Disabled="@(Busy || _working || string.IsNullOrWhiteSpace(_term))" title="A project id is added straight away; anything else searches CurseForge" Click="LookupAsync" />
-                @if (_hits is not null)
+                @if (_search is not null)
                 {
-                    <RadzenButton Text="Clear results" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="@(Busy || _working)" Click="() => _hits = null" />
+                    <RadzenButton Text="Clear results" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Disabled="@(Busy || _working)" Click="() => _search = null" />
                 }
             }
             else
@@ -109,14 +109,18 @@
         {
             <p class="hint muted" style="margin:6px 0 0">No CurseForge API key. Add one on the <a href="settings">Settings</a> page to search and to fetch names and thumbnails. Without it, add mods by their project id and give them a name yourself.</p>
         }
-        else if (_hits is { Count: 0 })
+        else if (_search is { Hits.Count: 0 })
         {
             <p class="muted" style="margin:6px 0 0">Nothing matched.</p>
         }
-        else if (_hits is { Count: > 0 })
+        else if (_search is { Hits.Count: > 0 })
         {
+            if (Presentation.SearchCutOff(_search) is { } cutOff)
+            {
+                <p class="muted" style="margin:6px 0 0">@cutOff</p>
+            }
             <div class="mod-grid">
-                @foreach (var hit in _hits)
+                @foreach (var hit in _search.Hits)
                 {
                     <div class="mod-card">
                         <ModPageLink Url="@hit.WebsiteUrl" Name="@hit.Name" Class="is-thumb"><ModThumb Url="@hit.ThumbnailUrl" /></ModPageLink>
@@ -167,7 +171,7 @@
     private string? _term;
     private int? _addId;
     private string? _addName;
-    private IReadOnlyList<ModSearchHit>? _hits;
+    private ModSearchHits? _search;
     private IReadOnlyList<string>? _addProblems;
     private DateTimeOffset _now = DateTimeOffset.UtcNow;
 
@@ -257,13 +261,13 @@
         }
 
         _addProblems = null;
-        _hits = null;
+        _search = null;
         await RunAsync(async () =>
         {
             var result = await ModCommands.SearchAsync(term);
             if (result.Succeeded)
             {
-                _hits = result.Value;
+                _search = result.Value;
                 _now = DateTimeOffset.UtcNow;
             }
             else

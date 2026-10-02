@@ -64,6 +64,11 @@ public sealed class ConfigCommands(
         await guard.EnsureAuthorizedAsync(cancellationToken);
 
         var problems = IniOverrideValidator.Validate(entry.Section, entry.Key, entry.Value);
+        if (!Enum.IsDefined(entry.File))
+        {
+            problems = [.. problems, $"Unknown ini file '{entry.File}'."];
+        }
+
         if (problems.Count > 0)
         {
             return CommandResult<ExtraOverride>.Fail(problems);
@@ -85,7 +90,7 @@ public sealed class ConfigCommands(
             return CommandResult<ExtraOverride>.Fail($"An override for [{section}] {key} in {entry.File}.ini already exists; edit that one instead.");
         }
 
-        ExtraOverride row;
+        ExtraOverride? row;
         if (entry.Id == 0)
         {
             row = new ExtraOverride { InstanceId = entry.InstanceId, File = entry.File, Section = section, Key = key, Value = entry.Value.Trim() };
@@ -93,8 +98,13 @@ public sealed class ConfigCommands(
         }
         else
         {
-            row = await db.ExtraOverrides.SingleOrDefaultAsync(o => o.Id == entry.Id, cancellationToken)
-                ?? throw new InvalidOperationException("The override was deleted while you were editing it.");
+            // Matched on the instance as well as the id, so an edit can never land on another instance's override.
+            row = await db.ExtraOverrides.SingleOrDefaultAsync(o => o.Id == entry.Id && o.InstanceId == entry.InstanceId, cancellationToken);
+            if (row is null)
+            {
+                return CommandResult<ExtraOverride>.Fail("The override was deleted while you were editing it.");
+            }
+
             row.File = entry.File;
             row.Section = section;
             row.Key = key;

@@ -1,15 +1,24 @@
 @page "/Error"
+@layout LoginLayout
 @attribute [AllowAnonymous]
 @using System.Diagnostics
 @using Microsoft.AspNetCore.Http
 
-<PageHead Title="Something went wrong" Lead="The request could not be completed. The service log has the details." />
-
-@if (ShowRequestId)
-{
-    <p class="muted">Request id <code>@RequestId</code></p>
-}
-<RadzenButton Text="Back to instances" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Click="@(() => Navigation.NavigateTo("", forceLoad: true))" />
+@* The sign-in layout, not the main one: this page is anonymous, so it must not show the version, readiness,
+   instance count or maintenance state that the main layout's header and rail carry. *@
+<div class="ark-gate-card">
+    <div class="ark-panel">
+        <div class="horizon"></div>
+        <div class="ark-panel-body">
+            <PageHead Title="Something went wrong" Lead="The request could not be completed. The service log has the details." />
+            @if (ShowRequestId)
+            {
+                <p class="muted">Request id <code>@RequestId</code></p>
+            }
+            <RadzenButton Text="Back to instances" Variant="Variant.Outlined" ButtonStyle="ButtonStyle.Base" Click="@(() => Navigation.NavigateTo("", forceLoad: true))" />
+        </div>
+    </div>
+</div>
 
 @code {
     [Inject]

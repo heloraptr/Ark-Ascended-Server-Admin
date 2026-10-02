@@ -1,7 +1,7 @@
 using ArkAscendedServerAdmin.Auth;
 using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Configuration;
-using ArkAscendedServerAdmin.CurseForge.Models.Services;
+using ArkAscendedServerAdmin.CurseForge;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Backups;
 using ArkAscendedServerAdmin.Infrastructure.Data;
@@ -59,12 +59,13 @@ internal sealed class CommandTestHost : IDisposable
         InstallChecker = Substitute.For<IGameInstallChecker>();
         Firewall = new FakeFirewall();
         HostAddresses = new FakeHostAddressProvider();
+        Jobs = new DetachedJobs(Clock);
 
         RconOperations = new RconOperations(Root, Settings, ProcessManager, GeneratedConfig, Rcon, Console, Clock);
         Instances = new InstanceCommands(
-            Guard, Root, Root.Layout, Host, Settings, ProcessManager, Locks, Journals, Backups, DeleteService, LayoutService, IniStore,
+            Guard, Root, Root.Layout, Host, Settings, ProcessManager, Locks, Journals, Backups, DeleteService, LayoutService, IniStore, new IniSeeder(IniStore),
             RconOperations, Firewall, HostAddresses, Clock, NullLogger<InstanceCommands>.Instance);
-        Clusters = new ClusterCommands(Guard, Root, Root.Layout, Instances, Locks, Journals, Clock, NullLogger<ClusterCommands>.Instance);
+        Clusters = new ClusterCommands(Guard, Root, Root.Layout, new IniSeeder(IniStore), Locks, Journals, Clock, NullLogger<ClusterCommands>.Instance);
         Config = new ConfigCommands(Guard, Root, IniStore, NullLogger<ConfigCommands>.Instance);
         Refresher = new ModMetadataRefresher(Root, Settings, CurseForge, NullLogger<ModMetadataRefresher>.Instance);
         Mods = new ModCommands(Guard, Root, Settings, CurseForge, Refresher, Clock, NullLogger<ModCommands>.Instance);
@@ -72,7 +73,7 @@ internal sealed class CommandTestHost : IDisposable
         Players = new PlayerCommands(Guard, Root, Settings, ProcessManager, GeneratedConfig, Rcon, RconOperations, Tracker, Clock, NullLogger<PlayerCommands>.Instance);
         Maps = new MapCommands(Guard, Root, Mods);
         SettingsCommands = new SettingsCommands(Guard, Settings, Exporter, Root.Layout, Host, Clock);
-        Maintenance = new MaintenanceCommands(Guard, StartupControl, UpdateService, Recovery, InstallChecker, NullLogger<MaintenanceCommands>.Instance);
+        Maintenance = new MaintenanceCommands(Guard, StartupControl, UpdateService, Recovery, InstallChecker, Jobs, NullLogger<MaintenanceCommands>.Instance);
     }
 
     public TempDataRoot Root { get; }
@@ -114,6 +115,8 @@ internal sealed class CommandTestHost : IDisposable
     public IStartupControl StartupControl { get; }
 
     public IUpdateService UpdateService { get; }
+
+    public DetachedJobs Jobs { get; }
 
     public IMaintenanceRecovery Recovery { get; }
 

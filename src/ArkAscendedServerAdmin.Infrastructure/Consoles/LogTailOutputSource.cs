@@ -23,7 +23,7 @@ public sealed class LogTailOutputSource(string logPath, TimeProvider timeProvide
 
     public string LogPath { get; } = logPath ?? throw new ArgumentNullException(nameof(logPath));
 
-    /// <summary>Runs until cancelled and then returns normally (it does not throw <see cref="OperationCanceledException"/>).</summary>
+    /// <summary>Runs until canceled and then returns normally (it does not throw <see cref="OperationCanceledException"/>).</summary>
     public async Task RunAsync(OutputSourceOptions options, Func<OutputLine, ValueTask> onLine, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);

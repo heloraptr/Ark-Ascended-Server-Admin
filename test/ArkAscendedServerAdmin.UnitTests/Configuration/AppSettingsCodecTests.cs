@@ -123,6 +123,26 @@ public class AppSettingsCodecTests
         Assert.StartsWith("PublicAddress", Assert.Single(errors), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("0002abc")]
+    [InlineData("  0002abc \r\n\r\n0002def\n")]
+    public void Validate_AcceptsAWhitelistOfTrimmedIdsAndBlankLines(string whitelist)
+    {
+        Assert.Empty(new AppSettings { AdminWhitelist = whitelist }.Validate());
+    }
+
+    [Theory]
+    [InlineData("abc def")]
+    [InlineData("0002abc\r\nabc\tdef")]
+    public void Validate_RejectsAWhitelistLineWithInnerWhitespace(string whitelist)
+    {
+        var errors = new AppSettings { AdminWhitelist = whitelist }.Validate();
+
+        Assert.Equal(AdminWhitelistText.InvalidLineError, Assert.Single(errors));
+        Assert.Equal("AdminWhitelist must hold one id per line with no spaces.", AdminWhitelistText.InvalidLineError);
+    }
+
     [Fact]
     public void Validate_RejectsAnOverlongPublicAddress()
     {

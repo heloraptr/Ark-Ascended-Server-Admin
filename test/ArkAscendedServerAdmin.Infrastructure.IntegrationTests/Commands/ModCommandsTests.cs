@@ -1,6 +1,9 @@
 using System.Net;
 using ArkAscendedServerAdmin.Auth;
 using ArkAscendedServerAdmin.Commands;
+using ArkAscendedServerAdmin.Components.Shared;
+using ArkAscendedServerAdmin.CurseForge;
+using ArkAscendedServerAdmin.CurseForge.Models;
 using ArkAscendedServerAdmin.CurseForge.Models.Mods;
 using ArkAscendedServerAdmin.Server.Commands;
 using Microsoft.EntityFrameworkCore;
@@ -103,18 +106,39 @@ public class ModCommandsTests
         var ct = TestContext.Current.CancellationToken;
         using var host = await StartAsync(ct, withApiKey: true);
         await host.AddLibraryModAsync(2, "Already here", ct);
-        host.CurseForge.SearchModsAsync("dino", Arg.Any<int?>(), Arg.Any<CancellationToken>()).Returns([ApiMod(1, "One", thumbnail: string.Empty, website: "javascript:alert(1)"), ApiMod(2, "Two", website: TwoPage)]);
+        host.CurseForge.SearchModsAsync("dino", Arg.Any<int?>(), Arg.Any<CancellationToken>()).Returns(new ModSearchResult([ApiMod(1, "One", thumbnail: string.Empty, website: "javascript:alert(1)"), ApiMod(2, "Two", website: TwoPage)], 2));
 
         var blank = await host.Mods.SearchAsync("   ", ct);
         var hits = await host.Mods.SearchAsync(" dino ", ct);
 
         Assert.True(blank.Succeeded);
-        Assert.Empty(blank.Value!);
+        Assert.Empty(blank.Value!.Hits);
+        Assert.False(blank.Value.IsTruncated);
         Assert.True(hits.Succeeded, hits.Error);
-        Assert.Equal(2, hits.Value!.Count);
-        Assert.Equal(new ModSearchHit(1, "One", "About it", null, "Author", new DateTimeOffset(Modified), 1234, false, null), hits.Value[0]);
-        Assert.Equal(new ModSearchHit(2, "Two", "About it", "https://cdn/thumb.png", "Author", new DateTimeOffset(Modified), 1234, true, TwoPage), hits.Value[1]);
+        Assert.Equal(2, hits.Value!.Hits.Count);
+        Assert.Equal(2, hits.Value.TotalCount);
+        Assert.False(hits.Value.IsTruncated);
+        Assert.Equal(new ModSearchHit(1, "One", "About it", null, "Author", new DateTimeOffset(Modified), 1234, false, null), hits.Value.Hits[0]);
+        Assert.Equal(new ModSearchHit(2, "Two", "About it", "https://cdn/thumb.png", "Author", new DateTimeOffset(Modified), 1234, true, TwoPage), hits.Value.Hits[1]);
         await host.CurseForge.Received(1).SearchModsAsync("dino", Arg.Any<int?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Search_PassesCurseForgesTotalThrough_AndFlagsACutOffList()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var host = await StartAsync(ct, withApiKey: true);
+        var capped = Enumerable.Range(1, CurseForgeApi.MaxSearchResults).Select(id => ApiMod(id, $"Mod {id}")).ToList();
+        host.CurseForge.SearchModsAsync("broad", Arg.Any<int?>(), Arg.Any<CancellationToken>()).Returns(new ModSearchResult(capped, 2340));
+
+        var result = await host.Mods.SearchAsync("broad", ct);
+
+        Assert.True(result.Succeeded, result.Error);
+        Assert.Equal(CurseForgeApi.MaxSearchResults, result.Value!.Hits.Count);
+        Assert.Equal(2340, result.Value.TotalCount);
+        Assert.True(result.Value.IsTruncated);
+        Assert.Equal("Showing the first 100 of 2,340 matches. Refine the search to narrow it down.", Presentation.SearchCutOff(result.Value));
+        Assert.Null(Presentation.SearchCutOff(new ModSearchHits(result.Value.Hits, CurseForgeApi.MaxSearchResults)));
     }
 
     [Fact]
@@ -123,9 +147,9 @@ public class ModCommandsTests
         var ct = TestContext.Current.CancellationToken;
         using var host = await StartAsync(ct, withApiKey: true);
         host.CurseForge.SearchModsAsync("forbidden", Arg.Any<int?>(), Arg.Any<CancellationToken>())
-            .Returns<Task<List<Mod>>>(_ => throw new HttpRequestException("403", null, HttpStatusCode.Forbidden));
+            .Returns<Task<ModSearchResult>>(_ => throw new HttpRequestException("403", null, HttpStatusCode.Forbidden));
         host.CurseForge.SearchModsAsync("down", Arg.Any<int?>(), Arg.Any<CancellationToken>())
-            .Returns<Task<List<Mod>>>(_ => throw new HttpRequestException("No such host is known."));
+            .Returns<Task<ModSearchResult>>(_ => throw new HttpRequestException("No such host is known."));
 
         var forbidden = await host.Mods.SearchAsync("forbidden", ct);
         var down = await host.Mods.SearchAsync("down", ct);

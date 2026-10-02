@@ -40,6 +40,9 @@ public interface IUpdateService
 {
     MaintenanceSnapshot Current { get; }
 
+    /// <summary>True while an update or recovery holds the maintenance operation lock.</summary>
+    bool IsOperationInProgress { get; }
+
     /// <summary>Raised on a background thread whenever the persisted state changes.</summary>
     event Action<MaintenanceSnapshot>? Changed;
 

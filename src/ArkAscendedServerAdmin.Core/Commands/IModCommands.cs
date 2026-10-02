@@ -18,6 +18,17 @@ public sealed record ModSearchHit(
     string? WebsiteUrl);
 
 /// <summary>
+/// The hits for one search and how many mods CurseForge said matched. Every fetched mod becomes a hit, so a
+/// total above the hit count means the search stopped at its cap rather than running out of matches.
+/// </summary>
+public sealed record ModSearchHits(IReadOnlyList<ModSearchHit> Hits, int TotalCount)
+{
+    public static ModSearchHits None { get; } = new([], 0);
+
+    public bool IsTruncated => TotalCount > Hits.Count;
+}
+
+/// <summary>
 /// One library row as the Mods page reads it: the entry plus the mod badge (B8), which is set when the mod
 /// was modified after the last launch of at least one instance that loads it.
 /// </summary>
@@ -42,7 +53,7 @@ public interface IModCommands
 
     Task<bool> IsApiKeyConfiguredAsync(CancellationToken cancellationToken = default);
 
-    Task<CommandResult<IReadOnlyList<ModSearchHit>>> SearchAsync(string searchTerm, CancellationToken cancellationToken = default);
+    Task<CommandResult<ModSearchHits>> SearchAsync(string searchTerm, CancellationToken cancellationToken = default);
 
     /// <summary>Adds by CurseForge id, fetching name, summary, and thumbnail through the API.</summary>
     Task<CommandResult<ModLibraryEntry>> AddAsync(int modId, CancellationToken cancellationToken = default);

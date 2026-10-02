@@ -184,7 +184,7 @@
         _problems = null;
     }
 
-    // The builder comes first; a cancelled dialog adds nothing.
+    // The builder comes first; a canceled dialog adds nothing.
     private async Task AddAsync()
     {
         if (await PickAsync("Add action", DefaultCron) is { } cron)

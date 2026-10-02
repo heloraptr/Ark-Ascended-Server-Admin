@@ -1,7 +1,7 @@
 using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Consoles;
-using ArkAscendedServerAdmin.CurseForge.Models.Services;
+using ArkAscendedServerAdmin.CurseForge;
 using ArkAscendedServerAdmin.Infrastructure.Install;
 using ArkAscendedServerAdmin.Infrastructure.Mods;
 using ArkAscendedServerAdmin.Infrastructure.Scheduling;

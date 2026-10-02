@@ -36,7 +36,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(layout);
 
         services.AddDbContextFactory<AppDbContext>(options =>
-            options.UseSqlite($"Data Source={layout.DatabasePath}"));
+            options.UseSqlite(SqliteConnectionStrings.ForFile(layout.DatabasePath)));
         services.AddSingleton<DatabaseInitializer>();
         services.AddSingleton<IAppSettingsStore, AppSettingsStore>();
         services.AddSingleton<IConfigBackupExporter, SqliteConfigBackupExporter>();

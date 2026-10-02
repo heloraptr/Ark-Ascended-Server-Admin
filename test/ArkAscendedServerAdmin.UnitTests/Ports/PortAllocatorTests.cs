@@ -236,12 +236,14 @@ public class PortAllocatorTests
     }
 
     [Fact]
-    public void FindConflicts_ExcludesSelfByName_IgnoringCase()
+    public void FindConflicts_CountsAnOwnerWithTheSameName_BecauseCallersExcludeSelfById()
     {
         var candidate = new PortOwner("Island", 7777, 27020);
-        var others = new[] { new PortOwner("island", 7777, 27020), new PortOwner("Center", 7779, 27021) };
+        var namesake = new[] { new PortOwner("island", 7777, 27020), new PortOwner("Center", 7779, 27021) };
+        var selfLeftOut = new[] { new PortOwner("Center", 7779, 27021) };
 
-        Assert.Empty(Defaults().FindConflicts(candidate, others, HostPort));
+        Assert.Equal([7777, 7778, 27020], Defaults().FindConflicts(candidate, namesake, HostPort).Select(c => c.Port));
+        Assert.Empty(Defaults().FindConflicts(candidate, selfLeftOut, HostPort));
     }
 
     [Fact]

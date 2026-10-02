@@ -1,6 +1,7 @@
 using ArkAscendedServerAdmin.Auth;
 using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Commands;
+using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Ini;
 using ArkAscendedServerAdmin.Provisioning;
@@ -227,6 +228,22 @@ public class ClusterCommandsTests
             Assert.Equal("alpha", cluster.Slug);
             Assert.Equal("mykey", cluster.ClusterKey);
             Assert.Equal("x\r\ny", cluster.AdminWhitelist);
+        }
+    }
+
+    [Fact]
+    public async Task Save_RefusesAWhitelistLineWithInnerWhitespace()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (host, _) = await StartAsync(ct);
+        using (host)
+        {
+            var created = await host.Clusters.CreateAsync("Alpha", ConfigSourceKind.Blank, null, ct);
+
+            var result = await host.Clusters.SaveAsync(created.Value, new ClusterEdit("Alpha", "alpha", "x\nabc def"), ct);
+
+            Assert.Equal(AdminWhitelistText.InvalidLineError, result.Error);
+            Assert.Equal(string.Empty, (await host.ClusterAsync(created.Value, ct)).AdminWhitelist);
         }
     }
 

@@ -130,7 +130,7 @@ public sealed record LaunchPreview(string CommandLine, IReadOnlyList<string> War
 /// <param name="RconPort">The TCP RCON port; shown for reference, never part of an <c>open</c> string.</param>
 /// <param name="LanAddresses">The box's non-loopback IPv4 addresses on interfaces that are up, in interface order; may be empty.</param>
 /// <param name="PublicAddress"><see cref="Configuration.AppSettings.PublicAddress"/>, trimmed; empty when not set.</param>
-/// <param name="FirewallRuleName">The name the app gives the instance's inbound rules, <c>ArkAscendedServerAdmin-&lt;id&gt;</c>.</param>
+/// <param name="FirewallRuleName">The name the app gives the instance's inbound rules, <c>ArkAscendedServerAdmin-&lt;tag&gt;-&lt;id&gt;</c>.</param>
 /// <param name="FirewallRuleExists">True or false when the firewall answered; null when it could not be read.</param>
 public sealed record ConnectionView(
     int GamePort,

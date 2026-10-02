@@ -56,8 +56,8 @@ public sealed class SteamCmdRunner(
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            Warn("SteamCMD run cancelled.");
-            return SteamCmdResult.Failure(NoExitCode, "SteamCMD run cancelled.");
+            Warn("SteamCMD run canceled.");
+            return SteamCmdResult.Failure(NoExitCode, "SteamCMD run canceled.");
         }
         finally
         {

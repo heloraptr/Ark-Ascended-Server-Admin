@@ -21,17 +21,22 @@ public sealed class SqliteConfigBackupExporter(IDbContextFactory<AppDbContext> c
         await connection.OpenAsync(cancellationToken);
 
         var temp = destinationPath + ".tmp";
+        var tempConnectionString = SqliteConnectionStrings.ForFile(temp);
         File.Delete(temp);
         try
         {
-            await using (var target = new SqliteConnection($"Data Source={temp}"))
+            await using (var target = new SqliteConnection(tempConnectionString))
             {
                 await target.OpenAsync(cancellationToken);
                 connection.BackupDatabase(target);
             }
 
             // Release the pooled handle so the temp file can be renamed on Windows.
-            SqliteConnection.ClearPool(new SqliteConnection($"Data Source={temp}"));
+            using (var pooled = new SqliteConnection(tempConnectionString))
+            {
+                SqliteConnection.ClearPool(pooled);
+            }
+
             File.Move(temp, destinationPath, overwrite: true);
         }
         catch
