@@ -288,6 +288,14 @@ else
                         <label for="s-keep">Backups to keep</label>
                         <RadzenNumeric TValue="int?" id="s-keep" @bind-Value="_edit.BackupRetention" Min="1" Max="1000" Placeholder="default from Settings" ShowUpDown="false" />
                     </div>
+                    <div class="field">
+                        <label>Crash recovery</label>
+                        <div class="check-row">
+                            <RadzenCheckBox TValue="bool" @bind-Value="_edit.AutoRestart" Name="s-auto-restart" />
+                            <label for="s-auto-restart">Restart automatically after an unexpected exit</label>
+                        </div>
+                        <span class="hint">After three automatic restarts in a row that each end within 10 minutes, the manager stops trying and shows Crashed.</span>
+                    </div>
                     @if (instance.Cluster is not null)
                     {
                         <div class="field">

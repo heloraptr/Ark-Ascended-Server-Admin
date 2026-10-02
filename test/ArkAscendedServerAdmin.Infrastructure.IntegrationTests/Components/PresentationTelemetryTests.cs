@@ -41,6 +41,18 @@ public class PresentationTelemetryTests
         Assert.False(runtime.HasLiveProcess);
     }
 
+    [Theory]
+    [InlineData(0, "Crashed")]
+    [InlineData(1, "Crashed · 1 restart")]
+    [InlineData(3, "Crashed · 3 restarts")]
+    public void CrashedLabel_CarriesTheAutomaticRestartCount(int restarts, string expected)
+    {
+        var runtime = new InstanceRuntime(1, InstanceState.Crashed, null, null, null, null, null, AutoRestarts: restarts);
+
+        Assert.Equal(expected, Presentation.Label(runtime));
+        Assert.Equal("Stopped", Presentation.Label(runtime with { State = InstanceState.Stopped }));
+    }
+
     [Fact]
     public void Telemetry_IsTheRamAndCpuLine()
     {

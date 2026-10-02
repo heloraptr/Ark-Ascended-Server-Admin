@@ -19,6 +19,11 @@ public static class Presentation
         _ => "st-bad",
     };
 
+    /// <summary>The label with the count of automatic restarts that were tried, e.g. "Crashed · 3 restarts".</summary>
+    public static string Label(InstanceRuntime runtime) => runtime.State == InstanceState.Crashed && runtime.AutoRestarts > 0
+        ? $"{Label(runtime.State)} · {runtime.AutoRestarts.ToString(CultureInfo.InvariantCulture)} {(runtime.AutoRestarts == 1 ? "restart" : "restarts")}"
+        : Label(runtime.State);
+
     public static bool IsHollow(InstanceState state) => state == InstanceState.Stopped;
 
     public static string Label(InstanceState state) => state switch
