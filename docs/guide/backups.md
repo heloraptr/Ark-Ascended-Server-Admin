@@ -144,7 +144,7 @@ runs first, countdown included, and the restore begins once the process has exit
 What a restore does, in order:
 
 1. Takes the instance lock (with cluster data: reserves the cluster, then takes every member's
-   lock) and checks that every affected instance is **Stopped**. A running sibling or an operation
+   lock) and checks that every affected instance is **Stopped** (a **Crashed** instance counts as stopped). A running sibling or an operation
    in progress refuses the restore before anything is touched.
 2. Copies the current world folder (and the cluster folder) whole to
    `DataRoot\Backups\<slug>\_restore-safety\<timestamp>-<n>\`. The last three safety copies per

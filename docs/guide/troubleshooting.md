@@ -68,6 +68,10 @@ returns to **Stopped**. The cause is in `ShooterGame.log` above that line: a mod
 download, a map key the server does not know, an INI value it rejects. Read the console tail, or
 the file at `DataRoot\Instances\<slug>\ShooterGame\Saved\Logs\ShooterGame.log`.
 
+If the instance has **Restart automatically after an unexpected exit** on, the manager relaunches it
+up to three times in a row, and the console says so. When all three end within 10 minutes the row
+shows **Crashed** with a restart count and stays that way; fix the cause from the log, then press **Start**.
+
 **Starting, unconfirmed** ("Alive for over 10 minutes without answering RCON."): the process runs
 but RCON never answered. The password in the generated `GameUserSettings.ini` or the RCON port is
 wrong, or the map is still loading on a slow disk. Check the console for the startup markers
