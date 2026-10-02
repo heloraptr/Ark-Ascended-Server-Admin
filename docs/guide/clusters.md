@@ -86,6 +86,8 @@ member at its next start.`
 | **Settings** | **Cluster name** (`The folder stays Clusters\<slug>.`), **Cluster id** (`Passed as -clusterid; every member must share it for transfers to work. Changing it strands existing transfers.`), **Admin whitelist** (`Merged with the Settings list and each member's own list at start.`). **Save settings**, **Reset**. |
 | **Schedule** | `Every member runs these unless it ignores the cluster's schedule on its Settings tab.` The same editor as an instance's, and the history across the members, each run naming its member ([instances.md](instances.md#scheduled-actions)). |
 
+![A cluster's Settings tab: name, cluster id, and admin whitelist](../images/cluster-settings.png)
+
 ## Members, and why you cannot move one
 
 Membership is chosen on the wizard's **Cluster** step and cannot be changed afterwards: the

@@ -18,6 +18,8 @@ works is in SQLite, where the UI can edit it. Every path in the database is rela
 
 ## App Settings
 
+![The top of the Settings page: starting and stopping, ports, connection, and backups](../images/settings.png)
+
 | Section | Field | Default | Range or rule |
 |---|---|---|---|
 | Starting and stopping | **Stagger between launches, seconds** | 30 | 0 to 3600 |
@@ -66,6 +68,8 @@ key on your own box and it is only ever sent to CurseForge; the folders that hol
 its copies are locked down by the installer instead.
 
 ## Host
+
+![The lower part of the Settings page: the read-only host values, the config export, and the INI restore](../images/settings-export.png)
 
 "From appsettings.json; edit the file and restart the service to change these."
 

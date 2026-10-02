@@ -24,6 +24,8 @@ having two places to set `ServerPVE` guarantees they disagree one day.
 
 ## The flags editor
 
+![A cluster's Launch tab: each flag set to Default, On, or Off, with the resulting argument under it](../images/launch.png)
+
 On the instance page, **Launch** tab; on the cluster page, **Launch** tab. The top line reminds you:
 `Every start also passes -log -servergamelog; the console depends on the log they produce, so they
 are not optional.`
@@ -76,6 +78,8 @@ overridden but concatenated: the cluster's text first, then the member's, joined
 A standalone instance has no base; **Default** is the flag's own default.
 
 ## The command-line preview
+
+![An instance's Launch tab scrolled to the preview of the command line a start would run](../images/instance-launch-preview.png)
 
 Under the editor on the instance page, **What a start would run** with a **Refresh** button shows the
 exact line, prefixed `ArkAscendedServer.exe`, that the next **Start** would pass. It is rebuilt after
