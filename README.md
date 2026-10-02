@@ -42,10 +42,10 @@ never mix. On top of that:
 
 | | |
 |---|---|
-| ![An instance's console, showing the game log and the list of RCON commands](docs/images/console.png) | ![A cluster's mod list, in load order](docs/images/cluster-mods.png) |
 | The live game log, with the RCON command list open. | Mods set on a cluster apply to every member. |
-| ![The mod library, with thumbnails and where each mod is used](docs/images/mods-library.png) | ![CurseForge search results for "spyglass"](docs/images/mods-search.png) |
+| ![An instance's console, showing the game log and the list of RCON commands](docs/images/console.png) | ![A cluster's mod list, in load order](docs/images/cluster-mods.png) |
 | The mod library and where each mod is in use. | Searching CurseForge from the Mods page. |
+| ![The mod library, with thumbnails and where each mod is used](docs/images/mods-library.png) | ![CurseForge search results for "spyglass"](docs/images/mods-search.png) |
 
 ## What it does not do
 
