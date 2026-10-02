@@ -70,6 +70,8 @@ cluster when you want players to travel between maps.`
 
 ## The cluster page
 
+![A cluster page on the Members tab, one member running and one stopped](../images/cluster.png)
+
 Header: the name, `cluster id <id> · 2 members · 1 mod`, **Start all**, **Stop all** (each acts on
 the members that are eligible), and a delete icon that is disabled while the cluster has members.
 While any member runs, a notice says `Members are running. INI, mod, and launch changes apply to each
@@ -83,6 +85,8 @@ member at its next start.`
 | **Launch** | `The base every member starts from; a member can override each flag.` The flags editor with **Default** / **On** / **Off** per flag ([launch-options.md](launch-options.md)). |
 | **Settings** | **Cluster name** (`The folder stays Clusters\<slug>.`), **Cluster id** (`Passed as -clusterid; every member must share it for transfers to work. Changing it strands existing transfers.`), **Admin whitelist** (`Merged with the Settings list and each member's own list at start.`). **Save settings**, **Reset**. |
 | **Schedule** | `Every member runs these unless it ignores the cluster's schedule on its Settings tab.` The same editor as an instance's, and the history across the members, each run naming its member ([instances.md](instances.md#scheduled-actions)). |
+
+![A cluster's Settings tab: name, cluster id, and admin whitelist](../images/cluster-settings.png)
 
 ## Members, and why you cannot move one
 

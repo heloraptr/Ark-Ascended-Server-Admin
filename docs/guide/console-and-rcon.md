@@ -50,6 +50,8 @@ same tail ([players-and-whitelists.md](players-and-whitelists.md)).
 
 ## Sending a command
 
+![The console with the game log above and the RCON command list open over the input](../images/console.png)
+
 The input is enabled only while the instance has a live process (`Start the instance to send
 commands` otherwise). Type a command, press Enter or **Send**. The command is echoed as `> ListPlayers`,
 the reply follows line by line, or `(no reply)`. Anything the game's RCON accepts goes through

@@ -17,6 +17,8 @@ one at a time through the stagger queue.
 
 ## The page
 
+![The Update page after a run: the installed build, the last run's outcome, the verify switch, and the SteamCMD console](../images/update.png)
+
 Open **Update game** from the bottom of the sidebar (the button is disabled until the service is
 **Ready**) or go to `/update`. The panel shows:
 
@@ -80,6 +82,8 @@ Once every entry is done, the manager enumerates processes and refuses if any
 under the data root (*path* (PID *n*)); stop it before updating."
 
 ### Updating
+
+![The Update page while SteamCMD verifies the install: the progress bar at 66 percent and the live SteamCMD output](../images/update-running.png)
 
 The console reads "Running SteamCMD app_update 2430930 [validate]; installed build
 *X*." SteamCMD is downloaded and extracted to `DataRoot\SteamCMD` if `steamcmd.exe` is missing,

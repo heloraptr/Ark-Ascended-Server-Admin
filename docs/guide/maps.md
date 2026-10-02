@@ -7,6 +7,8 @@ official or custom, is a row on this page, not a new release of the manager.
 
 ## The map list
 
+![The Maps page, listing each map's key, type, release date, and how many instances use it](../images/maps.png)
+
 The columns are **Name**, **Key**, **Type** (`Official - Story`, `Official - Non-Canon`, or
 `Custom/Mod`, with "mod id *N*" under a custom map), **Released**, **Used by** (*N* instances), and
 edit and delete buttons. Delete is disabled with the tooltip "In use" while any instance runs the

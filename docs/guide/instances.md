@@ -12,6 +12,8 @@ wizard, described step by step in [instance-creation.md](../instance-creation.md
 
 ## The dashboard
 
+![The Instances page, with servers grouped by cluster and one of them running](../images/instances.png)
+
 The lead line reads `Every server this box runs, grouped by cluster.` or, once you have some,
 `2 instances running of 3.` **New instance** opens the wizard. With no instances the page shows
 `No instances yet.` and **Create the first instance**.
@@ -175,6 +177,8 @@ preview finds a problem while the instance is stopped.
 
 ## Connection
 
+![An instance's Settings tab with the Connection card at the bottom](../images/instance-settings.png)
+
 The **Connection** card at the bottom of the Settings tab answers "what do I tell people to type?".
 It sits there because everything on it follows from that tab's ports, and it is rebuilt whenever
 those ports are saved. **Refresh** rebuilds it on demand.
@@ -214,6 +218,8 @@ toast; the text is selectable either way.
 
 ## Scheduled actions
 
+![A cluster's Schedule tab with one action: wipe wild dinos at 03:00 with a 10 minute warning](../images/schedule.png)
+
 The **Schedule** tab runs actions on a schedule. A row is a schedule, an action, and an **Enabled**
 box; **Save schedule** writes the whole list, and a row that is not enabled stays listed but never
 runs.
@@ -246,6 +252,8 @@ A cluster member runs its cluster's rows as well as its own. They appear in the 
 locked, with `Comes from the cluster; change it on the cluster page.` on hover. Tick
 **Ignore the cluster's schedule** on the Settings tab and save it to run only the instance's own
 rows; the locked rows disappear from the list ([clusters.md](clusters.md#the-cluster-page)).
+
+![A cluster member's Schedule tab, with the cluster's row shown locked](../images/instance-schedule.png)
 
 One action runs on an instance at a time. The **History** box under the editor holds the last 200
 runs across the rows, newest first, and scrolls once it is full: when the run was scheduled for,
