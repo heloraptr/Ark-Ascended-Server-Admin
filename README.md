@@ -6,6 +6,8 @@ in to start, stop, update, or back up your servers.
 
 Built for one owner running a handful of servers, clustered or standalone, on one machine.
 
+![The Instances page: servers grouped by cluster, with state, ports, memory use, and the last backup](docs/images/instances.png)
+
 This is a personal project I run for my own servers. Issues are read; fixes and features land when I
 have the time and bandwidth. No schedule, no guarantees.
 
@@ -37,6 +39,13 @@ never mix. On top of that:
 - Mods come from CurseForge (search with an API key, or add by id). Players are recorded from the
   game log as they join and leave, with an on-demand `ListPlayers` per instance. There are custom
   maps too, and a config export of the database.
+
+| | |
+|---|---|
+| The live game log, with the RCON command list open. | Mods set on a cluster apply to every member. |
+| ![An instance's console, showing the game log and the list of RCON commands](docs/images/console.png) | ![A cluster's mod list, in load order](docs/images/cluster-mods.png) |
+| The mod library and where each mod is in use. | Searching CurseForge from the Mods page. |
+| ![The mod library, with thumbnails and where each mod is used](docs/images/mods-library.png) | ![CurseForge search results for "spyglass"](docs/images/mods-search.png) |
 
 ## What it does not do
 
