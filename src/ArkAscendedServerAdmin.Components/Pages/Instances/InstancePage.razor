@@ -473,6 +473,7 @@ else
         public int? BackupIntervalMinutes { get; set; }
         public int? BackupRetention { get; set; }
         public bool OverridesClusterSchedule { get; set; }
+        public bool AutoRestart { get; set; }
     }
 
     private InstanceDetail? _detail;
@@ -617,6 +618,7 @@ else
             BackupIntervalMinutes = i.BackupIntervalMinutes,
             BackupRetention = i.BackupRetention,
             OverridesClusterSchedule = i.OverridesClusterSchedule,
+            AutoRestart = i.AutoRestart,
         };
         _settingsProblems = null;
     }
@@ -857,7 +859,7 @@ else
     {
         await GuardedAsync(async () =>
         {
-            var result = await Instances.SaveAsync(Id, new InstanceEdit(_edit.Name, _edit.SessionName, _edit.MaxPlayers, _edit.GamePort, _edit.RconPort, _edit.AdminWhitelist, _edit.BackupIntervalMinutes, _edit.BackupRetention, _edit.OverridesClusterSchedule));
+            var result = await Instances.SaveAsync(Id, new InstanceEdit(_edit.Name, _edit.SessionName, _edit.MaxPlayers, _edit.GamePort, _edit.RconPort, _edit.AdminWhitelist, _edit.BackupIntervalMinutes, _edit.BackupRetention, _edit.OverridesClusterSchedule, _edit.AutoRestart));
             _settingsProblems = result.Succeeded ? null : result.Errors;
             if (result.Succeeded)
             {

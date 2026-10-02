@@ -27,7 +27,7 @@ public class ScheduledActionCommandsTests
         new(id, cron, ScheduledActionKind.RconCommand, command, 10, true);
 
     private static InstanceEdit Edit(Instance instance, bool overridesClusterSchedule) =>
-        new(instance.Name, instance.SessionName, instance.MaxPlayers, instance.GamePort, instance.RconPort, instance.AdminWhitelist, instance.BackupIntervalMinutes, instance.BackupRetention, overridesClusterSchedule);
+        new(instance.Name, instance.SessionName, instance.MaxPlayers, instance.GamePort, instance.RconPort, instance.AdminWhitelist, instance.BackupIntervalMinutes, instance.BackupRetention, overridesClusterSchedule, instance.AutoRestart);
 
     /// <summary>A cluster with two members (Alpha, Beta) and a standalone instance (Solo).</summary>
     private static async Task<(int Cluster, int Alpha, int Beta, int Solo)> SeedAsync(CommandTestHost host, int mapId, CancellationToken ct)

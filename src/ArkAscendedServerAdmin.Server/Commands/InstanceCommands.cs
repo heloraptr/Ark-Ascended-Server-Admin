@@ -514,6 +514,7 @@ public sealed class InstanceCommands(
         instance.BackupIntervalMinutes = edit.BackupIntervalMinutes;
         instance.BackupRetention = edit.BackupRetention;
         instance.OverridesClusterSchedule = edit.OverridesClusterSchedule;
+        instance.AutoRestart = edit.AutoRestart;
         await db.SaveChangesAsync(cancellationToken);
         return CommandResult.Ok;
     }

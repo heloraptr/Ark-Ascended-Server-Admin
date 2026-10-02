@@ -98,6 +98,7 @@ public sealed record InstanceDraft
 /// <summary>
 /// The editable fields on the instance settings tab (the slug and map are fixed after creation).
 /// <paramref name="OverridesClusterSchedule"/> makes the instance ignore its cluster's scheduled actions (B3).
+/// <paramref name="AutoRestart"/> relaunches the server after an unexpected exit (B4).
 /// </summary>
 public sealed record InstanceEdit(
     string Name,
@@ -108,7 +109,8 @@ public sealed record InstanceEdit(
     string AdminWhitelist,
     int? BackupIntervalMinutes,
     int? BackupRetention,
-    bool OverridesClusterSchedule);
+    bool OverridesClusterSchedule,
+    bool AutoRestart);
 
 public sealed record PortSuggestion(int GamePort, int RconPort);
 

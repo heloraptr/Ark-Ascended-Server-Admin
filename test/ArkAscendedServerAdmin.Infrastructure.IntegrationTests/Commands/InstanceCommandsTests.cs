@@ -885,7 +885,7 @@ public class InstanceCommandsTests
         {
             var created = await host.Instances.CreateAsync(Draft(mapId), ct);
 
-            var result = await host.Instances.SaveAsync(created.Value, new InstanceEdit(" Renamed ", " New session ", 50, 7800, 27050, " a \r\n\r\n b\n", 15, 3, false), ct);
+            var result = await host.Instances.SaveAsync(created.Value, new InstanceEdit(" Renamed ", " New session ", 50, 7800, 27050, " a \r\n\r\n b\n", 15, 3, false, false), ct);
 
             Assert.True(result.Succeeded, result.Error);
             var instance = await host.InstanceAsync(created.Value, ct);
@@ -908,10 +908,10 @@ public class InstanceCommandsTests
             var one = await host.Instances.CreateAsync(Draft(mapId, "One"), ct);
             var two = await host.Instances.CreateAsync(Draft(mapId, "Two", 7779, 27021), ct);
 
-            var keep = await host.Instances.SaveAsync(two.Value, new InstanceEdit("Two", "Two session", 20, 7779, 27021, string.Empty, null, null, false), ct);
-            var stealName = await host.Instances.SaveAsync(two.Value, new InstanceEdit("ONE", "Two session", 20, 7779, 27021, string.Empty, null, null, false), ct);
-            var stealPorts = await host.Instances.SaveAsync(two.Value, new InstanceEdit("Two", "Two session", 20, 7777, 27020, string.Empty, null, null, false), ct);
-            var gone = await host.Instances.SaveAsync(999, new InstanceEdit("X", "X", 20, 7790, 27030, string.Empty, null, null, false), ct);
+            var keep = await host.Instances.SaveAsync(two.Value, new InstanceEdit("Two", "Two session", 20, 7779, 27021, string.Empty, null, null, false, false), ct);
+            var stealName = await host.Instances.SaveAsync(two.Value, new InstanceEdit("ONE", "Two session", 20, 7779, 27021, string.Empty, null, null, false, false), ct);
+            var stealPorts = await host.Instances.SaveAsync(two.Value, new InstanceEdit("Two", "Two session", 20, 7777, 27020, string.Empty, null, null, false, false), ct);
+            var gone = await host.Instances.SaveAsync(999, new InstanceEdit("X", "X", 20, 7790, 27030, string.Empty, null, null, false, false), ct);
 
             Assert.True(keep.Succeeded, keep.Error);
             Assert.Equal("An instance named 'ONE' already exists.", stealName.Error);
