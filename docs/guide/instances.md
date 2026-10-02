@@ -12,6 +12,8 @@ wizard, described step by step in [instance-creation.md](../instance-creation.md
 
 ## The dashboard
 
+![The Instances page, with servers grouped by cluster and one of them running](../images/instances.png)
+
 The lead line reads `Every server this box runs, grouped by cluster.` or, once you have some,
 `2 instances running of 3.` **New instance** opens the wizard. With no instances the page shows
 `No instances yet.` and **Create the first instance**.

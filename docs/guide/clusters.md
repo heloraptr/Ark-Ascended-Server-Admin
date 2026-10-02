@@ -70,6 +70,8 @@ cluster when you want players to travel between maps.`
 
 ## The cluster page
 
+![A cluster page on the Members tab, one member running and one stopped](../images/cluster.png)
+
 Header: the name, `cluster id <id> · 2 members · 1 mod`, **Start all**, **Stop all** (each acts on
 the members that are eligible), and a delete icon that is disabled while the cluster has members.
 While any member runs, a notice says `Members are running. INI, mod, and launch changes apply to each

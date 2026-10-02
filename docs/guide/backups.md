@@ -54,6 +54,8 @@ instance is left alone. Two backups of the same instance never overlap.
 
 ## The Backups tab
 
+![The Backups tab with one scheduled backup and its restore icon](../images/backups.png)
+
 The tab on the instance page lists every attempt, newest first, 20 per page, with the columns
 **When**, **Outcome**, **Archive** (the file name, or the reason for a skip or failure), **Size**,
 and **Trigger** (`manual` or `scheduled`). It updates on its own when a scheduled backup finishes. Each **Backed up** row has a restore

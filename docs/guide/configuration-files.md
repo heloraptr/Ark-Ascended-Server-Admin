@@ -43,6 +43,8 @@ through: source text, overrides, and free-text launch arguments.
 
 ## The INI editor
 
+![A cluster's Config tab with GameUserSettings.ini open in the editor](../images/ini-editor.png)
+
 For a standalone instance: the instance page, **Config** tab, sub-tabs **GameUserSettings.ini** and
 **Game.ini**. For a cluster: the cluster page, **Config** tab, the same two sub-tabs. A member's
 Config tab instead says `INI files come from the <cluster> cluster.` with a link.

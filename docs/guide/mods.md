@@ -28,6 +28,8 @@ file.
 
 ## Adding a mod
 
+![CurseForge search results on the Mods page, each with an Add button](../images/mods-search.png)
+
 **With a key.** On **Mods**, *Add a mod*: type a name in "Search CurseForge, e.g. Awesome Spyglass"
 and press **Search** (or Enter). Each hit shows the thumbnail, name, summary, id, author, "updated
 *N* ago", and either **Add** or "in library". The name and the thumbnail open the mod's CurseForge
@@ -45,6 +47,8 @@ wizard's — can take a project id or a search of its own and put the result str
 library, so a mod you have just found does not cost you the page you are on.
 
 ## The library list
+
+![The mod library, with each mod's thumbnail, id, summary, and where it is used](../images/mods-library.png)
 
 Every entry shows its id, "updated *N* ago" when known, its summary, and where it is used ("map
 *X*", "cluster *Y*", or instance names) or "not used". A map's own mod carries the tag "map mod ·
@@ -91,6 +95,8 @@ pressing anything; it runs only while a CurseForge API key is set, it never bloc
 poll is logged and retried the next day. Without a key nothing is refreshed and no pill ever appears.
 
 ## Cluster mods and instance mods
+
+![An instance's Mods tab: four locked mods from the cluster, then the instance's own mod](../images/instance-mods.png)
 
 On a cluster page, the **Mods** tab: "Mandatory for every member and loaded before each member's own
 mods." Add from the library, reorder with the arrows, **Save mods**. The toggle at the start of each row
