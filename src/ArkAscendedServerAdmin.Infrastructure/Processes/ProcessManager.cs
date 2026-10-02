@@ -227,7 +227,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
     /// verified exit can never be followed by a second process. <paramref name="autoRestarts"/> is the count the
     /// new session's runtime starts with (B4): 0 for every launch except an automatic restart.
     /// </summary>
-    private async Task<OperationOutcome> StartCoreAsync(int instanceId, LaunchKind kind, CancellationToken cancellationToken, int autoRestarts = 0)
+    private async Task<OperationOutcome> StartCoreAsync(int instanceId, LaunchKind kind, CancellationToken cancellationToken, int autoRestarts = 0, LaunchReport? report = null)
     {
         if (kind is LaunchKind.User or LaunchKind.AutoRestart && !_readiness.Current.IsReady)
         {
@@ -245,7 +245,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             return OperationOutcome.Rejected($"The instance is already {Describe(runtime.State)}.");
         }
 
-        return await _queue.EnqueueAsync(instanceId, kind, token => LaunchAsync(instanceId, kind, autoRestarts, token), cancellationToken);
+        return await _queue.EnqueueAsync(instanceId, kind, token => LaunchAsync(instanceId, kind, autoRestarts, report, token), cancellationToken);
     }
 
     /// <summary>
@@ -254,7 +254,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
     /// turned off before it cancels the relaunch with <see cref="AutoRestartTurnedOff"/>; turned off after it, the
     /// launch runs like any other and can be stopped.
     /// </summary>
-    private async Task<OperationOutcome> LaunchAsync(int instanceId, LaunchKind kind, int autoRestarts, CancellationToken cancellationToken)
+    private async Task<OperationOutcome> LaunchAsync(int instanceId, LaunchKind kind, int autoRestarts, LaunchReport? report, CancellationToken cancellationToken)
     {
         var channel = ConsoleChannels.Instance(instanceId);
         Instance? instance;
@@ -286,11 +286,13 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
 
         if (instance.ClusterId is { } clusterId && _locks.IsClusterReserved(clusterId))
         {
-            return OperationOutcome.Rejected("The cluster is reserved by a restore; try again when it finishes.");
+            report?.HeldByRestore = true;
+            return OperationOutcome.Rejected(InstanceLocks.ClusterReservedByRestore);
         }
 
         if (_restoreJournals.FindForInstance(instanceId) is { } journal)
         {
+            report?.HeldByRestore = true;
             return OperationOutcome.Rejected(journal.RefusalReason("this instance"));
         }
 
@@ -364,6 +366,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
 
             var startTime = ReadStartTime(process) ?? _time.GetUtcNow();
             var session = Register(instance, process, startTime, attached: false, rconEndpoint, autoRestarts);
+            report?.Registered = true;
             session.LaunchedAt = _time.GetUtcNow();
             Append(channel, $"Launched pid {process.Id}: {executable} {arguments.ToDisplayString()}", ConsoleLineKind.Info);
             _logger.LogInformation("Instance {InstanceId} ({Slug}) launched as pid {Pid}.", instanceId, slug, process.Id);
@@ -777,8 +780,12 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
 
     /// <summary>
     /// Records the stop intent on the live session synchronously, under the caller's lease, before any job is dispatched.
-    /// Decided under the session lock against the exit path (B4): a stop is either accepted before the exit was
-    /// observed, so the exit carries the intent, or refused as not running; none is accepted against a session in cleanup.
+    /// Decided under the session lock against the exit path (B4): a stop accepted before the exit was observed is carried
+    /// by the exit as its intent. A stop that finds the exit already begun is accepted too, because the owner asked for the
+    /// server to be down and it is: the crash is dismissed under the caller's lease (the exit captured its epoch in the
+    /// same critical section that set <c>Exiting</c>, so the dismissal always voids it), and the job only waits for the
+    /// exit signal (see <see cref="RunStopJobAsync"/>). The session stays registered until the exit is published, so
+    /// a stop during the cleanup always finds it.
     /// </summary>
     private bool TryAcceptStop(int instanceId, out Session session, out OperationOutcome rejection)
     {
@@ -788,14 +795,16 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             return false;
         }
 
+        bool exiting;
         lock (session.Sync)
         {
-            if (session.Exiting)
-            {
-                return false;
-            }
-
+            exiting = session.Exiting;
             session.StopIntent = true;
+        }
+
+        if (exiting)
+        {
+            DismissCrash(instanceId);
         }
 
         rejection = OperationOutcome.Success;
@@ -808,6 +817,12 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         var channel = ConsoleChannels.Instance(session.InstanceId);
         try
         {
+            // Accepted while the process's exit was already being cleaned up (B4): no countdown, doexit, kill, or Stopping.
+            if (session.Exiting)
+            {
+                return await ExitedOnItsOwnAsync(session, token);
+            }
+
             var settings = await _settings.GetAsync(token);
             var timeout = TimeSpan.FromSeconds(settings.RconCommandTimeoutSeconds);
             var deadline = options.SkipCountdown
@@ -1296,8 +1311,8 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
     /// is done (B4): the database write runs while the session is still registered and the runtime still shows a live
     /// state, so a Start is refused until the one atomic update that publishes Stopped, clears the identity, and installs
     /// the <see cref="InstanceRuntime.PendingCrash"/> marker. The stop intent and the recovery epoch are captured under
-    /// the session lock first, so a stop is either carried by this exit or refused, and a dismissal issued after the
-    /// capture always voids the marker. Takes no lease and awaits nothing after the exit signal.
+    /// the session lock first, so a stop is either carried by this exit or, once the exit has begun, dismisses it; a
+    /// dismissal issued after the capture always voids the marker. Takes no lease and awaits nothing after the exit signal.
     /// </summary>
     private async Task HandleExitAsync(Session session)
     {
@@ -1317,35 +1332,44 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         var codeText = exitCode is { } code ? $" (code {code.ToString(CultureInfo.InvariantCulture)})" : string.Empty;
         var codeForLog = exitCode?.ToString(CultureInfo.InvariantCulture) ?? "unknown";
         var request = new RecoveryRequest(instanceId, session.Pid, session.StartTime, exitCode, stopIntent, _time.GetUtcNow(), _gate.IsHeldExclusively);
+        var detail = stopIntent ? null : $"Exited unexpectedly{codeText} at {request.ExitedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss}.";
 
-        // Every session-scoped database write holds this mutex; one in flight lands before the final Stopped, never after.
-        await session.WriteMutex.WaitAsync(CancellationToken.None);
+        // Nothing here may skip the publication, the exit signal, or the post below: a failed or cancelled database write
+        // leaves only a stale row, while a skipped publication would leave a dead session registered forever.
         try
         {
-            await MirrorStateAsync(instanceId, InstanceState.Stopped, _lifetime, clearIdentity: true);
+            // Every session-scoped database write holds this mutex; one in flight lands before the final Stopped, never after.
+            await session.WriteMutex.WaitAsync(CancellationToken.None);
+            try
+            {
+                await MirrorStateAsync(instanceId, InstanceState.Stopped, CancellationToken.None, clearIdentity: true);
+            }
+            finally
+            {
+                session.WriteMutex.Release();
+            }
+
+            if (stopIntent)
+            {
+                Append(channel, $"Server exited{codeText}.", ConsoleLineKind.Info);
+                _logger.LogInformation("Instance {InstanceId} pid {Pid} exited after a manager-initiated stop (code {Code}).", instanceId, session.Pid, codeForLog);
+            }
+            else
+            {
+                Append(channel, $"Server exited unexpectedly{codeText}.", ConsoleLineKind.Warning);
+                _logger.LogWarning("Instance {InstanceId} pid {Pid} exited without a manager-initiated stop (code {Code}).", instanceId, session.Pid, codeForLog);
+            }
         }
-        finally
+        catch (Exception ex)
         {
-            session.WriteMutex.Release();
+            _logger.LogError(ex, "The exit cleanup of instance {InstanceId} (pid {Pid}) failed part-way; publishing the exit anyway.", instanceId, session.Pid);
         }
 
-        _sessions.TryRemove(new KeyValuePair<int, Session>(instanceId, session));
-
-        string? detail = null;
-        if (stopIntent)
-        {
-            Append(channel, $"Server exited{codeText}.", ConsoleLineKind.Info);
-            _logger.LogInformation("Instance {InstanceId} pid {Pid} exited after a manager-initiated stop (code {Code}).", instanceId, session.Pid, codeForLog);
-        }
-        else
-        {
-            detail = $"Exited unexpectedly{codeText} at {request.ExitedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss}.";
-            Append(channel, $"Server exited unexpectedly{codeText}.", ConsoleLineKind.Warning);
-            _logger.LogWarning("Instance {InstanceId} pid {Pid} exited without a manager-initiated stop (code {Code}).", instanceId, session.Pid, codeForLog);
-        }
-
+        // The session stays registered until the exit is published, so a stop issued during the cleanup always finds it
+        // (and the Exiting flag) rather than an instance that looks live with no session behind it.
         var eligible = !stopIntent && !request.DuringMaintenance;
         PublishExit(instanceId, request, epoch, eligible, detail);
+        _sessions.TryRemove(new KeyValuePair<int, Session>(instanceId, session));
         _telemetry.TryRemove(instanceId, out _);
         RaiseTelemetry(instanceId, null);
 
@@ -1428,15 +1452,21 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
 
             Append(ConsoleChannels.Instance(instanceId), $"Restarting after unexpected exit ({restart.Attempt}/{CrashLoopRule.MaxRestarts}).", ConsoleLineKind.Info);
             _logger.LogInformation("Instance {InstanceId}: automatic restart {Attempt}/{Max} after pid {Pid} exited unexpectedly.", instanceId, restart.Attempt, CrashLoopRule.MaxRestarts, request.Pid);
-            var outcome = await StartCoreAsync(instanceId, LaunchKind.AutoRestart, cancellationToken, restart.Attempt);
+            var report = new LaunchReport();
+            var outcome = await StartCoreAsync(instanceId, LaunchKind.AutoRestart, cancellationToken, restart.Attempt, report);
             if (outcome.Succeeded)
             {
                 return new CrashRecovery(CrashRecoveryStatus.Launched, restart.Attempt);
             }
 
-            // Register clears the marker, so none of these applies once a process was registered for this attempt (an
-            // identity that could not be saved, or a process that already exited and published its own marker).
             var reason = outcome.Error ?? "the launch was refused";
+            if (report.Registered)
+            {
+                // A process was registered for this attempt (its identity could not be saved): the relaunch happened, and
+                // Register cleared the marker, so nothing is answered here; a later exit of that process posts its own request.
+                return new CrashRecovery(CrashRecoveryStatus.Launched, restart.Attempt, reason);
+            }
+
             if (reason == AutoRestartTurnedOff)
             {
                 return AnswerCrash(request, current => current)
@@ -1444,7 +1474,9 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
                     : new CrashRecovery(CrashRecoveryStatus.Refused, restart.Attempt, reason);
             }
 
-            if (reason == MaintenanceGate.UpdateInProgress || _lifetime.IsCancellationRequested || cancellationToken.IsCancellationRequested)
+            // An update, a service shutdown, or a restore (its cluster reservation or an unresolved journal) owns the
+            // instance: not a refusal, so the instance stays Stopped.
+            if (report.HeldByRestore || reason == MaintenanceGate.UpdateInProgress || _lifetime.IsCancellationRequested || cancellationToken.IsCancellationRequested)
             {
                 return AnswerCrash(request, current => current)
                     ? new CrashRecovery(CrashRecoveryStatus.Skipped, restart.Attempt, reason)
@@ -1774,6 +1806,16 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         InstanceState.IdentityUnpersisted => "running (identity unpersisted)",
         _ => state.ToString().ToLowerInvariant(),
     };
+
+    /// <summary>What an automatic restart's launch callback did besides its outcome (B4); written on the queue worker, read after it completes.</summary>
+    private sealed class LaunchReport
+    {
+        /// <summary>A process was registered, so the relaunch happened even if the launch was then rejected.</summary>
+        public bool Registered { get; set; }
+
+        /// <summary>A restore's cluster reservation or unresolved journal refused the launch.</summary>
+        public bool HeldByRestore { get; set; }
+    }
 
     /// <summary>Everything the loops and the stop job share about one live process.</summary>
     private sealed class Session(int instanceId, string slug, Process process, DateTimeOffset startTime, bool isAttached, RconEndpoint? rcon, DateTimeOffset registeredAt, CancellationToken lifetime)

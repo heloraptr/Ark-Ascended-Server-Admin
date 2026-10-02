@@ -84,7 +84,7 @@ public enum CrashRecoveryStatus
     Refused,
     /// <summary>Automatic restart is off for the instance; nothing was launched and the request is answered.</summary>
     Disabled,
-    /// <summary>An update or a service shutdown stood in the way; the instance stays Stopped and the request is answered.</summary>
+    /// <summary>An update, a service shutdown, or a restore stood in the way; the instance stays Stopped and the request is answered.</summary>
     Skipped,
     /// <summary>The request is no longer the instance's pending crash (answered, dismissed, or superseded); nothing changed.</summary>
     Stale,
@@ -95,7 +95,8 @@ public enum CrashRecoveryStatus
 /// <summary>
 /// The answer to one <see cref="RecoveryRequest"/> (B4): the <paramref name="Status"/>, the automatic-restart count it
 /// launched or gave up at (<paramref name="Attempt"/>, 0 when neither), and the rejection <paramref name="Reason"/>
-/// for <see cref="CrashRecoveryStatus.Refused"/> and <see cref="CrashRecoveryStatus.Skipped"/>.
+/// for <see cref="CrashRecoveryStatus.Refused"/> and <see cref="CrashRecoveryStatus.Skipped"/>, or the note on a
+/// <see cref="CrashRecoveryStatus.Launched"/> relaunch whose process runs but whose launch still failed (its identity could not be saved).
 /// </summary>
 public sealed record CrashRecovery(CrashRecoveryStatus Status, int Attempt = 0, string? Reason = null)
 {

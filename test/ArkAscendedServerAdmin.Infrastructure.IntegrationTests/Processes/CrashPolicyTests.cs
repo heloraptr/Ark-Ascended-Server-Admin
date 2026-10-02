@@ -85,16 +85,17 @@ public class CrashPolicyTests
             CrashRecovery.Disabled,
             CrashRecovery.Stale,
             new CrashRecovery(CrashRecoveryStatus.Launched, 2),
+            new CrashRecovery(CrashRecoveryStatus.Launched, 3, "The server started (pid 1) but its identity could not be saved."),
         ]);
         rig.Processes.RecoverHandler = (_, _) => Task.FromResult(answers.TryDequeue(out var next) ? next : CrashRecovery.Stale);
         await rig.StartAsync();
 
-        for (var i = 0; i < 7; i++)
+        for (var i = 0; i < 8; i++)
         {
             rig.Post(Request(rig.Alpha));
         }
 
-        await WaitUntilAsync(() => rig.Calls.Count == 7);
+        await WaitUntilAsync(() => rig.Calls.Count == 8);
         await Task.Delay(200, Ct);
 
         Assert.Equal(

@@ -371,7 +371,7 @@ public sealed class InstanceCommands(
             }
             else if (locks.IsClusterReserved(clusterId))
             {
-                problems.Add("The cluster is reserved by a restore; try again when it finishes.");
+                problems.Add(InstanceLocks.ClusterReservedByRestore);
             }
             else if (restoreJournals.FindForCluster(clusterId) is { } journal)
             {

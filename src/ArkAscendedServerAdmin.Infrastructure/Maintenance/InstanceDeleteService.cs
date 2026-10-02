@@ -76,7 +76,7 @@ public sealed class InstanceDeleteService(
 
         if (clusterId is { } cluster && locks.IsClusterReserved(cluster))
         {
-            return OperationOutcome.Rejected("The cluster is reserved by a restore; try again when it finishes.");
+            return OperationOutcome.Rejected(InstanceLocks.ClusterReservedByRestore);
         }
 
         var lease = locks.TryAcquire(instanceId);

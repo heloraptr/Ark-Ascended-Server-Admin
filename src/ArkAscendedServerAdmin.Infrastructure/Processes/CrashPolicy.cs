@@ -158,6 +158,11 @@ public sealed class CrashPolicy(
             case CrashRecoveryStatus.Skipped:
                 Report(request.InstanceId, $"Automatic restart skipped: {result.Reason?.TrimEnd('.')}.", ConsoleLineKind.Info);
                 break;
+            case CrashRecoveryStatus.Launched when result.Reason is not null:
+                // The relaunched process runs; its launch failed afterwards (an identity that could not be saved), which the
+                // manager already reported on the console and in the instance's state. Not a refusal.
+                logger.LogWarning("Instance {InstanceId}: automatic restart {Attempt} launched, but: {Reason}", request.InstanceId, result.Attempt, result.Reason);
+                break;
             default:
                 // Launched (the manager wrote the "Restarting…" line), Disabled, Stale: the log is enough.
                 logger.LogInformation("Instance {InstanceId}: crash recovery for pid {Pid} answered {Status} (attempt {Attempt}).", request.InstanceId, request.Pid, result.Status, result.Attempt);

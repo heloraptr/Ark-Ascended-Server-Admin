@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Consoles;
 using ArkAscendedServerAdmin.Domain;
@@ -303,8 +304,12 @@ public class ProcessManagerCrashRecoveryTests
         Assert.NotNull(row.LastProcessStartTime);
     }
 
+    /// <summary>
+    /// The owner pressed Stop on a server whose exit was already being cleaned up: the stop is accepted, waits for the
+    /// exit, and dismisses the crash, so nothing restarts the server behind the owner's back.
+    /// </summary>
     [Fact]
-    public async Task AStopDuringExitCleanup_IsRefused_AndTheStateNeverGoesBackToStopping()
+    public async Task AStopDuringExitCleanup_Succeeds_DismissesTheCrash_AndNeverWritesStopping()
     {
         using var rig = await Rig.CreateAsync();
         var game = await rig.LaunchAsync();
@@ -320,18 +325,48 @@ public class ProcessManagerCrashRecoveryTests
 
         game.Process.Kill(entireProcessTree: true);
         await held.WaitAsync(_wait, Ct);
-        var stop = await rig.Manager.StopAsync(rig.Alpha, new StopOptions(SkipCountdown: true), Ct).WaitAsync(_slow, Ct);
+        var stopping = rig.Manager.StopAsync(rig.Alpha, new StopOptions(SkipCountdown: true), Ct);
+        await Task.Delay(300, Ct);
+
+        Assert.False(stopping.IsCompleted, "the stop waits for the exit it found in progress");
+
         rig.Database.Release();
+        var stop = await stopping.WaitAsync(_slow, Ct);
         var request = await rig.NextRequestAsync();
 
-        Assert.Equal("The instance is not running.", stop.Error);
+        Assert.True(stop.Succeeded, stop.Error);
         Assert.False(request.StopIntent);
-        Assert.Same(request, rig.Runtime.PendingCrash);
+        Assert.Null(rig.Runtime.PendingCrash);
         Assert.Equal(InstanceState.Stopped, rig.Runtime.State);
+        Assert.Equal(CrashRecovery.Stale, await rig.Manager.RecoverAsync(request, Ct).WaitAsync(_slow, Ct));
+        Assert.DoesNotContain(RconCommands.DoExit, rig.Rcon.Commands);
         lock (states)
         {
             Assert.DoesNotContain(InstanceState.Stopping, states);
         }
+    }
+
+    /// <summary>A restart pressed during the exit cleanup stops as above, then relaunches as an ordinary start.</summary>
+    [Fact]
+    public async Task ARestartDuringExitCleanup_RelaunchesAsAManualStart_AndLeavesNoMarker()
+    {
+        using var rig = await Rig.CreateAsync();
+        var game = await rig.LaunchAsync();
+        var held = rig.Database.Hold(CommandGate.ClearsIdentity);
+
+        game.Process.Kill(entireProcessTree: true);
+        await held.WaitAsync(_wait, Ct);
+        var restarting = rig.Manager.RestartWithCountdownAsync(rig.Alpha, DateTimeOffset.UtcNow, Ct);
+        rig.Database.Release();
+        var restart = await restarting.WaitAsync(_slow, Ct);
+        var request = await rig.NextRequestAsync();
+
+        Assert.True(restart.Succeeded, restart.Error);
+        Assert.Equal(2, rig.Harness.Starter.Started.Count);
+        Assert.True(rig.Runtime.HasLiveProcess);
+        Assert.Equal(0, rig.Runtime.AutoRestarts);
+        Assert.Null(rig.Runtime.PendingCrash);
+        Assert.Equal(CrashRecovery.Stale, await rig.Manager.RecoverAsync(request, Ct).WaitAsync(_slow, Ct));
     }
 
     [Fact]
@@ -353,7 +388,7 @@ public class ProcessManagerCrashRecoveryTests
     }
 
     [Fact]
-    public async Task ADeleteWhileTheExitWritesTheDatabase_IsRefused_AndVoidsTheExit()
+    public async Task ADeleteWhileTheExitWritesTheDatabase_Completes_AndVoidsTheExit()
     {
         using var rig = await Rig.CreateAsync();
         var game = await rig.LaunchAsync();
@@ -361,22 +396,23 @@ public class ProcessManagerCrashRecoveryTests
 
         game.Process.Kill(entireProcessTree: true);
         await held.WaitAsync(_wait, Ct);
-        var outcome = await rig.DeleteService(new FakeLayoutService()).DeleteAsync(rig.Alpha, new InstanceDeleteOptions(KeepWorldData: true, DeleteBackups: false), Ct).WaitAsync(_slow, Ct);
-
-        Assert.False(outcome.Succeeded);
-        Assert.False(rig.Harness.Locks.IsHeld(rig.Alpha));
-
+        var deleting = rig.DeleteService(new FakeLayoutService()).DeleteAsync(rig.Alpha, new InstanceDeleteOptions(KeepWorldData: true, DeleteBackups: false), Ct);
         rig.Database.Release();
+        var outcome = await deleting.WaitAsync(_slow, Ct);
         var request = await rig.NextRequestAsync();
 
+        Assert.True(outcome.Succeeded, outcome.Error);
+        Assert.False(rig.Harness.Locks.IsHeld(rig.Alpha));
         Assert.False(request.StopIntent);
         Assert.Null(rig.Runtime.PendingCrash);
         Assert.Equal(CrashRecovery.Stale, await rig.Manager.RecoverAsync(request, Ct).WaitAsync(_slow, Ct));
         Assert.Single(rig.Harness.Starter.Started);
+        await using var db = rig.Root.CreateDbContext();
+        Assert.False(await db.Instances.AnyAsync(i => i.Id == rig.Alpha, Ct));
     }
 
     [Fact]
-    public async Task ADeleteBetweenSessionRemovalAndPublication_IsRefused_AndVoidsTheExit()
+    public async Task ADeleteJustBeforeTheExitPublishes_Completes_AndVoidsTheExit()
     {
         using var rig = await Rig.CreateAsync();
         var game = await rig.LaunchAsync();
@@ -394,14 +430,16 @@ public class ProcessManagerCrashRecoveryTests
         game.Process.Kill(entireProcessTree: true);
         await reached.Task.WaitAsync(_wait, Ct);
         Assert.True(rig.Runtime.HasLiveProcess, "the exit has not published yet");
-        var outcome = await rig.DeleteService(new FakeLayoutService()).DeleteAsync(rig.Alpha, new InstanceDeleteOptions(KeepWorldData: true, DeleteBackups: false), Ct).WaitAsync(_slow, Ct);
+        var deleting = rig.DeleteService(new FakeLayoutService()).DeleteAsync(rig.Alpha, new InstanceDeleteOptions(KeepWorldData: true, DeleteBackups: false), Ct);
+        await Task.Delay(300, Ct);
 
-        Assert.False(outcome.Succeeded);
-        Assert.False(rig.Harness.Locks.IsHeld(rig.Alpha));
+        Assert.False(deleting.IsCompleted, "the delete's stop waits for the exit signal");
 
         release.SetResult();
+        var outcome = await deleting.WaitAsync(_slow, Ct);
         var request = await rig.NextRequestAsync();
 
+        Assert.True(outcome.Succeeded, outcome.Error);
         Assert.Null(rig.Runtime.PendingCrash);
         Assert.Equal(CrashRecovery.Stale, await rig.Manager.RecoverAsync(request, Ct).WaitAsync(_slow, Ct));
     }
@@ -427,14 +465,67 @@ public class ProcessManagerCrashRecoveryTests
         Assert.False(deleting.IsCompleted, "the delete's stop must wait for the session lock");
 
         release.SetResult();
-        var outcome = await deleting.WaitAsync(_wait, Ct);
+        var outcome = await deleting.WaitAsync(_slow, Ct);
         var request = await rig.NextRequestAsync();
 
-        Assert.False(outcome.Succeeded);
-        Assert.Contains("not running", outcome.Error, StringComparison.Ordinal);
-        Assert.False(request.StopIntent);
+        Assert.True(outcome.Succeeded, outcome.Error);
+        Assert.False(request.StopIntent, "the capture ran before the delete's stop was accepted");
         Assert.Null(rig.Runtime.PendingCrash);
         Assert.Equal(CrashRecovery.Stale, await rig.Manager.RecoverAsync(request, Ct).WaitAsync(_slow, Ct));
+    }
+
+    /// <summary>The exit's database write fails: the row is stale, but the exit is still published and signalled.</summary>
+    [Fact]
+    public async Task AFailedExitDatabaseWrite_StillPublishesTheExit_AndSignalsIt()
+    {
+        using var rig = await Rig.CreateAsync();
+        var game = await rig.LaunchAsync();
+        rig.Database.FailWhen = CommandGate.ClearsIdentity;
+        var pid = game.Process.Id;
+
+        var request = await rig.KillAsync(game);
+
+        Assert.Equal(InstanceState.Stopped, rig.Runtime.State);
+        Assert.Null(rig.Runtime.Pid);
+        Assert.Same(request, rig.Runtime.PendingCrash);
+        Assert.Equal(pid, (await rig.RowAsync()).LastPid);
+        rig.Database.FailWhen = null;
+        Assert.Equal(new CrashRecovery(CrashRecoveryStatus.Launched, 1), await rig.Manager.RecoverAsync(request, Ct).WaitAsync(_slow, Ct));
+    }
+
+    [Fact]
+    public async Task Recover_IsSkipped_WhileARestoreReservesTheCluster()
+    {
+        using var rig = await Rig.CreateAsync(clustered: true);
+        var crash = await rig.KillAsync(await rig.LaunchAsync());
+
+        CrashRecovery result;
+        using (rig.Harness.Locks.TryReserveCluster(rig.ClusterId!.Value))
+        {
+            result = await rig.Manager.RecoverAsync(crash, Ct).WaitAsync(_slow, Ct);
+        }
+
+        Assert.Equal(new CrashRecovery(CrashRecoveryStatus.Skipped, 1, InstanceLocks.ClusterReservedByRestore), result);
+        Assert.Equal(InstanceState.Stopped, rig.Runtime.State);
+        Assert.Null(rig.Runtime.PendingCrash);
+        Assert.Single(rig.Harness.Starter.Started);
+    }
+
+    [Fact]
+    public async Task Recover_IsSkipped_WhileARestoreJournalIsUnresolved()
+    {
+        using var rig = await Rig.CreateAsync();
+        var crash = await rig.KillAsync(await rig.LaunchAsync());
+        var journal = new RestoreJournal("alpha-1", DateTimeOffset.UtcNow, rig.Alpha, "alpha", "TheIsland_WP", null, null, [rig.Alpha], rig.Root.Layout.Root, "x.zip", RestorePhase.Replacing);
+        new RestoreJournalStore(rig.Root.Layout).Write(journal);
+
+        var result = await rig.Manager.RecoverAsync(crash, Ct).WaitAsync(_slow, Ct);
+
+        Assert.Equal(CrashRecoveryStatus.Skipped, result.Status);
+        Assert.Equal(journal.RefusalReason("this instance"), result.Reason);
+        Assert.Equal(InstanceState.Stopped, rig.Runtime.State);
+        Assert.Null(rig.Runtime.PendingCrash);
+        Assert.Single(rig.Harness.Starter.Started);
     }
 
     // ---- the epoch -------------------------------------------------------------------------------
@@ -609,12 +700,13 @@ public class ProcessManagerCrashRecoveryTests
         var recovering = rig.Manager.RecoverAsync(first, Ct);
         await WaitUntilAsync(() => rig.Harness.Starter.Started.Count == 2);
         rig.Harness.Starter.Last.Process.Kill(entireProcessTree: true);
-        var refused = await recovering.WaitAsync(_slow, Ct);
+        var launched = await recovering.WaitAsync(_slow, Ct);
         rig.Database.FailWhen = null;
         var second = await rig.NextRequestAsync();
 
-        Assert.Equal(CrashRecoveryStatus.Refused, refused.Status);
-        Assert.Contains("identity could not be saved", refused.Reason, StringComparison.Ordinal);
+        // The process was registered, so the relaunch happened; the failure that followed is only a note.
+        Assert.Equal((CrashRecoveryStatus.Launched, 1), (launched.Status, launched.Attempt));
+        Assert.Contains("identity could not be saved", launched.Reason, StringComparison.Ordinal);
         Assert.Same(second, rig.Runtime.PendingCrash);
         Assert.Equal(InstanceState.Stopped, rig.Runtime.State);
         Assert.Equal(1, rig.Runtime.AutoRestarts);
@@ -691,18 +783,24 @@ public class ProcessManagerCrashRecoveryTests
 
         public IReadOnlyList<ConsoleLine> Lines => Console.Snapshot(ConsoleChannels.Instance(Alpha));
 
-        public static async Task<Rig> CreateAsync(FakeRconClient? rcon = null)
+        /// <summary>The cluster Alpha belongs to, when created with <c>clustered: true</c>.</summary>
+        public int? ClusterId { get; private init; }
+
+        public static async Task<Rig> CreateAsync(FakeRconClient? rcon = null, bool clustered = false)
         {
             var root = new TempDataRoot();
             await root.InitializeAsync(Ct);
             int alpha;
+            int? clusterId;
             await using (var db = root.CreateDbContext())
             {
                 var map = await db.Maps.OrderBy(m => m.Id).FirstAsync(Ct);
-                var instance = new Instance { Name = "Alpha", Slug = "alpha", SessionName = "Alpha", MapId = map.Id, GamePort = 47777, RconPort = 47020, AutoRestart = true, CreatedAt = DateTimeOffset.UtcNow };
+                var cluster = clustered ? new Cluster { Name = "Cluster", Slug = "cluster", ClusterKey = "cluster", CreatedAt = DateTimeOffset.UnixEpoch } : null;
+                var instance = new Instance { Name = "Alpha", Slug = "alpha", SessionName = "Alpha", MapId = map.Id, Cluster = cluster, GamePort = 47777, RconPort = 47020, AutoRestart = true, CreatedAt = DateTimeOffset.UtcNow };
                 db.Instances.Add(instance);
                 await db.SaveChangesAsync(Ct);
                 alpha = instance.Id;
+                clusterId = cluster?.Id;
             }
 
             rcon ??= new FakeRconClient(RconFailure.Connect);
@@ -710,7 +808,7 @@ public class ProcessManagerCrashRecoveryTests
             var gate = new CommandGate();
             var harness = new ProcessManagerHarness(root, [], rcon, console, new FakeOutputSourceFactory(), settings: _settings, database: new InterceptedDatabase(root, gate));
             harness.Starter.UseStandIn = true;
-            return new Rig(root, harness, console, rcon, gate, alpha);
+            return new Rig(root, harness, console, rcon, gate, alpha) { ClusterId = clusterId };
         }
 
         /// <summary>A manual start that must succeed; returns the stand-in it launched.</summary>

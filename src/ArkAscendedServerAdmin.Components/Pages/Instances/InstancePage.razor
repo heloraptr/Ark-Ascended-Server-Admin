@@ -827,7 +827,7 @@ else
     /// <summary>The stop completes when the process is gone; the runtime mirror follows a moment later, and the restore checks it.</summary>
     private async Task WaitForStoppedAsync()
     {
-        for (var i = 0; i < 50 && Processes.GetRuntime(Id).State != InstanceState.Stopped; i++)
+        for (var i = 0; i < 50 && Processes.GetRuntime(Id).State is not (InstanceState.Stopped or InstanceState.Crashed); i++)
         {
             await Task.Delay(100);
         }
