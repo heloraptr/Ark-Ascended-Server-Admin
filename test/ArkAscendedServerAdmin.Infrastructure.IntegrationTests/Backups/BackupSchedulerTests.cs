@@ -1,8 +1,10 @@
 using ArkAscendedServerAdmin.Backups;
+using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Backups;
 using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Processes;
+using ArkAscendedServerAdmin.Startup;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Backups;
@@ -11,6 +13,7 @@ namespace ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Backups;
 public class BackupSchedulerTests
 {
     private static readonly DateTimeOffset _start = new(2026, 9, 7, 12, 0, 0, TimeSpan.Zero);
+    private static readonly TimeSpan _wait = TimeSpan.FromSeconds(10);
 
     [Fact]
     public async Task RunningInstanceWithoutRecords_IsDue()
@@ -112,6 +115,88 @@ public class BackupSchedulerTests
         await f.Backups.Completion;
     }
 
+    // ---- hosted loop -------------------------------------------------------------------------------
+
+    /// <summary>
+    /// After a failed migration the tables are missing, so the timer must not tick before the pipeline is Ready:
+    /// a clock that passes a tick while the scheduler waits on readiness reaches no pass at all.
+    /// </summary>
+    [Fact]
+    public async Task Loop_DoesNotTickUntilReadinessReportsReady()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        await root.InitializeAsync(ct);
+        var clock = new ManualTimeProvider(_start);
+        var readiness = new FakeReadinessMonitor();
+        var attempts = new AttemptLog();
+        var scheduler = new BackupScheduler(root, CountingSettings(attempts, failFirst: false), new FakeProcessManager(), new RecordingBackupService(), readiness, clock, NullLogger<BackupScheduler>.Instance);
+
+        await scheduler.StartAsync(ct);
+        await readiness.Subscribed.WaitAsync(_wait, ct);
+        clock.Advance(BackupScheduler.Tick);
+        Assert.Equal(0, clock.PendingTimers);
+        Assert.Equal(0, attempts.Count);
+
+        readiness.Report(ReadinessPhase.Ready);
+        await clock.WaitForPendingTimerAsync().WaitAsync(_wait, ct);
+        Assert.Equal(0, attempts.Count);
+        clock.Advance(BackupScheduler.Tick);
+        await attempts.WhenAttempt(1).WaitAsync(_wait, ct);
+
+        await clock.WaitForPendingTimerAsync().WaitAsync(_wait, ct);
+        await scheduler.StopAsync(ct);
+        Assert.True(scheduler.ExecuteTask!.IsCompletedSuccessfully);
+    }
+
+    /// <summary>
+    /// An exception type the loop never expected (here from the settings read) is logged and the next tick tries
+    /// again; it must not escape <c>ExecuteAsync</c>, where it would stop the whole service.
+    /// </summary>
+    [Fact]
+    public async Task Loop_TickThatThrows_IsLoggedAndTriedAgainOneTickLater()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        await root.InitializeAsync(ct);
+        var clock = new ManualTimeProvider(_start);
+        var attempts = new AttemptLog();
+        var log = new RecordingLogger<BackupScheduler>();
+        var scheduler = new BackupScheduler(root, CountingSettings(attempts, failFirst: true), new FakeProcessManager(), new RecordingBackupService(), new FakeReadinessMonitor(ReadinessPhase.Ready), clock, log);
+
+        await scheduler.StartAsync(ct);
+        await clock.WaitForPendingTimerAsync().WaitAsync(_wait, ct);
+        clock.Advance(BackupScheduler.Tick);
+        await attempts.WhenAttempt(1).WaitAsync(_wait, ct);
+
+        // Parked on the next delay, so the failure has been handled and nothing else can run until the clock moves.
+        await clock.WaitForPendingTimerAsync().WaitAsync(_wait, ct);
+        var error = Assert.Single(log.Errors);
+        Assert.IsType<NotSupportedException>(error.Exception);
+        Assert.Equal("Backup scheduler tick failed; it will try again next minute.", error.Message);
+
+        clock.Advance(BackupScheduler.Tick - TimeSpan.FromSeconds(1));
+        Assert.Equal(1, attempts.Count);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await attempts.WhenAttempt(2).WaitAsync(_wait, ct);
+
+        await clock.WaitForPendingTimerAsync().WaitAsync(_wait, ct);
+        await scheduler.StopAsync(ct);
+        Assert.True(scheduler.ExecuteTask!.IsCompletedSuccessfully);
+        Assert.Single(log.Errors);
+    }
+
+    /// <summary>Default settings on every read, counted; the first read throws when <paramref name="failFirst"/> is set.</summary>
+    private static IAppSettingsStore CountingSettings(AttemptLog attempts, bool failFirst)
+    {
+        var settings = Substitute.For<IAppSettingsStore>();
+        settings.GetAsync(Arg.Any<CancellationToken>()).Returns(_ =>
+            attempts.Record() == 1 && failFirst
+                ? Task.FromException<AppSettings>(new NotSupportedException("The first tick fails."))
+                : Task.FromResult(new AppSettings()));
+        return settings;
+    }
+
     private sealed class RecordingBackupService : IBackupService
     {
         private readonly object _sync = new();
@@ -197,7 +282,7 @@ public class BackupSchedulerTests
             var clock = new FastTimeProvider(_start);
             var processes = new FakeProcessManager();
             var backups = new RecordingBackupService();
-            var scheduler = new BackupScheduler(root, new AppSettingsStore(root), processes, backups, clock, NullLogger<BackupScheduler>.Instance);
+            var scheduler = new BackupScheduler(root, new AppSettingsStore(root), processes, backups, new FakeReadinessMonitor(ReadinessPhase.Ready), clock, NullLogger<BackupScheduler>.Instance);
             return new Fixture { Root = root, Scheduler = scheduler, Backups = backups, Processes = processes, Clock = clock, Instance = instance };
         }
     }

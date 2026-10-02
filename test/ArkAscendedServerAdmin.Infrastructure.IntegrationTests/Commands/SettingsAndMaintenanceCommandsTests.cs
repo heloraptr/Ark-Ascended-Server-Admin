@@ -145,6 +145,59 @@ public class MaintenanceCommandsTests
     }
 
     [Fact]
+    public async Task ResumeMaintenance_IsRejectedWhileAnUpdateOperationIsRunning()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var host = new CommandTestHost();
+        host.UpdateService.Current.Returns(new MaintenanceSnapshot(MaintenancePhase.Updating, [], DateTimeOffset.UnixEpoch, null));
+        host.UpdateService.IsOperationInProgress.Returns(true);
+
+        var outcome = await host.Maintenance.ResumeMaintenanceAsync(ct);
+
+        Assert.Equal("An update operation is already in progress.", outcome.Error);
+        Assert.Empty(host.Jobs.ActiveNames);
+        await host.Recovery.DidNotReceiveWithAnyArgs().ResumeAsync(ct);
+    }
+
+    [Fact]
+    public async Task ResumeMaintenance_HoldsADetachedJobUntilTheRecoveryEnds()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var host = new CommandTestHost();
+        host.UpdateService.Current.Returns(new MaintenanceSnapshot(MaintenancePhase.Restarting, [], DateTimeOffset.UnixEpoch, null));
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.Recovery.ResumeAsync(Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            started.TrySetResult();
+            return release.Task;
+        });
+
+        var outcome = await host.Maintenance.ResumeMaintenanceAsync(ct);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10), ct);
+
+        Assert.True(outcome.Succeeded);
+        Assert.Equal(["resume maintenance"], host.Jobs.ActiveNames);
+
+        release.TrySetResult();
+        Assert.Empty(await host.Jobs.ShutdownAsync(ct));
+    }
+
+    [Fact]
+    public async Task ResumeMaintenance_IsRejectedOnceTheServiceIsStopping()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var host = new CommandTestHost();
+        host.UpdateService.Current.Returns(new MaintenanceSnapshot(MaintenancePhase.Updating, [], DateTimeOffset.UnixEpoch, null));
+        await host.Jobs.ShutdownAsync(ct);
+
+        var outcome = await host.Maintenance.ResumeMaintenanceAsync(ct);
+
+        Assert.Equal("The service is stopping; the resume was not started.", outcome.Error);
+        await host.Recovery.DidNotReceiveWithAnyArgs().ResumeAsync(ct);
+    }
+
+    [Fact]
     public async Task ResumeMaintenance_SwallowsARecoveryFailure_BecauseTheDashboardFollowsTheSnapshot()
     {
         var ct = TestContext.Current.CancellationToken;

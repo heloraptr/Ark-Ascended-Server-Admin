@@ -1,25 +1,28 @@
-using System.Globalization;
+using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Firewall;
 using Microsoft.Extensions.Logging;
 using WindowsFirewallHelper;
+using FirewallWASRule = WindowsFirewallHelper.FirewallRules.FirewallWASRule;
 
 namespace ArkAscendedServerAdmin.Infrastructure.Firewall;
 
 /// <summary>
 /// <see cref="IFirewallRules"/> over WindowsFirewallHelper (plan step 26). Each instance owns two inbound
 /// UDP port rules — one for the game port, one for game port + 1 — that share the name
-/// <c>ArkAscendedServerAdmin-&lt;instanceId&gt;</c> across all profiles; the description names the port.
-/// <see cref="EnsureInstanceRules"/> removes same-named rules whose port no longer matches and creates the
-/// missing ones. Failures (no rights, firewall service stopped) are logged and rethrown as
+/// <c>ArkAscendedServerAdmin-&lt;tag&gt;-&lt;instanceId&gt;</c> across all profiles; the description names the
+/// port and the DataRoot. The tag comes from this installation's DataRoot, so only rules this installation
+/// created are ever matched, replaced or removed; rules of another install, and old untagged names, are
+/// left alone. <see cref="EnsureInstanceRules"/> removes same-named rules whose port no longer matches and
+/// creates the missing ones. Failures (no rights, firewall service stopped) are logged and rethrown as
 /// <see cref="InvalidOperationException"/>; callers treat them as advisory and never fail a Start on them.
 /// </summary>
-public sealed class FirewallRules(ILogger<FirewallRules> logger) : IFirewallRules
+public sealed class FirewallRules(DataRootLayout layout, ILogger<FirewallRules> logger) : IFirewallRules
 {
-    public const string NamePrefix = "ArkAscendedServerAdmin-";
-
     private const FirewallProfiles AllProfiles = FirewallProfiles.Domain | FirewallProfiles.Private | FirewallProfiles.Public;
 
-    public static string RuleName(int instanceId) => NamePrefix + instanceId.ToString(CultureInfo.InvariantCulture);
+    private readonly string _tag = FirewallRuleNames.InstallTag(layout.Root);
+
+    public string RuleName(int instanceId) => FirewallRuleNames.RuleName(_tag, instanceId);
 
     public void EnsureInstanceRules(int instanceId, int gamePort)
     {
@@ -52,6 +55,12 @@ public sealed class FirewallRules(ILogger<FirewallRules> logger) : IFirewallRule
             {
                 var rule = firewall.CreatePortRule(AllProfiles, name, FirewallAction.Allow, port, FirewallProtocol.UDP);
                 rule.Direction = FirewallDirection.Inbound;
+                if (rule is FirewallWASRule withDescription)
+                {
+                    // Every Windows the app supports returns this type; the legacy API has no description.
+                    withDescription.Description = FirewallRuleNames.Description(instanceId, port, layout.Root);
+                }
+
                 rules.Add(rule);
                 logger.LogInformation("Created firewall rule {Rule} for UDP {Port}.", name, port);
             }

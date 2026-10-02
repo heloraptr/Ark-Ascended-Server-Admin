@@ -16,7 +16,7 @@ public class Mod
     public List<Category> Categories { get; set; } = [];
     public int ClassId { get; set; }
     public List<Author> Authors { get; set; } = [];
-    public ModAsset Logo { get; set; } = new();
+    public ModAsset? Logo { get; set; }
     public List<ModAsset> Screenshots { get; set; } = [];
     public int MainFileId { get; set; }
     public List<ModFile> LatestFiles { get; set; } = [];

@@ -26,6 +26,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The login service tests swap in a counting, signal-controlled password check (finding 6). -->
+    <InternalsVisibleTo Include="ArkAscendedServerAdmin.Infrastructure.IntegrationTests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Third-party license notices ship next to the binaries (release plan step A6). -->
     <None Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

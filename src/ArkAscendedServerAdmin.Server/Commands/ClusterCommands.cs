@@ -17,7 +17,7 @@ public sealed class ClusterCommands(
     IAuthorizationGuard guard,
     IDbContextFactory<AppDbContext> contextFactory,
     DataRootLayout layout,
-    IInstanceCommands instanceCommands,
+    IniSeeder iniSeeder,
     IInstanceLocks locks,
     IRestoreJournals restoreJournals,
     TimeProvider timeProvider,
@@ -102,7 +102,7 @@ public sealed class ClusterCommands(
         try
         {
             Directory.CreateDirectory(layout.ClusterDirectory(slug));
-            await ((InstanceCommands)instanceCommands).SeedIniAsync(IniOwner.ForCluster(cluster.Id), source, sourceId, cancellationToken);
+            await iniSeeder.SeedAsync(IniOwner.ForCluster(cluster.Id), source, sourceId, cancellationToken);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
@@ -151,6 +151,8 @@ public sealed class ClusterCommands(
         {
             problems.Add("Cluster id must not contain spaces.");
         }
+
+        problems.AddRange(CommandSupport.ValidateWhitelist(edit.AdminWhitelist));
 
         if (problems.Count > 0)
         {

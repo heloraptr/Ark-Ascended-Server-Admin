@@ -17,10 +17,9 @@ namespace ArkAscendedServerAdmin.Infrastructure.Provisioning;
 /// next to them. Generated files are never read as source.
 /// </summary>
 /// <remarks>
-/// The whitelist is written to <c>ShooterGame\Saved\AllowedCheaterAccountIDs.txt</c>. Whether that is the
-/// exact location the game reads when launched with <c>AltSaveDirectoryName</c> (as opposed to a path under
-/// the save directory or next to the binaries) is unverified: it is on the owner-in-the-loop list in
-/// HANDOVER §5 and will be confirmed once the app runs end to end.
+/// The whitelist is written to <c>ShooterGame\Saved\AllowedCheaterAccountIDs.txt</c>, the location documented
+/// for the game. Confirmed on a live server launched with <c>AltSaveDirectoryName</c>: the game reads it from
+/// there, not from the save directory or next to the binaries.
 /// </remarks>
 public sealed class GeneratedConfigWriter(
     DataRootLayout layout,

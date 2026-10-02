@@ -146,6 +146,45 @@ public class IniSourceStoreTests
     }
 
     [Fact]
+    public async Task Save_AfterTheOwnerWasDeleted_IsRejectedAndCreatesNoFolder()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        var ids = await Seed.CreateAsync(root, ct);
+        var store = CreateStore(root);
+        var instance = IniOwner.ForInstance(ids.StandaloneInstanceId);
+        var cluster = IniOwner.ForCluster(ids.ClusterId);
+
+        // The editors opened before the delete, so both slugs are cached.
+        var instanceDocument = await store.LoadAsync(instance, IniFile.Game, ct);
+        var clusterDocument = await store.LoadAsync(cluster, IniFile.Game, ct);
+        await using (var db = root.CreateDbContext())
+        {
+            await db.Instances.Where(i => i.ClusterId == ids.ClusterId).ExecuteUpdateAsync(i => i.SetProperty(x => x.ClusterId, (int?)null), ct);
+            await db.Instances.Where(i => i.Id == ids.StandaloneInstanceId).ExecuteDeleteAsync(ct);
+            await db.Clusters.Where(c => c.Id == ids.ClusterId).ExecuteDeleteAsync(ct);
+        }
+
+        if (Directory.Exists(root.Layout.InstanceDirectory(Seed.StandaloneSlug)))
+        {
+            Directory.Delete(root.Layout.InstanceDirectory(Seed.StandaloneSlug), recursive: true);
+        }
+
+        if (Directory.Exists(root.Layout.ClusterDirectory(Seed.ClusterSlug)))
+        {
+            Directory.Delete(root.Layout.ClusterDirectory(Seed.ClusterSlug), recursive: true);
+        }
+
+        var instanceResult = await store.SaveAsync(instance, IniFile.Game, Text, instanceDocument.Sha256, ct);
+        var clusterResult = await store.SaveAsync(cluster, IniFile.Game, Text, clusterDocument.Sha256, ct);
+
+        Assert.Equal("This instance was deleted while the editor was open.", instanceResult.Error);
+        Assert.Equal("This cluster was deleted while the editor was open.", clusterResult.Error);
+        Assert.False(Directory.Exists(root.Layout.InstanceDirectory(Seed.StandaloneSlug)));
+        Assert.False(Directory.Exists(root.Layout.ClusterDirectory(Seed.ClusterSlug)));
+    }
+
+    [Fact]
     public async Task Save_WhenTheMirrorFails_ReportsIt_AndRetryMirrorFixesIt()
     {
         using var root = new TempDataRoot();

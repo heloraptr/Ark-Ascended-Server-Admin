@@ -101,6 +101,39 @@ public class MapCommandsTests
         Assert.Contains(result.Errors, e => e.StartsWith(expectedPrefix, StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(@"..\x")]
+    [InlineData(@"C:\x")]
+    [InlineData("a/b")]
+    [InlineData(@"a\b")]
+    [InlineData("Map-Key.WP")]
+    public async Task Save_RefusesAKeyWithAnythingButLettersDigitsAndUnderscores(string key)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var host = new CommandTestHost();
+        await host.InitializeAsync(ct);
+
+        var result = await host.Maps.SaveAsync(new Map { Key = key, Name = "Name", ModId = 9010 }, ct);
+
+        Assert.Equal("Map key may contain only letters, digits and underscores, e.g. TheIsland_WP.", result.Error);
+    }
+
+    [Fact]
+    public async Task Save_AcceptsEveryOfficialKey()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var host = new CommandTestHost();
+        await host.InitializeAsync(ct);
+        var seeded = await host.Maps.ListAsync(ct);
+
+        foreach (var (key, name, isStory, releaseDate) in OfficialMaps.All)
+        {
+            var row = seeded.Single(m => m.Key == key);
+            var result = await host.Maps.SaveAsync(new Map { Id = row.Id, Key = key, Name = name, IsOfficial = true, IsStory = isStory, ReleaseDate = releaseDate }, ct);
+            Assert.True(result.Succeeded, $"{key}: {result.Error}");
+        }
+    }
+
     [Fact]
     public async Task Save_RefusesLongValuesAndDuplicateKeys_CaseInsensitively()
     {

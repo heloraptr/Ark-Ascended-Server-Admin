@@ -3,7 +3,6 @@ using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.CurseForge;
 using ArkAscendedServerAdmin.CurseForge.Models.Mods;
-using ArkAscendedServerAdmin.CurseForge.Models.Services;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Mods;
@@ -75,31 +74,32 @@ public sealed class ModCommands(
         return !string.IsNullOrWhiteSpace((await settings.GetAsync(cancellationToken)).CurseForgeApiKey);
     }
 
-    public async Task<CommandResult<IReadOnlyList<ModSearchHit>>> SearchAsync(string searchTerm, CancellationToken cancellationToken = default)
+    public async Task<CommandResult<ModSearchHits>> SearchAsync(string searchTerm, CancellationToken cancellationToken = default)
     {
         await guard.EnsureAuthorizedAsync(cancellationToken);
         if (!await IsApiKeyConfiguredAsync(cancellationToken))
         {
-            return CommandResult<IReadOnlyList<ModSearchHit>>.Fail(NoApiKeyMessage);
+            return CommandResult<ModSearchHits>.Fail(NoApiKeyMessage);
         }
 
         if (string.IsNullOrWhiteSpace(searchTerm))
         {
-            return CommandResult<IReadOnlyList<ModSearchHit>>.Ok([]);
+            return CommandResult<ModSearchHits>.Ok(ModSearchHits.None);
         }
 
         try
         {
-            var mods = await curseForge.SearchModsAsync(searchTerm.Trim(), cancellationToken: cancellationToken);
+            var search = await curseForge.SearchModsAsync(searchTerm.Trim(), cancellationToken: cancellationToken);
             await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
-            var ids = mods.Select(m => m.Id).ToList();
+            var ids = search.Mods.Select(m => m.Id).ToList();
             var inLibrary = await db.ModLibrary.AsNoTracking().Where(m => ids.Contains(m.Id)).Select(m => m.Id).ToHashSetAsync(cancellationToken);
-            return CommandResult<IReadOnlyList<ModSearchHit>>.Ok(mods.Select(m => ToHit(m, inLibrary.Contains(m.Id))).ToList());
+            var hits = search.Mods.Select(m => ToHit(m, inLibrary.Contains(m.Id))).ToList();
+            return CommandResult<ModSearchHits>.Ok(new ModSearchHits(hits, search.TotalCount));
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
         {
             logger.LogWarning(ex, "CurseForge search for '{Term}' failed.", searchTerm);
-            return CommandResult<IReadOnlyList<ModSearchHit>>.Fail(ModMetadata.DescribeApiFailure(ex));
+            return CommandResult<ModSearchHits>.Fail(ModMetadata.DescribeApiFailure(ex));
         }
     }
 
@@ -127,7 +127,7 @@ public sealed class ModCommands(
             return CommandResult<ModLibraryEntry>.Fail(ModMetadata.DescribeApiFailure(ex));
         }
 
-        return await UpsertAsync(mod.Id, mod.Name, mod.Summary, NullIfEmpty(mod.Logo.ThumbnailUrl), CurseForgeLinks.SafeWebsiteUrl(mod.Links?.WebsiteUrl), mod.DateModified, cancellationToken);
+        return await UpsertAsync(mod.Id, mod.Name, mod.Summary, NullIfEmpty(mod.Logo?.ThumbnailUrl), CurseForgeLinks.SafeWebsiteUrl(mod.Links?.WebsiteUrl), mod.DateModified, cancellationToken);
     }
 
     public async Task<CommandResult<ModLibraryEntry>> AddManualAsync(int modId, string name, CancellationToken cancellationToken = default)
@@ -204,7 +204,7 @@ public sealed class ModCommands(
             mod.Id,
             mod.Name,
             mod.Summary,
-            NullIfEmpty(mod.Logo.ThumbnailUrl),
+            NullIfEmpty(mod.Logo?.ThumbnailUrl),
             mod.Authors.FirstOrDefault()?.Name,
             new DateTimeOffset(DateTime.SpecifyKind(mod.DateModified, DateTimeKind.Utc)),
             mod.DownloadCount,

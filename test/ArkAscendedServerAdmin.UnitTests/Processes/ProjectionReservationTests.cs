@@ -49,15 +49,15 @@ public class ProjectionReservationTests
     }
 
     [Fact]
-    public async Task ExclusiveAcquires_AreSerialized_AndACancelledWaitReleasesTheTurn()
+    public async Task ExclusiveAcquires_AreSerialized_AndACanceledWaitReleasesTheTurn()
     {
         var reservation = new ProjectionReservation();
         var shared = await reservation.AcquireSharedAsync(Ct);
         using var cancel = new CancellationTokenSource();
 
-        var cancelled = reservation.AcquireExclusiveAsync(cancel.Token);
+        var canceled = reservation.AcquireExclusiveAsync(cancel.Token);
         cancel.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => canceled);
         Assert.False(reservation.IsHeldExclusively);
 
         var next = await reservation.AcquireSharedAsync(Ct);

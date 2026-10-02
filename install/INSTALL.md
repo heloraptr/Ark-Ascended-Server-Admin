@@ -32,8 +32,10 @@ It asks for:
 - **Login password** for the web UI, typed twice, never shown. It is stored as a PBKDF2 hash.
 
 The installer sets permissions on both folders (SYSTEM and Administrators full control, Users read),
-writes `appsettings.Production.json` readable by SYSTEM and Administrators only, registers the service
-with automatic start and restart on failure, starts it, and checks `/healthz`.
+then closes `keys`, `Data`, `Exports`, `Backups\_app`, `Instances` and `Clusters` inside the data folder
+to SYSTEM and Administrators only, since they hold the key ring, the database, the INI files with the admin
+and RCON passwords, and the RCON history. It also writes `appsettings.Production.json` readable by
+SYSTEM and Administrators only, registers the service with automatic start and restart on failure, starts it, and checks `/healthz`.
 
 Every value can be passed instead: `-InstallDir`, `-DataRoot`, `-Password`, `-Bind`, `-Port`,
 `-KnownProxies`, `-LanSource`. `-Quiet` never prompts and fails on a missing value.
@@ -97,8 +99,10 @@ back, database file set restored, settings file restored) and starts the previou
 .\uninstall.ps1
 ```
 
-Stops and deletes the service, removes the firewall rule, and deletes the app folder and its
-`.previous-*` copies. The data folder is left in place: the game install, instances, backups, keys,
+Stops the service, removes the web firewall rule and this installation's game-port firewall rules
+(found by the tag the app records in `firewall.tag` in the app folder; without a valid file they are
+left in place with a warning), deletes the service, and deletes the app folder and its `.previous-*`
+copies. The data folder is left in place: the game install, instances, backups, keys,
 database, and certificate are yours.
 
 Because the installer replaces the permissions on the data folder, a later `install.ps1` only accepts a
@@ -114,3 +118,6 @@ console is on that page. The service logs to the Windows Application event log.
 
 `-ServiceName <name>` on both scripts installs under a different service name (and firewall rule name)
 so the installer can be exercised next to a live installation; leave it at the default otherwise.
+
+`-SimulateFirewallFailure` on `uninstall.ps1` fails the firewall step on purpose, after the service is
+stopped and before it is deleted, so a rerun of the uninstall can be tested on a scratch install.

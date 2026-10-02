@@ -86,6 +86,7 @@ public static class ServiceExtensions
         ArgumentNullException.ThrowIfNull(services);
         services.AddScoped<ISettingsCommands, SettingsCommands>();
         services.AddScoped<IMaintenanceCommands, MaintenanceCommands>();
+        services.AddScoped<IniSeeder>();
         services.AddScoped<IInstanceCommands, InstanceCommands>();
         services.AddScoped<IClusterCommands, ClusterCommands>();
         services.AddScoped<IConfigCommands, ConfigCommands>();

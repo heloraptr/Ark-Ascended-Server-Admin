@@ -160,6 +160,35 @@ public class ConfigCommandsTests
     }
 
     [Fact]
+    public async Task SaveOverride_EditsOnlyTheInstancesOwnRow_AndReportsADeletedOrMismatchedRow()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (host, instanceId) = await StartAsync(ct);
+        using (host)
+        {
+            var other = await host.Instances.CreateAsync(
+                new InstanceDraft { Name = "Other", MapId = await host.MapIdAsync(ct), SessionName = "Other", GamePort = 7787, RconPort = 27030, ConfigSource = ConfigSourceKind.Blank }, ct);
+            Assert.True(other.Succeeded, other.Error);
+            var theirs = await host.Config.SaveOverrideAsync(new ExtraOverride { InstanceId = other.Value, File = IniFile.GameUserSettings, Section = "ServerSettings", Key = "XPMultiplier", Value = "2" }, ct);
+            Assert.True(theirs.Succeeded, theirs.Error);
+
+            // The other instance's row id with this instance's id: the row must not be touched.
+            var mismatched = await host.Config.SaveOverrideAsync(
+                new ExtraOverride { Id = theirs.Value!.Id, InstanceId = instanceId, File = IniFile.GameUserSettings, Section = "ServerSettings", Key = "XPMultiplier", Value = "9" }, ct);
+            var deleted = await host.Config.SaveOverrideAsync(
+                new ExtraOverride { Id = 12345, InstanceId = instanceId, File = IniFile.GameUserSettings, Section = "ServerSettings", Key = "Other", Value = "1" }, ct);
+            var badFile = await host.Config.SaveOverrideAsync(
+                new ExtraOverride { InstanceId = instanceId, File = (IniFile)7, Section = "ServerSettings", Key = "Other", Value = "1" }, ct);
+
+            Assert.Equal("The override was deleted while you were editing it.", mismatched.Error);
+            Assert.Equal("The override was deleted while you were editing it.", deleted.Error);
+            Assert.Contains(badFile.Errors, e => e.Contains("Unknown ini file", StringComparison.Ordinal));
+            Assert.Equal("2", Assert.Single(await host.Config.GetOverridesAsync(other.Value, ct)).Value);
+            Assert.Empty(await host.Config.GetOverridesAsync(instanceId, ct));
+        }
+    }
+
+    [Fact]
     public async Task GetOverrides_OrdersByFileSectionKey_AndDeleteIsIdempotent()
     {
         var ct = TestContext.Current.CancellationToken;

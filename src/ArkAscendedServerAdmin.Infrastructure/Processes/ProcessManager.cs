@@ -1334,7 +1334,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         var request = new RecoveryRequest(instanceId, session.Pid, session.StartTime, exitCode, stopIntent, _time.GetUtcNow(), _gate.IsHeldExclusively);
         var detail = stopIntent ? null : $"Exited unexpectedly{codeText} at {request.ExitedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss}.";
 
-        // Nothing here may skip the publication, the exit signal, or the post below: a failed or cancelled database write
+        // Nothing here may skip the publication, the exit signal, or the post below: a failed or canceled database write
         // leaves only a stale row, while a skipped publication would leave a dead session registered forever.
         try
         {
@@ -1374,6 +1374,9 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         RaiseTelemetry(instanceId, null);
 
         session.Cancellation.Cancel();
+        // The source is linked to the host lifetime and holds a registration on it until disposed; the loops read
+        // the token once at their start, so nothing observes the disposal.
+        session.Cancellation.Dispose();
         session.Process.Dispose();
         session.Exited.TrySetResult();
 
@@ -1713,7 +1716,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
     private async Task<OperationOutcome> ExitedOnItsOwnAsync(Session session, CancellationToken token) =>
         await WaitForExitAsync(session, ExitVerificationBound, token)
             ? OperationOutcome.Success
-            : OperationOutcome.Rejected($"Pid {session.Pid} left the runtime but its exit was not signalled within {ExitVerificationBound.TotalSeconds:0} s.");
+            : OperationOutcome.Rejected($"Pid {session.Pid} left the runtime but its exit was not signaled within {ExitVerificationBound.TotalSeconds:0} s.");
 
     private void RaiseRuntimeChanged(InstanceRuntime runtime)
     {

@@ -121,10 +121,11 @@ internal static class CommandSupport
     }
 
     /// <summary>One id per line; blank lines are dropped, everything else is kept verbatim after trimming.</summary>
-    public static string NormalizeWhitelist(string? text) =>
-        string.IsNullOrWhiteSpace(text)
-            ? string.Empty
-            : string.Join("\r\n", text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+    public static string NormalizeWhitelist(string? text) => AdminWhitelistText.Normalize(text);
+
+    /// <summary>The cluster and instance whitelists follow the manager-wide rule: no line may hold a space.</summary>
+    public static IEnumerable<string> ValidateWhitelist(string? text) =>
+        AdminWhitelistText.Validate(text) is { } problem ? [problem] : [];
 
     /// <summary>Copies the typed flags into a fresh owned entity so EF tracks the change as a whole.</summary>
     public static void CopyLaunchFlags(LaunchFlags source, LaunchFlags target)

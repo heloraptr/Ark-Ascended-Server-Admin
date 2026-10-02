@@ -4,6 +4,7 @@ using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Processes;
+using ArkAscendedServerAdmin.Startup;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -15,13 +16,15 @@ namespace ArkAscendedServerAdmin.Infrastructure.Backups;
 /// older than its interval is due. A due <see cref="InstanceState.Running"/> instance gets a backup;
 /// a due <see cref="InstanceState.Unreachable"/> or <see cref="InstanceState.StartingUnconfirmed"/> one gets a
 /// "skipped — RCON unreachable" record so the missed schedule is visible (plan step 22); anything else
-/// waits. A backup never overlaps another for the same instance.
+/// waits. A backup never overlaps another for the same instance. The timer starts only once the readiness
+/// pipeline reports Ready, so the migrations have applied before the first tick reads the database.
 /// </summary>
 public sealed class BackupScheduler(
     IDbContextFactory<AppDbContext> contextFactory,
     IAppSettingsStore settingsStore,
     IProcessManager processManager,
     IBackupService backupService,
+    IReadinessMonitor readiness,
     TimeProvider timeProvider,
     ILogger<BackupScheduler> logger) : BackgroundService
 {
@@ -32,6 +35,15 @@ public sealed class BackupScheduler(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        try
+        {
+            await readiness.WaitUntilReadyAsync(stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            return;
+        }
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -43,8 +55,9 @@ public sealed class BackupScheduler(
             {
                 return;
             }
-            catch (Exception ex) when (ex is DbUpdateException or InvalidOperationException or IOException)
+            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
             {
+                // A failed tick is logged and the next minute tries again; letting it escape would stop the service.
                 logger.LogError(ex, "Backup scheduler tick failed; it will try again next minute.");
             }
         }
@@ -109,8 +122,9 @@ public sealed class BackupScheduler(
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
-        catch (Exception ex) when (ex is DbUpdateException or InvalidOperationException or ArgumentException or IOException)
+        catch (Exception ex)
         {
+            // The backup is detached from the tick and nothing observes it, so anything not logged here is lost.
             logger.LogError(ex, "Scheduled backup of instance {InstanceId} threw.", instanceId);
         }
     }

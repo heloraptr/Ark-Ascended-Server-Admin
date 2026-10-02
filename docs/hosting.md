@@ -286,11 +286,17 @@ From an extracted release folder, elevated:
 .\uninstall.ps1
 ```
 
-Stops and deletes the service, removes the web firewall rule, and deletes `InstallDir` and every
-`InstallDir.previous-*` that belongs to the same install. `DataRoot` stays, and the script says so:
-the game install, instances, worlds, backups, the key ring, the database, and the certificate are
-yours. Delete the folder yourself when you are done with them. Per-instance game-port firewall
-rules are removed when an instance is deleted in the app, not by the uninstaller.
+Stops the service, removes the web firewall rule and this installation's game-port firewall rules,
+deletes the service, and deletes `InstallDir` and every `InstallDir.previous-*` that belongs to the
+same install. `DataRoot` stays, and the script says so: the game install, instances, worlds,
+backups, the key ring, the database, and the certificate are yours. Delete the folder yourself when
+you are done with them.
+
+The app writes its installation tag to `InstallDir\firewall.tag` every time it starts, and the
+uninstaller removes only the rules named `ArkAscendedServerAdmin-<that tag>-*`, so another install on
+the same machine keeps its rules. If the file is missing or does not hold a valid tag, the
+uninstaller warns and leaves the game-port rules in place. If removing a firewall rule fails, the
+service is left stopped but registered; run `uninstall.ps1` again to finish.
 
 ## IIS
 

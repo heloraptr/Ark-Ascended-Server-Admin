@@ -1,5 +1,4 @@
 using ArkAscendedServerAdmin.CurseForge;
-using ArkAscendedServerAdmin.CurseForge.Models.Services;
 using ArkAscendedServerAdmin.Infrastructure.CurseForge;
 using ArkAscendedServerAdmin.Mods;
 using Microsoft.Extensions.DependencyInjection;

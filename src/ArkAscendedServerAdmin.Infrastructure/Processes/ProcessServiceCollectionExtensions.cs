@@ -13,7 +13,7 @@ public static class ProcessServiceCollectionExtensions
 {
     /// <summary>
     /// Registers the concurrency primitives (plan step 19), the RCON client (23), the console's RCON history, the
-    /// WMI enumerator and process manager (21–25), and the firewall rules (26) as singletons, plus the crash policy
+    /// WMI enumerator and process manager (21–25), and the firewall rules (26) and their tag file as singletons, plus the crash policy
     /// (B4) as a hosted service. <see cref="IProcessReconciler"/> resolves to the process manager, replacing the
     /// Phase 1 no-op registered by
     /// <c>AddArkInfrastructure</c> whichever order the two are called in. Requires <c>HostConfiguration</c>,
@@ -37,6 +37,7 @@ public static class ProcessServiceCollectionExtensions
         services.AddSingleton<IGameProcessEnumerator, WmiGameProcessEnumerator>();
         services.AddSingleton<IGameProcessStarter, GameProcessStarter>();
         services.AddSingleton<IFirewallRules, FirewallRules>();
+        services.AddSingleton<FirewallTagFile>();
 
         services.AddSingleton<ProcessManager>();
         services.AddSingleton<IProcessManager>(sp => sp.GetRequiredService<ProcessManager>());

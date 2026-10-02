@@ -30,6 +30,41 @@ public class DataRootLayoutTests
     }
 
     [Fact]
+    public void InstanceWorldDirectory_PutsAPlainKeyUnderTheSlugFolder()
+    {
+        var layout = new DataRootLayout(Path.Combine(Path.GetTempPath(), "ark-layout-test"));
+
+        Assert.Equal(
+            Path.Combine(layout.Root, "Instances", "island", "ShooterGame", "Saved", "island", "TheIsland_WP"),
+            layout.InstanceWorldDirectory("island", "TheIsland_WP"));
+    }
+
+    [Theory]
+    [InlineData(@"..\..\x")]
+    [InlineData("..")]
+    [InlineData(@"C:\x")]
+    [InlineData(@"\server\share\x")]
+    public void InstanceWorldDirectory_RefusesAKeyThatLeavesTheSaveFolder(string mapKey)
+    {
+        var layout = new DataRootLayout(Path.Combine(Path.GetTempPath(), "ark-layout-test"));
+
+        Assert.Throws<ArgumentException>(() => layout.InstanceWorldDirectory("island", mapKey));
+    }
+
+    [Theory]
+    [InlineData(@"..\x")]
+    [InlineData(@"C:\x")]
+    [InlineData(" ")]
+    public void SlugPaths_RefuseASlugThatLeavesTheirParent(string slug)
+    {
+        var layout = new DataRootLayout(Path.Combine(Path.GetTempPath(), "ark-layout-test"));
+
+        Assert.Throws<ArgumentException>(() => layout.InstanceDirectory(slug));
+        Assert.Throws<ArgumentException>(() => layout.ClusterDirectory(slug));
+        Assert.Throws<ArgumentException>(() => layout.InstanceBackupDirectory(slug));
+    }
+
+    [Fact]
     public void BlankRoot_IsRejected()
     {
         Assert.Throws<ArgumentException>(() => new DataRootLayout(" "));

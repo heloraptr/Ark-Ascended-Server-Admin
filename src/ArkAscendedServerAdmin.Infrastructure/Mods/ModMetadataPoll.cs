@@ -1,6 +1,5 @@
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Mods;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -35,8 +34,9 @@ public sealed class ModMetadataPoll(
             {
                 return;
             }
-            catch (Exception ex) when (ex is DbUpdateException or InvalidOperationException or IOException)
+            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
             {
+                // A failed poll is logged and tomorrow's tries again; letting it escape would stop the service.
                 logger.LogError(ex, "Mod metadata poll failed; it will try again tomorrow.");
             }
         }

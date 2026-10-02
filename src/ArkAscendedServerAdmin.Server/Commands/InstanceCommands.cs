@@ -5,7 +5,6 @@ using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Firewall;
 using ArkAscendedServerAdmin.Infrastructure.Data;
-using ArkAscendedServerAdmin.Infrastructure.Firewall;
 using ArkAscendedServerAdmin.Ini;
 using ArkAscendedServerAdmin.Launch;
 using ArkAscendedServerAdmin.Maintenance;
@@ -34,6 +33,7 @@ public sealed class InstanceCommands(
     IInstanceDeleteService deleteService,
     IInstanceLayoutService layoutService,
     IIniSourceStore iniStore,
+    IniSeeder iniSeeder,
     IRconOperations rconOperations,
     IFirewallRules firewall,
     IHostAddressProvider hostAddresses,
@@ -151,7 +151,7 @@ public sealed class InstanceCommands(
             ports.RconPort,
             hostAddresses.GetLanAddresses(),
             (await settings.GetAsync(cancellationToken)).PublicAddress.Trim(),
-            FirewallRules.RuleName(instanceId),
+            firewall.RuleName(instanceId),
             ruleExists);
     }
 
@@ -348,6 +348,7 @@ public sealed class InstanceCommands(
         problems.AddRange(CommandSupport.ValidatePlayers(draft.MaxPlayers));
         problems.AddRange(CommandSupport.ValidateLaunchFlags(draft.LaunchFlags));
         problems.AddRange(CommandSupport.ValidateBackupSettings(draft.BackupIntervalMinutes, draft.BackupRetention));
+        problems.AddRange(CommandSupport.ValidateWhitelist(draft.AdminWhitelist));
         var adminPassword = CommandSupport.Trimmed(draft.AdminPassword);
         if (adminPassword is not null)
         {
@@ -428,7 +429,7 @@ public sealed class InstanceCommands(
             await layoutService.EnsureAsync(slug, cancellationToken);
             if (cluster is null)
             {
-                await SeedIniAsync(IniOwner.ForInstance(instance.Id), draft.ConfigSource, draft.ConfigSourceId, cancellationToken, adminPassword);
+                await iniSeeder.SeedAsync(IniOwner.ForInstance(instance.Id), draft.ConfigSource, draft.ConfigSourceId, cancellationToken, adminPassword);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
@@ -441,39 +442,6 @@ public sealed class InstanceCommands(
 
         logger.LogInformation("Created instance {Name} ({Slug}) on {Map}.", name, slug, map.Key);
         return CommandResult<int>.Ok(instance.Id);
-    }
-
-    /// <summary>
-    /// Writes both source files for a new owner from the chosen starting point (plan step 16, DESIGN §5).
-    /// A non-null <paramref name="adminPassword"/> is set as <c>ServerAdminPassword</c> in the seeded
-    /// <c>GameUserSettings.ini</c>, replacing whatever the source had.
-    /// </summary>
-    internal async Task SeedIniAsync(IniOwner owner, ConfigSourceKind source, int? sourceId, CancellationToken cancellationToken, string? adminPassword = null)
-    {
-        foreach (var file in new[] { IniFile.Game, IniFile.GameUserSettings })
-        {
-            var text = source switch
-            {
-                ConfigSourceKind.Blank => string.Empty,
-                ConfigSourceKind.CopyFromInstance when sourceId is { } id => (await iniStore.LoadAsync(IniOwner.ForInstance(id), file, cancellationToken)).Text,
-                ConfigSourceKind.CopyFromCluster when sourceId is { } id => (await iniStore.LoadAsync(IniOwner.ForCluster(id), file, cancellationToken)).Text,
-                _ => file == IniFile.Game ? IniTemplates.DefaultGameIni : IniTemplates.DefaultGameUserSettings,
-            };
-
-            if (file == IniFile.GameUserSettings && adminPassword is not null)
-            {
-                var ini = IniText.Parse(text);
-                ini.Set(IniGenerator.ServerSettingsSection, "ServerAdminPassword", adminPassword);
-                text = ini.ToString();
-            }
-
-            var current = await iniStore.LoadAsync(owner, file, cancellationToken);
-            var result = await iniStore.SaveAsync(owner, file, text, current.Sha256, cancellationToken);
-            if (!result.Succeeded)
-            {
-                throw new InvalidOperationException(result.Error ?? $"Writing {file} failed.");
-            }
-        }
     }
 
     public async Task<CommandResult> SaveAsync(int instanceId, InstanceEdit edit, CancellationToken cancellationToken = default)
@@ -499,6 +467,7 @@ public sealed class InstanceCommands(
         problems.AddRange(CommandSupport.ValidateSessionName(edit.SessionName));
         problems.AddRange(CommandSupport.ValidatePlayers(edit.MaxPlayers));
         problems.AddRange(CommandSupport.ValidateBackupSettings(edit.BackupIntervalMinutes, edit.BackupRetention));
+        problems.AddRange(CommandSupport.ValidateWhitelist(edit.AdminWhitelist));
         problems.AddRange((await FindPortConflictsAsync(db, name, edit.GamePort, edit.RconPort, instanceId, cancellationToken)).Select(c => c.Reason));
         if (problems.Count > 0)
         {

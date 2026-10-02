@@ -65,6 +65,13 @@ public sealed class IniSourceStore(
         await gate.WaitAsync(cancellationToken);
         try
         {
+            // The slug is cached, so an editor left open across a delete would otherwise still resolve a path and
+            // recreate the deleted owner's Config folder. Checked under the gate, before anything touches the disk.
+            if (!await OwnerExistsAsync(owner, cancellationToken))
+            {
+                return IniSaveResult.Rejected($"This {(owner.IsCluster ? "cluster" : "instance")} was deleted while the editor was open.");
+            }
+
             var (currentText, currentSha256, _) = await ReadFileAsync(path, cancellationToken);
             if (!HashEquals(currentSha256, expectedSha256))
             {
@@ -138,6 +145,26 @@ public sealed class IniSourceStore(
             }
 
             logger.LogInformation("Restored {Path} from the database mirror.", path);
+        }
+    }
+
+    /// <summary>
+    /// False only when the database answers that the owner row is gone. A database that cannot be read counts as
+    /// the owner existing: the file is authoritative, and a save must not fail because the mirror side is down.
+    /// </summary>
+    private async Task<bool> OwnerExistsAsync(IniOwner owner, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+            return owner.ClusterId is { } clusterId
+                ? await db.Clusters.AnyAsync(c => c.Id == clusterId, cancellationToken)
+                : await db.Instances.AnyAsync(i => i.Id == owner.InstanceId, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Could not confirm that {Owner} still exists; saving to the file anyway.", Describe(owner));
+            return true;
         }
     }
 

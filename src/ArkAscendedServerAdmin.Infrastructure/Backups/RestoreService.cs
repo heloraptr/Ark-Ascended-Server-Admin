@@ -139,7 +139,9 @@ public sealed class RestoreService(
                 return OperationOutcome.Rejected($"Cluster data cannot be included: {unavailable}.");
             }
 
-            if (VerifyHashes(archive, check) is { } corrupt)
+            // Hashing every entry is long synchronous work; on the thread pool it does not freeze the calling circuit.
+            var hashedArchive = archive;
+            if (await Task.Run(() => VerifyHashes(hashedArchive, check), cancellationToken) is { } corrupt)
             {
                 return OperationOutcome.Rejected($"The backup failed verification: {corrupt}.");
             }

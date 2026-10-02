@@ -71,8 +71,8 @@ public sealed class PortAllocator(AppSettings settings)
     /// <summary>
     /// Every reason <paramref name="candidate"/> may not use its ports, in a stable order: out-of-range
     /// ports, the candidate's game range overlapping its own RCON port, overlaps with each other owner
-    /// (an entry whose <see cref="PortOwner.Name"/> equals the candidate's, ignoring case, is skipped so a
-    /// saved instance can be re-checked against the rest), the web UI's <paramref name="hostPort"/>, and
+    /// (callers leave a saved instance's own row out of <paramref name="others"/> by id, so every entry here
+    /// counts, whatever its name), the web UI's <paramref name="hostPort"/>, and
     /// finally OS listeners: the game port and port + 1 against <paramref name="activeUdpPorts"/>, the
     /// RCON port against <paramref name="activeTcpPorts"/>. An empty list means the launch may proceed.
     /// </summary>
@@ -115,11 +115,6 @@ public sealed class PortAllocator(AppSettings settings)
 
         foreach (var other in others)
         {
-            if (string.Equals(other.Name, candidate.Name, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
             foreach (var port in CandidatePorts(candidate))
             {
                 if (port == other.GamePort || port == other.GamePort + 1)

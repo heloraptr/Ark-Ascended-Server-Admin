@@ -55,6 +55,7 @@ public sealed class MaintenanceCommands(
     IUpdateService updateService,
     IMaintenanceRecovery recovery,
     IGameInstallChecker installChecker,
+    DetachedJobs jobs,
     ILogger<MaintenanceCommands> logger) : IMaintenanceCommands
 {
     public async Task RetryInstallAsync(CancellationToken cancellationToken = default)
@@ -96,17 +97,34 @@ public sealed class MaintenanceCommands(
             return OperationOutcome.Rejected("There is no interrupted update to resume.");
         }
 
+        // The resume would only wait on the operation lock behind the running flow and then find nothing left to
+        // do, so a second click is refused here instead of reported as a success.
+        if (updateService.IsOperationInProgress)
+        {
+            return OperationOutcome.Rejected("An update operation is already in progress.");
+        }
+
+        // Registered so a service stop waits for the resume instead of cutting SteamCMD or a relaunch off midway.
+        var registration = jobs.TryBegin("resume maintenance");
+        if (registration is null)
+        {
+            return OperationOutcome.Rejected("The service is stopping; the resume was not started.");
+        }
+
         // Fire-and-forget by design (HANDOVER §2): the resume drives SteamCMD and the relaunches in the
         // background; the dashboard follows it through IUpdateService.Changed.
         _ = Task.Run(async () =>
         {
-            try
+            using (registration)
             {
-                await recovery.ResumeAsync(CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Resuming the {Phase} maintenance phase failed.", phase);
+                try
+                {
+                    await recovery.ResumeAsync(CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Resuming the {Phase} maintenance phase failed.", phase);
+                }
             }
         }, CancellationToken.None);
 

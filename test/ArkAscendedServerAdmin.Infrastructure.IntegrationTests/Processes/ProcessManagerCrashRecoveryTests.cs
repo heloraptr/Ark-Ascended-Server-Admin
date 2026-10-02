@@ -474,7 +474,7 @@ public class ProcessManagerCrashRecoveryTests
         Assert.Equal(CrashRecovery.Stale, await rig.Manager.RecoverAsync(request, Ct).WaitAsync(_slow, Ct));
     }
 
-    /// <summary>The exit's database write fails: the row is stale, but the exit is still published and signalled.</summary>
+    /// <summary>The exit's database write fails: the row is stale, but the exit is still published and signaled.</summary>
     [Fact]
     public async Task AFailedExitDatabaseWrite_StillPublishesTheExit_AndSignalsIt()
     {

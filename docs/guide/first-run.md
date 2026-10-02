@@ -79,7 +79,9 @@ and launch options alone, accept the suggested ports, tick **Start the server ri
 
 Creating and starting it writes `Instances\<slug>\` with its junctions, the source INI files
 (standalone), the generated INI files, the whitelist file, two inbound UDP firewall rules named
-`ArkAscendedServerAdmin-<instance id>` for the game port and game port + 1, and the process. The full
+`ArkAscendedServerAdmin-<tag>-<instance id>` for the game port and game port + 1, and the process.
+The tag is a short code that identifies this installation, so a second install on the same machine
+keeps its own rules; the Connection card on the instance page shows the exact name. The full
 sequence is in [instance-creation.md](../instance-creation.md).
 
 ## Watching it come up

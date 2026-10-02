@@ -52,6 +52,12 @@ public sealed class MapCommands(IAuthorizationGuard guard, IDbContextFactory<App
         {
             problems.Add(keyProblem);
         }
+        else if (!key.All(c => char.IsAsciiLetterOrDigit(c) || c == '_'))
+        {
+            // The key becomes a folder name under the instance's save directory, so anything that could
+            // step out of it (separators, dots, a drive) is refused; official keys are letters, digits and _.
+            problems.Add("Map key may contain only letters, digits and underscores, e.g. TheIsland_WP.");
+        }
 
         if (name.Length == 0)
         {

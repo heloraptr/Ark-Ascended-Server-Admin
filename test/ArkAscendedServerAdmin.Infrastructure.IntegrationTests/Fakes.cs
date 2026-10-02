@@ -3,7 +3,9 @@ using ArkAscendedServerAdmin.Consoles;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Provisioning;
+using ArkAscendedServerAdmin.Startup;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace ArkAscendedServerAdmin.Infrastructure.IntegrationTests;
 
@@ -58,6 +60,246 @@ public sealed class FastTimeProvider(DateTimeOffset start) : TimeProvider
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
+}
+
+/// <summary>
+/// A clock that moves only when the test calls <see cref="Advance"/>; a timer fires (on the thread pool) once the
+/// clock reaches its due time. Unlike <see cref="FastTimeProvider"/>, which fires every timer at once, this one
+/// lets a test hold a hosted loop between ticks and show how far apart its attempts are.
+/// </summary>
+public sealed class ManualTimeProvider(DateTimeOffset start) : TimeProvider
+{
+    private readonly object _sync = new();
+    private readonly List<ManualTimer> _timers = [];
+    private readonly List<TaskCompletionSource> _pendingWaiters = [];
+    private DateTimeOffset _now = start;
+
+    public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
+
+    public override DateTimeOffset GetUtcNow()
+    {
+        lock (_sync)
+        {
+            return _now;
+        }
+    }
+
+    /// <summary>How many timers are waiting to fire.</summary>
+    public int PendingTimers
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _timers.Count(t => t.Due is not null);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Completes once at least one timer is waiting to fire. A loop that has registered its next delay is parked
+    /// on it, so a test that waits here before advancing knows the advance cannot race the registration.
+    /// </summary>
+    public Task WaitForPendingTimerAsync()
+    {
+        lock (_sync)
+        {
+            if (_timers.Any(t => t.Due is not null))
+            {
+                return Task.CompletedTask;
+            }
+
+            var waiter = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _pendingWaiters.Add(waiter);
+            return waiter.Task;
+        }
+    }
+
+    /// <summary>Moves the clock forward and fires every timer whose due time it reached.</summary>
+    public void Advance(TimeSpan by)
+    {
+        List<ManualTimer> due;
+        lock (_sync)
+        {
+            _now += by;
+            due = [.. _timers.Where(t => t.Due <= _now)];
+            foreach (var timer in due)
+            {
+                timer.Due = timer.Period == Timeout.InfiniteTimeSpan || timer.Period == TimeSpan.Zero ? null : _now + timer.Period;
+            }
+        }
+
+        foreach (var timer in due)
+        {
+            ThreadPool.QueueUserWorkItem(_ => timer.Fire());
+        }
+    }
+
+    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+    {
+        var timer = new ManualTimer(this, callback, state);
+        lock (_sync)
+        {
+            _timers.Add(timer);
+        }
+
+        timer.Change(dueTime, period);
+        return timer;
+    }
+
+    private void Schedule(ManualTimer timer, TimeSpan dueTime, TimeSpan period)
+    {
+        TaskCompletionSource[] waiters = [];
+        lock (_sync)
+        {
+            if (!_timers.Contains(timer))
+            {
+                return;
+            }
+
+            timer.Period = period;
+            timer.Due = dueTime == Timeout.InfiniteTimeSpan ? null : _now + dueTime;
+            if (timer.Due is not null)
+            {
+                waiters = [.. _pendingWaiters];
+                _pendingWaiters.Clear();
+            }
+        }
+
+        foreach (var waiter in waiters)
+        {
+            waiter.TrySetResult();
+        }
+    }
+
+    private void Remove(ManualTimer timer)
+    {
+        lock (_sync)
+        {
+            _timers.Remove(timer);
+        }
+    }
+
+    private sealed class ManualTimer(ManualTimeProvider owner, TimerCallback callback, object? state) : ITimer
+    {
+        /// <summary>When the timer fires next; null while it is stopped. Guarded by the owner's lock.</summary>
+        public DateTimeOffset? Due { get; set; }
+
+        public TimeSpan Period { get; set; } = Timeout.InfiniteTimeSpan;
+
+        public void Fire() => callback(state);
+
+        public bool Change(TimeSpan dueTime, TimeSpan period)
+        {
+            owner.Schedule(this, dueTime, period);
+            return true;
+        }
+
+        public void Dispose() => owner.Remove(this);
+
+        public ValueTask DisposeAsync()
+        {
+            Dispose();
+            return ValueTask.CompletedTask;
+        }
+    }
+}
+
+/// <summary>A readiness monitor the test moves by hand; <see cref="Subscribed"/> completes when someone starts waiting on it.</summary>
+public sealed class FakeReadinessMonitor(ReadinessPhase phase = ReadinessPhase.Initializing) : IReadinessMonitor
+{
+    private readonly TaskCompletionSource _subscribed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private Action<ReadinessState>? _changed;
+
+    public ReadinessState Current { get; private set; } = new(phase, phase.ToString(), null, DateTimeOffset.UnixEpoch);
+
+    public Task Subscribed => _subscribed.Task;
+
+    public event Action<ReadinessState>? Changed
+    {
+        add
+        {
+            _changed += value;
+            _subscribed.TrySetResult();
+        }
+        remove => _changed -= value;
+    }
+
+    public void Report(ReadinessPhase next)
+    {
+        Current = new ReadinessState(next, next.ToString(), null, DateTimeOffset.UnixEpoch);
+        _changed?.Invoke(Current);
+    }
+}
+
+/// <summary>Counts calls into a faked dependency; <see cref="WhenAttempt"/> completes when the n-th call arrives.</summary>
+public sealed class AttemptLog
+{
+    private readonly object _sync = new();
+    private readonly List<TaskCompletionSource> _signals = [];
+    private int _count;
+
+    public int Count
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _count;
+            }
+        }
+    }
+
+    /// <summary>Records one call and returns its number, starting at 1.</summary>
+    public int Record()
+    {
+        TaskCompletionSource signal;
+        int number;
+        lock (_sync)
+        {
+            number = ++_count;
+            signal = Signal(number);
+        }
+
+        signal.TrySetResult();
+        return number;
+    }
+
+    public Task WhenAttempt(int number)
+    {
+        lock (_sync)
+        {
+            return Signal(number).Task;
+        }
+    }
+
+    private TaskCompletionSource Signal(int number)
+    {
+        while (_signals.Count < number)
+        {
+            _signals.Add(new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+        }
+
+        return _signals[number - 1];
+    }
+}
+
+/// <summary>A logger that keeps every entry so a test can assert what was logged and at which level.</summary>
+public sealed class RecordingLogger<T> : ILogger<T>
+{
+    private readonly ConcurrentQueue<(LogLevel Level, string Message, Exception? Exception)> _entries = new();
+
+    public IReadOnlyList<(LogLevel Level, string Message, Exception? Exception)> Errors => [.. _entries.Where(e => e.Level == LogLevel.Error)];
+
+    public IReadOnlyList<(LogLevel Level, string Message, Exception? Exception)> Warnings => [.. _entries.Where(e => e.Level == LogLevel.Warning)];
+
+    public IDisposable? BeginScope<TState>(TState state)
+        where TState : notnull => null;
+
+    public bool IsEnabled(LogLevel logLevel) => true;
+
+    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+        _entries.Enqueue((logLevel, formatter(state, exception), exception));
 }
 
 /// <summary>Per-instance locks backed by semaphores; <see cref="Holders"/> shows who currently holds one.</summary>

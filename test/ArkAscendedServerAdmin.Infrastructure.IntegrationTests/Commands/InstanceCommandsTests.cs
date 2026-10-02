@@ -1,6 +1,7 @@
 using ArkAscendedServerAdmin.Auth;
 using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Commands;
+using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Consoles;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Ini;
@@ -588,7 +589,7 @@ public class InstanceCommandsTests
             Assert.Equal(["192.168.1.40", "10.0.0.5"], view.LanAddresses);
             Assert.Equal("ark.example.com", view.PublicAddress);
             Assert.True(view.HasPublicAddress);
-            Assert.Equal($"ArkAscendedServerAdmin-{id}", view.FirewallRuleName);
+            Assert.Equal($"ArkAscendedServerAdmin-0123abcd-{id}", view.FirewallRuleName);
             Assert.True(view.FirewallRuleExists);
             Assert.Equal("open 192.168.1.40:7801", view.OpenCommand("192.168.1.40"));
             Assert.Equal("open ark.example.com:7801", view.OpenCommand(view.PublicAddress));
@@ -679,7 +680,7 @@ public class InstanceCommandsTests
                     : host.ProcessManager.StartAsync(call.ArgAt<int>(0), call.ArgAt<LaunchKind>(1), call.ArgAt<CancellationToken>(2)));
             var facade = new Server.Commands.InstanceCommands(
                 host.Guard, host.Root, host.Root.Layout, host.Host, host.Settings, throwing, host.Locks, host.Journals, host.Backups, host.DeleteService, host.LayoutService,
-                host.IniStore, host.RconOperations, host.Firewall, host.HostAddresses, host.Clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<Server.Commands.InstanceCommands>.Instance);
+                host.IniStore, new Server.Commands.IniSeeder(host.IniStore), host.RconOperations, host.Firewall, host.HostAddresses, host.Clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<Server.Commands.InstanceCommands>.Instance);
 
             var outcomes = await facade.StartManyAsync([ok.Value, busy.Value, 999], ct);
 
@@ -852,20 +853,25 @@ public class InstanceCommandsTests
     }
 
     [Fact]
-    public async Task CheckPorts_FlagsOtherInstancesAndTheWebPort_ButNotTheInstanceItself()
+    public async Task CheckPorts_FlagsOtherInstancesAndTheWebPort_AndSaveLeavesTheInstanceItselfOutById()
     {
         var ct = TestContext.Current.CancellationToken;
         var (host, mapId) = await StartAsync(ct);
         using (host)
         {
-            Assert.True((await host.Instances.CreateAsync(Draft(mapId, "One"), ct)).Succeeded);
+            var one = await host.Instances.CreateAsync(Draft(mapId, "One"), ct);
+            Assert.True(one.Succeeded);
 
-            var self = await host.Instances.CheckPortsAsync("One", 7777, 27020, ct);
+            // The wizard checks a new instance, so an existing row is never skipped for sharing its name; a saved
+            // instance is left out of its own check by id.
+            var namesake = await host.Instances.CheckPortsAsync("One", 7777, 27020, ct);
+            var self = await host.Instances.SaveAsync(one.Value, new InstanceEdit("One", "One session", 20, 7777, 27020, string.Empty, null, null, false, false), ct);
             var clash = await host.Instances.CheckPortsAsync("Two", 7778, 27020, ct);
             var web = await host.Instances.CheckPortsAsync("Two", 7790, CommandTestHost.WebPort, ct);
             var free = await host.Instances.CheckPortsAsync("Two", 7790, 27030, ct);
 
-            Assert.Empty(self);
+            Assert.Equal([7777, 7778, 27020], namesake.Select(c => c.Port));
+            Assert.True(self.Succeeded, self.Error);
             Assert.Equal(2, clash.Count);
             Assert.All(clash, c => Assert.Contains("One", c.Reason, StringComparison.Ordinal));
             Assert.Single(web);
@@ -895,6 +901,23 @@ public class InstanceCommandsTests
             Assert.Equal((50, 7800, 27050), (instance.MaxPlayers, instance.GamePort, instance.RconPort));
             Assert.Equal("a\r\nb", instance.AdminWhitelist);
             Assert.Equal((15, 3), (instance.BackupIntervalMinutes, instance.BackupRetention));
+        }
+    }
+
+    [Fact]
+    public async Task CreateAndSave_RefuseAWhitelistLineWithInnerWhitespace()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (host, mapId) = await StartAsync(ct);
+        using (host)
+        {
+            var refused = await host.Instances.CreateAsync(Draft(mapId) with { AdminWhitelist = "abc def" }, ct);
+            var created = await host.Instances.CreateAsync(Draft(mapId), ct);
+            var saved = await host.Instances.SaveAsync(created.Value, new InstanceEdit("My Island", "Session", 70, 7777, 27020, "a\r\nabc def", 15, 3, false, false), ct);
+
+            Assert.Contains(AdminWhitelistText.InvalidLineError, refused.Errors);
+            Assert.Contains(AdminWhitelistText.InvalidLineError, saved.Errors);
+            Assert.Equal(string.Empty, (await host.InstanceAsync(created.Value, ct)).AdminWhitelist);
         }
     }
 

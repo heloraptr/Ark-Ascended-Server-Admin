@@ -1,5 +1,6 @@
 using System.Globalization;
 using ArkAscendedServerAdmin.Backups;
+using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Startup;
@@ -266,6 +267,15 @@ public static class Presentation
     public static string Clock(DateTimeOffset at) => at.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture);
 
     public static string Stamp(DateTimeOffset at) => at.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// The line shown over a mod search that stopped at its cap: "Showing the first 100 of 2,340 matches. ..."; null when
+    /// every match was fetched, so the screens show nothing extra.
+    /// </summary>
+    public static string? SearchCutOff(ModSearchHits search) =>
+        search.IsTruncated
+            ? $"Showing the first {search.Hits.Count.ToString("N0", CultureInfo.InvariantCulture)} of {search.TotalCount.ToString("N0", CultureInfo.InvariantCulture)} matches. Refine the search to narrow it down."
+            : null;
 
     public static string Plural(int count, string singular, string? plural = null) =>
         count == 1 ? $"{count} {singular}" : $"{count} {plural ?? singular + "s"}";

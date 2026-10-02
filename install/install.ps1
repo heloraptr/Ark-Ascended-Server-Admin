@@ -419,6 +419,7 @@ function Invoke-Upgrade($package, $installation) {
         Set-JournalPhase $dataRoot $journal 'swapped'
 
         $bak = Copy-ProtectedFile (Get-SettingsPath $previousDir) (Get-SettingsPath $installDir)
+        Copy-InstanceFirewallTag $previousDir $installDir
         Set-JournalValue $dataRoot $journal 'settingsBak' $bak
         Set-JournalPhase $dataRoot $journal 'settings-written'
     }

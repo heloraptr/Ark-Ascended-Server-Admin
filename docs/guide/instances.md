@@ -59,8 +59,10 @@ reason. The console shows the details as they happen.
    refuses the start.
 6. Ports are checked against every other instance, the web UI's port, and the operating system's live
    UDP and TCP listener tables.
-7. The two firewall rules `ArkAscendedServerAdmin-<instance id>` (inbound UDP, game port and
-   game port + 1, all profiles) are created or repaired. A firewall failure does not stop the launch:
+7. The two firewall rules `ArkAscendedServerAdmin-<tag>-<instance id>` (inbound UDP, game port and
+   game port + 1, all profiles) are created or repaired. The tag is a short code that identifies
+   this installation, so two installs on one machine keep separate rules. A firewall failure does
+   not stop the launch:
    `Firewall: <error> The server starts anyway; open UDP 7777-7778 manually if players cannot join.`
 8. The command line is built ([launch-options.md](launch-options.md)) and the process started through
    `Instances\<slug>\ShooterGame\Binaries\Win64\ArkAscendedServer.exe`, without a console window.
@@ -194,11 +196,11 @@ The card lists the game port, the port one higher that the manager opens alongsi
 port, marked `not a join port`: the manager reaches RCON over loopback and no rule opens it to
 anyone else.
 
-Under the ports is the firewall rule the manager keeps for this instance,
-`ArkAscendedServerAdmin-<id>`: **in place** if a rule by that name exists, **not found** if it does
-not, and `could not be read` when Windows Firewall will not answer, which happens with the firewall
-service stopped or the manager running without the rights to query it. The rules are written the
-first time the instance starts, so **not found** on an instance that has never run here is expected;
+Under the ports is the exact name of the firewall rule the manager keeps for this instance,
+`ArkAscendedServerAdmin-<tag>-<id>`, where the tag identifies this installation: **in place** if a
+rule by that name exists, **not found** if it does not, and `could not be read` when Windows
+Firewall will not answer, which happens with the firewall service stopped or the manager running
+without the rights to query it. The rules are written the first time the instance starts, so **not found** on an instance that has never run here is expected;
 on one that has been running, something else removed them.
 
 Under that is one line per address, each a complete console command:
@@ -343,7 +345,7 @@ relaunch is refused, the state is **Crashed** until you press **Start**. With it
 | `Process.Start failed: ...` | The executable under the junction is missing or unreadable. Check `Server\ShooterGame\Binaries\Win64` and the junctions. |
 | `<path> exists and is not a junction; move it aside and retry.` | A real folder sits where a junction belongs under `Instances\<slug>`. |
 | `The server started (pid <n>) but its identity could not be saved after 3 retries: ... Use 'Retry persist'.` | The server is up; the database write failed. **Retry persist** on the instance page. |
-| `Launch cancelled before it started.` / `The service is shutting down.` | The queued launch was abandoned; try again. |
+| `Launch canceled before it started.` / `The service is shutting down.` | The queued launch was abandoned; try again. |
 | `The instance is not running.` | Stop asked for an instance without a live process. |
 | `Pid <n> is still alive after kill; its exit could not be verified.` | The kill did not take within 30 s. Look at the process in Task Manager; the state stays **Stopping** with this detail. |
 | `No countdown to skip` (`The stop is already past the broadcast phase.`) | **Stop now** was clicked in the moment after the countdown ended, before the button turned into **Stopping…**. |

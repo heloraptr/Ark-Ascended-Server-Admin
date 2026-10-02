@@ -44,7 +44,7 @@ public sealed record AppSettings
     public string CurseForgeApiKey { get; init; } = string.Empty;
 
     /// <summary>
-    /// The manager-wide admin whitelist, one EOS id per line. Unioned into every instance.s
+    /// The manager-wide admin whitelist, one EOS id per line. Unioned into every instance's
     /// <c>AllowedCheaterAccountIDs.txt</c> ahead of the cluster and instance lists, so the owner enters
     /// themselves once; the per-instance editors show these ids locked.
     /// </summary>
@@ -90,9 +90,9 @@ public sealed record AppSettings
             errors.Add($"{nameof(CurseForgeApiKey)} must not contain whitespace or control characters.");
         }
 
-        if (AdminWhitelist.Split('\n').Select(l => l.Trim()).Any(l => l.Any(c => char.IsControl(c) || char.IsWhiteSpace(c))))
+        if (AdminWhitelistText.Validate(AdminWhitelist) is { } whitelistProblem)
         {
-            errors.Add($"{nameof(AdminWhitelist)} must hold one id per line with no spaces.");
+            errors.Add(whitelistProblem);
         }
 
         if (PublicAddress.Length > PublicAddressMaxLength)
