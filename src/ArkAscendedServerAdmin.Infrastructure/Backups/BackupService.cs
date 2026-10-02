@@ -161,12 +161,14 @@ public class BackupService(
         var tempArchive = Path.Combine(backupDirectory, $".tmp-{Guid.NewGuid():N}.zip");
         try
         {
-            ZipFile.CreateFromDirectory(snapshot.Directory, tempArchive, CompressionLevel.Optimal, includeBaseDirectory: false);
+            // Compressing and re-hashing a world file is long synchronous work. On the thread pool it leaves the
+            // caller's context free: a manual backup starts on a Blazor circuit, which would otherwise freeze.
+            await Task.Run(() => ZipFile.CreateFromDirectory(snapshot.Directory, tempArchive, CompressionLevel.Optimal, includeBaseDirectory: false), cancellationToken);
             DeleteDirectory(snapshot.Directory);
 
             await OnArchiveWrittenAsync(tempArchive, cancellationToken);
 
-            var verification = Verify(tempArchive, manifest);
+            var verification = await Task.Run(() => Verify(tempArchive, manifest), cancellationToken);
             if (verification is not null)
             {
                 File.Delete(tempArchive);
@@ -499,18 +501,28 @@ public class BackupService(
         }
 
         var directory = layout.InstanceBackupDirectory(instance.Slug);
+        var pruned = 0;
         foreach (var record in prune)
         {
-            if (record.FileName is not null)
+            if (record.FileName is not null && !TryDelete(Path.Combine(directory, record.FileName)))
             {
-                TryDelete(Path.Combine(directory, record.FileName));
+                // The archive is still on disk (held open by a scan, a preview or a restore). The row stays
+                // with it, so the archive remains visible and counted, and the next prune tries again.
+                logger.LogWarning("Could not delete backup {FileName} of instance {InstanceId}; its record is kept and the next prune will try again.", record.FileName, instance.Id);
+                continue;
             }
 
             db.BackupRecords.Remove(record);
+            pruned++;
+        }
+
+        if (pruned == 0)
+        {
+            return;
         }
 
         await db.SaveChangesAsync(cancellationToken);
-        Info(instance, $"Pruned {prune.Count} backup(s) beyond the retention of {retention}.");
+        Info(instance, $"Pruned {pruned} backup(s) beyond the retention of {retention}.");
     }
 
     /// <summary>
@@ -587,7 +599,8 @@ public class BackupService(
         }
     }
 
-    private static void TryDelete(string path)
+    /// <summary>Deletes the file if it can; true when the file is gone afterward, whatever the reason.</summary>
+    private static bool TryDelete(string path)
     {
         try
         {
@@ -599,6 +612,8 @@ public class BackupService(
         catch (UnauthorizedAccessException)
         {
         }
+
+        return !File.Exists(path);
     }
 
     private readonly record struct FileProbe(bool Openable, long Length, DateTime LastWriteUtc);

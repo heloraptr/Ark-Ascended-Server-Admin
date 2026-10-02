@@ -1,10 +1,12 @@
 using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Domain;
+using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Infrastructure.Scheduling;
 using ArkAscendedServerAdmin.Infrastructure.Startup;
 using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Rcon;
 using ArkAscendedServerAdmin.Scheduling;
+using ArkAscendedServerAdmin.Startup;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -18,6 +20,7 @@ namespace ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Scheduling;
 public class ScheduledActionRunnerTests
 {
     private static readonly DateTimeOffset _noon = new(2026, 9, 7, 12, 0, 0, TimeSpan.Zero);
+    private static readonly TimeSpan _wait = TimeSpan.FromSeconds(10);
 
     private const string AtNoon = "0 12 * * *";
 
@@ -166,6 +169,28 @@ public class ScheduledActionRunnerTests
         Assert.Equal((ScheduledActionOutcome.Skipped, ScheduledActionRunner.LockBusyReason), (run.Outcome, run.Reason));
         Assert.Empty(f.Rcon.Calls);
         Assert.Equal(_noon + ScheduledActionRunner.LockRetryDelay, f.Clock.GetUtcNow()); // one retry, then the skip
+    }
+
+    /// <summary>
+    /// The schedule row is deleted after the tick read it, so the claim fails on the foreign key rather than the
+    /// unique index. The lease taken just before the claim must be released, or the instance stays locked.
+    /// </summary>
+    [Fact]
+    public async Task ClaimFailingForAnotherReason_ReleasesTheInstanceLock()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        var f = await Fixture.CreateAsync(root, _noon, TimeZoneInfo.Utc, ct, deleteActionsOnAcquire: true);
+        var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
+        await f.ActionAsync(instance.Id, null, AtNoon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
+        f.Processes.Set(instance.Id, InstanceState.Running);
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => f.TickAsync(ct));
+
+        Assert.Empty(await f.RunsAsync(ct));
+        Assert.Empty(f.Rcon.Calls);
+        using var free = f.Locks.TryAcquire(instance.Id);
+        Assert.NotNull(free);
     }
 
     /// <summary>A lock held for a moment (a console history write) costs one short wait, not the occurrence.</summary>
@@ -394,6 +419,151 @@ public class ScheduledActionRunnerTests
         Assert.Equal(kept, run.Id);
     }
 
+    /// <summary>
+    /// The run's outcome cannot be written (the context fails to open after the action ran). The detached run logs
+    /// it and completes instead of faulting a task nobody observes; the row stays Started for the next recovery.
+    /// </summary>
+    [Fact]
+    public async Task CompletionWriteFailing_IsLoggedAndTheDetachedRunCompletes()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        var f = await Fixture.CreateAsync(root, _noon, TimeZoneInfo.Utc, ct, failContextOnCall: 2); // call 1 is the tick's own context
+        var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
+        await f.ActionAsync(instance.Id, null, AtNoon, ScheduledActionKind.RconCommand, command: "saveworld", ct: ct);
+        f.Processes.Set(instance.Id, InstanceState.Running);
+
+        await f.TickAsync(ct); // WhenIdleAsync rethrows a faulted run
+
+        Assert.Equal([(instance.Id, "saveworld")], f.Rcon.Calls);
+        var error = Assert.Single(f.Log.Errors);
+        Assert.IsType<NotSupportedException>(error.Exception);
+        Assert.StartsWith("Could not record the outcome of scheduled action run", error.Message, StringComparison.Ordinal);
+        Assert.Equal(ScheduledActionOutcome.Started, Assert.Single(await f.RunsAsync(ct)).Outcome);
+        Assert.Empty(f.Locks.Holders);
+    }
+
+    // ---- hosted loop -------------------------------------------------------------------------------
+
+    /// <summary>
+    /// An exception type the loop never expected is logged and the next minute tries again; it must not escape
+    /// <c>ExecuteAsync</c>, where it would stop the whole service. Ticks are aligned to the minute, so the retry
+    /// comes at the next minute boundary, not a full minute after the failure.
+    /// </summary>
+    [Fact]
+    public async Task Loop_TickThatThrows_IsLoggedAndTriedAgainAtTheNextMinute()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        await root.InitializeAsync(ct);
+        var clock = new ManualTimeProvider(_noon.AddSeconds(30));
+        var contexts = new FailingContextFactory(root, failOnCall: 2); // call 1 is the start-of-service recovery
+        var log = new RecordingLogger<ScheduledActionRunner>();
+        var runner = HostedRunner(contexts, clock, log);
+
+        await runner.StartAsync(ct);
+        await clock.WaitForPendingTimerAsync().WaitAsync(_wait, ct);
+        Assert.Equal(1, contexts.Calls.Count);
+        clock.Advance(TimeSpan.FromSeconds(30));
+        await contexts.Calls.WhenAttempt(2).WaitAsync(_wait, ct);
+
+        // Parked on the next delay, so the failure has been handled and nothing else can run until the clock moves.
+        await clock.WaitForPendingTimerAsync().WaitAsync(_wait, ct);
+        var error = Assert.Single(log.Errors);
+        Assert.IsType<NotSupportedException>(error.Exception);
+        Assert.Equal("Scheduled action tick failed; it will try again next minute.", error.Message);
+
+        clock.Advance(TimeSpan.FromSeconds(59));
+        Assert.Equal(2, contexts.Calls.Count);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await contexts.Calls.WhenAttempt(3).WaitAsync(_wait, ct);
+
+        await clock.WaitForPendingTimerAsync().WaitAsync(_wait, ct);
+        await runner.StopAsync(ct);
+        Assert.True(runner.ExecuteTask!.IsCompletedSuccessfully);
+        Assert.Single(log.Errors);
+    }
+
+    /// <summary>A recovery pass that throws an unexpected type is logged, and the tick loop still starts.</summary>
+    [Fact]
+    public async Task Loop_RecoveryThatThrows_IsLoggedAndTheTicksStillRun()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        await root.InitializeAsync(ct);
+        var clock = new ManualTimeProvider(_noon);
+        var contexts = new FailingContextFactory(root, failOnCall: 1);
+        var log = new RecordingLogger<ScheduledActionRunner>();
+        var runner = HostedRunner(contexts, clock, log);
+
+        await runner.StartAsync(ct);
+        await clock.WaitForPendingTimerAsync().WaitAsync(_wait, ct);
+        var error = Assert.Single(log.Errors);
+        Assert.IsType<NotSupportedException>(error.Exception);
+
+        clock.Advance(ScheduledActionRunner.Tick);
+        await contexts.Calls.WhenAttempt(2).WaitAsync(_wait, ct);
+
+        await clock.WaitForPendingTimerAsync().WaitAsync(_wait, ct);
+        await runner.StopAsync(ct);
+        Assert.True(runner.ExecuteTask!.IsCompletedSuccessfully);
+        Assert.Single(log.Errors);
+    }
+
+    /// <summary>
+    /// The retention prune is not only a start-of-service pass: the loop repeats it once a day, so a run that turns
+    /// stale while the service keeps running is deleted at the first tick after a day has passed.
+    /// </summary>
+    [Fact]
+    public async Task Loop_PrunesStaleRunsOnceADay()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        await root.InitializeAsync(ct);
+        var clock = new ManualTimeProvider(_noon);
+        var runner = HostedRunner(root, clock, new RecordingLogger<ScheduledActionRunner>());
+        var instance = await TestSeed.InstanceAsync(root, "alpha", clustered: false, ct);
+
+        await runner.StartAsync(ct);
+        await clock.WaitForPendingTimerAsync().WaitAsync(_wait, ct); // recovery and its prune are done; parked on the first delay
+        int stale;
+        await using (var db = root.CreateDbContext())
+        {
+            // Disabled, so the ticks below have nothing to run and only the prune touches the table.
+            var action = new ScheduledAction { InstanceId = instance.Id, Cron = AtNoon, Kind = ScheduledActionKind.RconCommand, Command = "saveworld", Enabled = false };
+            db.ScheduledActions.Add(action);
+            await db.SaveChangesAsync(ct);
+            var run = new ScheduledActionRun { ScheduledActionId = action.Id, InstanceId = instance.Id, ScheduledFor = _noon.AddDays(-31), StartedAt = _noon.AddDays(-31), Outcome = ScheduledActionOutcome.Succeeded };
+            db.ScheduledActionRuns.Add(run);
+            await db.SaveChangesAsync(ct);
+            stale = run.Id;
+        }
+
+        clock.Advance(ScheduledActionRunner.Tick);
+        await clock.WaitForPendingTimerAsync().WaitAsync(_wait, ct);
+        Assert.Contains(stale, await RunIdsAsync(root, ct));
+
+        clock.Advance(ScheduledActionRunner.PruneEvery);
+        await clock.WaitForPendingTimerAsync().WaitAsync(_wait, ct);
+        Assert.DoesNotContain(stale, await RunIdsAsync(root, ct));
+
+        await runner.StopAsync(ct);
+        Assert.True(runner.ExecuteTask!.IsCompletedSuccessfully);
+    }
+
+    private static async Task<List<int>> RunIdsAsync(TempDataRoot root, CancellationToken ct)
+    {
+        await using var db = root.CreateDbContext();
+        return await db.ScheduledActionRuns.AsNoTracking().Select(r => r.Id).ToListAsync(ct);
+    }
+
+    /// <summary>A runner for the hosted-loop tests: readiness already Ready, no instances to act on.</summary>
+    private static ScheduledActionRunner HostedRunner(IDbContextFactory<AppDbContext> contexts, TimeProvider clock, RecordingLogger<ScheduledActionRunner> log)
+    {
+        var gate = new FakeMaintenanceGate();
+        return new ScheduledActionRunner(contexts, new FakeProcessManager(gate), new FakeInstanceLocks(), gate, new RecordingRconOperations(), new FakeReadinessMonitor(ReadinessPhase.Ready), clock, log);
+    }
+
     private static TimeZoneInfo FindEastern()
     {
         try
@@ -440,6 +610,8 @@ public class ScheduledActionRunnerTests
 
         public required FastTimeProvider Clock { get; init; }
 
+        public required RecordingLogger<ScheduledActionRunner> Log { get; init; }
+
         /// <summary>Set when the fixture was built with <c>busyAttempts</c>: counts the runner's lock attempts.</summary>
         public BusyFirstLocks? LockAttempts { get; init; }
 
@@ -475,7 +647,7 @@ public class ScheduledActionRunnerTests
             return await db.ScheduledActionRuns.AsNoTracking().OrderBy(r => r.Id).ToListAsync(ct);
         }
 
-        public static async Task<Fixture> CreateAsync(TempDataRoot root, DateTimeOffset start, TimeZoneInfo zone, CancellationToken ct, int? busyAttempts = null)
+        public static async Task<Fixture> CreateAsync(TempDataRoot root, DateTimeOffset start, TimeZoneInfo zone, CancellationToken ct, int? busyAttempts = null, bool deleteActionsOnAcquire = false, int? failContextOnCall = null)
         {
             await root.InitializeAsync(ct);
             var clock = new FastTimeProvider(start) { Zone = zone };
@@ -484,9 +656,21 @@ public class ScheduledActionRunnerTests
             var locks = new FakeInstanceLocks();
             var rcon = new RecordingRconOperations();
             var attempts = busyAttempts is { } busy ? new BusyFirstLocks(locks, busy) : null;
-            var runner = new ScheduledActionRunner(root, processes, (IInstanceLocks?)attempts ?? locks, gate, rcon, new ReadinessMonitor(clock, NullLogger<ReadinessMonitor>.Instance), clock, NullLogger<ScheduledActionRunner>.Instance);
-            return new Fixture { Root = root, Runner = runner, Processes = processes, Locks = locks, Gate = gate, Rcon = rcon, Clock = clock, LockAttempts = attempts };
+            IInstanceLocks runnerLocks = deleteActionsOnAcquire ? new ActionDeletingLocks(locks, root) : (IInstanceLocks?)attempts ?? locks;
+            IDbContextFactory<AppDbContext> contexts = failContextOnCall is { } call ? new FailingContextFactory(root, call) : root;
+            var log = new RecordingLogger<ScheduledActionRunner>();
+            var runner = new ScheduledActionRunner(contexts, processes, runnerLocks, gate, rcon, new ReadinessMonitor(clock, NullLogger<ReadinessMonitor>.Instance), clock, log);
+            return new Fixture { Root = root, Runner = runner, Processes = processes, Locks = locks, Gate = gate, Rcon = rcon, Clock = clock, Log = log, LockAttempts = attempts };
         }
+    }
+
+    /// <summary>The real database, except that the context opened by call number <c>failOnCall</c> throws; every call is counted.</summary>
+    private sealed class FailingContextFactory(TempDataRoot inner, int failOnCall) : IDbContextFactory<AppDbContext>
+    {
+        public AttemptLog Calls { get; } = new();
+
+        public AppDbContext CreateDbContext() =>
+            Calls.Record() == failOnCall ? throw new NotSupportedException("The database could not be opened.") : inner.CreateDbContext();
     }
 
     /// <summary>Reports the lock busy for the first <c>busy</c> attempts (a brief holder), then defers to the real locks.</summary>
@@ -498,6 +682,23 @@ public class ScheduledActionRunnerTests
 
         public IInstanceLease? TryAcquire(int instanceId) =>
             Interlocked.Increment(ref _attempts) <= busy ? null : inner.TryAcquire(instanceId);
+
+        public Task<IInstanceLease> AcquireAsync(int instanceId, CancellationToken cancellationToken) => inner.AcquireAsync(instanceId, cancellationToken);
+
+        public IDisposable? TryReserveCluster(int clusterId) => inner.TryReserveCluster(clusterId);
+
+        public bool IsClusterReserved(int clusterId) => inner.IsClusterReserved(clusterId);
+    }
+
+    /// <summary>Deletes every schedule row as the runner takes the lock: the owner saving the schedule list mid-tick.</summary>
+    private sealed class ActionDeletingLocks(FakeInstanceLocks inner, TempDataRoot root) : IInstanceLocks
+    {
+        public IInstanceLease? TryAcquire(int instanceId)
+        {
+            using var db = root.CreateDbContext();
+            db.ScheduledActions.ExecuteDelete();
+            return inner.TryAcquire(instanceId);
+        }
 
         public Task<IInstanceLease> AcquireAsync(int instanceId, CancellationToken cancellationToken) => inner.AcquireAsync(instanceId, cancellationToken);
 

@@ -1,8 +1,8 @@
+using System.Text.Json;
 using ArkAscendedServerAdmin.Commands;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.CurseForge;
 using ArkAscendedServerAdmin.CurseForge.Models.Mods;
-using ArkAscendedServerAdmin.CurseForge.Models.Services;
 using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Mods;
 using Microsoft.EntityFrameworkCore;
@@ -40,7 +40,7 @@ public sealed class ModMetadataRefresher(
         {
             mods = await curseForge.GetModsAsync(entries.Select(e => e.Id), pcOnly: false, cancellationToken);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException or JsonException)
         {
             logger.LogWarning(ex, "CurseForge metadata refresh failed.");
             return CommandResult<int>.Fail(ModMetadata.DescribeApiFailure(ex));
@@ -56,11 +56,11 @@ public sealed class ModMetadataRefresher(
             }
 
             var modified = new DateTimeOffset(DateTime.SpecifyKind(mod.DateModified, DateTimeKind.Utc));
-            if (entry.Name != mod.Name || entry.Summary != mod.Summary || entry.ThumbnailUrl != NullIfEmpty(mod.Logo.ThumbnailUrl) || entry.DateModified != modified)
+            if (entry.Name != mod.Name || entry.Summary != mod.Summary || entry.ThumbnailUrl != NullIfEmpty(mod.Logo?.ThumbnailUrl) || entry.DateModified != modified)
             {
                 entry.Name = mod.Name;
                 entry.Summary = mod.Summary;
-                entry.ThumbnailUrl = NullIfEmpty(mod.Logo.ThumbnailUrl);
+                entry.ThumbnailUrl = NullIfEmpty(mod.Logo?.ThumbnailUrl);
                 entry.DateModified = modified;
                 // The page link rides along with a real change and is never a reason to write on its own; rows
                 // stored before the link existed are back-filled out of band.

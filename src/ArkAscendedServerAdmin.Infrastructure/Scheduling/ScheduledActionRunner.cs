@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Data.Common;
 using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Infrastructure.Processes;
@@ -42,11 +41,20 @@ public sealed class ScheduledActionRunner(
 
     private readonly ConcurrentDictionary<int, Task> _inFlight = new();
 
+    /// <summary>When the last retention prune succeeded; the loop prunes again once <see cref="PruneEvery"/> has passed.</summary>
+    private DateTimeOffset _lastPrune = DateTimeOffset.MinValue;
+
     /// <summary>How often the runner looks for due rows; each tick is aligned to the start of a minute.</summary>
     public static TimeSpan Tick { get; } = TimeSpan.FromMinutes(1);
 
-    /// <summary>Runs older than this (by <see cref="ScheduledActionRun.StartedAt"/>) are deleted at service start.</summary>
+    /// <summary>Runs older than this (by <see cref="ScheduledActionRun.StartedAt"/>) are deleted at service start and once a day after.</summary>
     public static TimeSpan RetainRunsFor { get; } = TimeSpan.FromDays(30);
+
+    /// <summary>
+    /// How often the tick loop repeats the retention prune, so a service that runs for months does not keep every
+    /// run until its next restart.
+    /// </summary>
+    public static TimeSpan PruneEvery { get; } = TimeSpan.FromHours(24);
 
     /// <summary>The dino-wipe countdown's broadcast; <c>{0}</c> is "in N minute(s)" or "now".</summary>
     public const string DinoWipeCountdownTemplate = "Wild dinos will be wiped {0}.";
@@ -72,15 +80,16 @@ public sealed class ScheduledActionRunner(
     {
         try
         {
-            await WaitUntilReadyAsync(stoppingToken);
+            await readiness.WaitUntilReadyAsync(stoppingToken);
             await RecoverAsync(stoppingToken);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             return;
         }
-        catch (Exception ex) when (ex is DbUpdateException or DbException or InvalidOperationException)
+        catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
         {
+            // Any failure, not a list of expected ones: an exception escaping ExecuteAsync stops the whole service.
             logger.LogError(ex, "Scheduled action recovery failed; interrupted runs stay Started and old runs are kept until the next start.");
         }
 
@@ -90,58 +99,32 @@ public sealed class ScheduledActionRunner(
             {
                 await Task.Delay(UntilNextMinute(), timeProvider, stoppingToken);
                 await RunTickAsync(stoppingToken);
+
+                // Inside the try: a failed prune is logged like a failed tick and, since _lastPrune only moves on
+                // success, tried again at the next tick.
+                var now = timeProvider.GetUtcNow();
+                if (now - _lastPrune >= PruneEvery)
+                {
+                    await PruneAsync(now, stoppingToken);
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
                 return;
             }
-            catch (Exception ex) when (ex is DbUpdateException or DbException or InvalidOperationException or IOException)
+            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
             {
+                // A failed tick is logged and the next minute tries again; letting it escape would stop the service.
                 logger.LogError(ex, "Scheduled action tick failed; it will try again next minute.");
             }
         }
     }
 
     /// <summary>
-    /// Blocks until the readiness pipeline reports Ready. The orchestrator migrates the database on its own
-    /// schedule after the host starts, so a recovery pass that ran at once could find the tables missing.
-    /// </summary>
-    private async Task WaitUntilReadyAsync(CancellationToken cancellationToken)
-    {
-        if (readiness.Current.IsReady)
-        {
-            return;
-        }
-
-        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        void OnChanged(ReadinessState state)
-        {
-            if (state.IsReady)
-            {
-                ready.TrySetResult();
-            }
-        }
-
-        readiness.Changed += OnChanged;
-        try
-        {
-            if (readiness.Current.IsReady)
-            {
-                return;
-            }
-
-            await ready.Task.WaitAsync(cancellationToken);
-        }
-        finally
-        {
-            readiness.Changed -= OnChanged;
-        }
-    }
-
-    /// <summary>
     /// The start-of-service pass: every run still <see cref="ScheduledActionOutcome.Started"/> was in flight when
     /// the service last stopped and becomes <see cref="ScheduledActionOutcome.Interrupted"/>; runs older than
-    /// <see cref="RetainRunsFor"/> are deleted. Exposed so tests can drive it without hosting the service.
+    /// <see cref="RetainRunsFor"/> are deleted (<see cref="PruneAsync(DateTimeOffset, CancellationToken)"/>).
+    /// Exposed so tests can drive it without hosting the service.
     /// </summary>
     public async Task RecoverAsync(CancellationToken cancellationToken)
     {
@@ -162,6 +145,22 @@ public sealed class ScheduledActionRunner(
             logger.LogInformation("Marked {Count} scheduled action run(s) interrupted by the last service stop.", interrupted.Count);
         }
 
+        await PruneAsync(db, now, cancellationToken);
+    }
+
+    /// <summary>
+    /// Deletes runs older than <see cref="RetainRunsFor"/> as of <paramref name="now"/>. Called by
+    /// <see cref="RecoverAsync"/> at service start and by the tick loop once every <see cref="PruneEvery"/>.
+    /// </summary>
+    public async Task PruneAsync(DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await PruneAsync(db, now, cancellationToken);
+    }
+
+    /// <summary>The prune on a context the caller already holds, so the start-of-service pass opens only one.</summary>
+    private async Task PruneAsync(AppDbContext db, DateTimeOffset now, CancellationToken cancellationToken)
+    {
         // Filtered in memory: SQLite cannot compare DateTimeOffset columns, and the table holds at most a month of rows.
         var cutoff = now - RetainRunsFor;
         var stale = (await db.ScheduledActionRuns.AsNoTracking().Select(r => new { r.Id, r.StartedAt }).ToListAsync(cancellationToken))
@@ -173,6 +172,8 @@ public sealed class ScheduledActionRunner(
             var pruned = await db.ScheduledActionRuns.Where(r => stale.Contains(r.Id)).ExecuteDeleteAsync(cancellationToken);
             logger.LogInformation("Pruned {Count} scheduled action run(s) older than {Days} days.", pruned, RetainRunsFor.TotalDays);
         }
+
+        _lastPrune = now;
     }
 
     /// <summary>One runner pass for the current minute; exposed so tests can drive it without waiting for the timer.</summary>
@@ -218,7 +219,20 @@ public sealed class ScheduledActionRunner(
                     Skip(run, LockBusyReason);
                 }
 
-                if (!await TryClaimAsync(db, run, cancellationToken))
+                bool claimed;
+                try
+                {
+                    claimed = await TryClaimAsync(db, run, cancellationToken);
+                }
+                catch
+                {
+                    // The tick ends here and nothing took the lease over: left held, it would refuse every
+                    // operation on the instance until the service restarts.
+                    lease?.Dispose();
+                    throw;
+                }
+
+                if (!claimed)
                 {
                     // The occurrence was already claimed (run or skipped): a second tick in the same minute, or a restart within it.
                     lease?.Dispose();
@@ -266,7 +280,10 @@ public sealed class ScheduledActionRunner(
         run.CompletedAt = timeProvider.GetUtcNow();
     }
 
-    /// <summary>Inserts the run as the occurrence's claim; false when the unique index says the occurrence is already claimed.</summary>
+    /// <summary>
+    /// Inserts the run as the occurrence's claim; false when the unique index says the occurrence is already claimed.
+    /// The run is detached on every failure, so a later save on the tick's context does not retry it.
+    /// </summary>
     private static async Task<bool> TryClaimAsync(AppDbContext db, ScheduledActionRun run, CancellationToken cancellationToken)
     {
         db.ScheduledActionRuns.Add(run);
@@ -279,6 +296,12 @@ public sealed class ScheduledActionRunner(
         {
             db.Entry(run).State = EntityState.Detached;
             return false;
+        }
+        catch
+        {
+            // Any other failure (a busy database, a schedule row deleted since the tick read it) goes to the caller.
+            db.Entry(run).State = EntityState.Detached;
+            throw;
         }
     }
 
@@ -347,8 +370,9 @@ public sealed class ScheduledActionRunner(
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
-        catch (Exception ex) when (ex is DbUpdateException or InvalidOperationException)
+        catch (Exception ex)
         {
+            // The run is detached from the tick and nothing observes it, so anything not logged here is lost.
             logger.LogError(ex, "Could not record the outcome of scheduled action run {RunId}.", runId);
         }
     }

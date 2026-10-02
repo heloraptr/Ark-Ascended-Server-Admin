@@ -45,7 +45,7 @@ public sealed class CrashPolicy(
     {
         try
         {
-            await WaitUntilReadyAsync(stoppingToken);
+            await readiness.WaitUntilReadyAsync(stoppingToken);
             await foreach (var request in requests.Reader.ReadAllAsync(stoppingToken))
             {
                 Enqueue(request, stoppingToken);
@@ -174,37 +174,5 @@ public sealed class CrashPolicy(
     {
         logger.Log(kind == ConsoleLineKind.Warning ? LogLevel.Warning : LogLevel.Information, "Instance {InstanceId}: {Message}", instanceId, text);
         console.Append(ConsoleChannels.Instance(instanceId), new ConsoleLine(timeProvider.GetUtcNow(), text, kind));
-    }
-
-    private async Task WaitUntilReadyAsync(CancellationToken cancellationToken)
-    {
-        if (readiness.Current.IsReady)
-        {
-            return;
-        }
-
-        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        void OnChanged(ReadinessState state)
-        {
-            if (state.IsReady)
-            {
-                ready.TrySetResult();
-            }
-        }
-
-        readiness.Changed += OnChanged;
-        try
-        {
-            if (readiness.Current.IsReady)
-            {
-                return;
-            }
-
-            await ready.Task.WaitAsync(cancellationToken);
-        }
-        finally
-        {
-            readiness.Changed -= OnChanged;
-        }
     }
 }

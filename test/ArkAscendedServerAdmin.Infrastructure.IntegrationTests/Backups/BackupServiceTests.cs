@@ -295,6 +295,44 @@ public class BackupServiceTests
         Assert.Equal(names.Skip(2), rows.Select(r => r.FileName));
     }
 
+    /// <summary>An archive held open (a scan, a preview) keeps its row, so it stays visible and the next prune retries.</summary>
+    [Fact]
+    public async Task Prune_KeepsTheRecordWhileTheArchiveCannotBeDeleted_ThenPrunesItNextTime()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        var fixture = await Fixture.CreateAsync(root, clustered: false, ct, i => i.BackupRetention = 2);
+        var directory = root.Layout.InstanceBackupDirectory("alpha");
+
+        var names = new List<string>();
+        for (var i = 0; i < 2; i++)
+        {
+            names.Add((await fixture.Service.BackupNowAsync(fixture.Instance.Id, isManual: false, ct)).FileName!);
+            fixture.Clock.Advance(TimeSpan.FromMinutes(1));
+        }
+
+        using (File.Open(Path.Combine(directory, names[0]), FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            names.Add((await fixture.Service.BackupNowAsync(fixture.Instance.Id, isManual: false, ct)).FileName!);
+            fixture.Clock.Advance(TimeSpan.FromMinutes(1));
+        }
+
+        Assert.True(File.Exists(Path.Combine(directory, names[0])));
+        await using (var db = root.CreateDbContext())
+        {
+            Assert.Equal(names, (await db.BackupRecords.OrderBy(r => r.Id).ToListAsync(ct)).Select(r => r.FileName));
+        }
+
+        names.Add((await fixture.Service.BackupNowAsync(fixture.Instance.Id, isManual: false, ct)).FileName!);
+
+        var remaining = Directory.GetFiles(directory).Select(Path.GetFileName).Order(StringComparer.Ordinal).ToList();
+        Assert.Equal(names.Skip(2).Order(StringComparer.Ordinal), remaining);
+        await using (var db = root.CreateDbContext())
+        {
+            Assert.Equal(names.Skip(2), (await db.BackupRecords.OrderBy(r => r.Id).ToListAsync(ct)).Select(r => r.FileName));
+        }
+    }
+
     [Fact]
     public async Task Backup_CapsTheInstancesSkippedAndFailedRows_AndLeavesTheRestAlone()
     {
