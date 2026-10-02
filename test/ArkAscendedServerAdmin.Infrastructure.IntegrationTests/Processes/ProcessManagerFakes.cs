@@ -74,7 +74,7 @@ internal sealed class FakeRconClient(RconFailure? failure) : IRconClient
     }
 }
 
-/// <summary>An output source that produces nothing and runs until cancelled; records the options it was given.</summary>
+/// <summary>An output source that produces nothing and runs until canceled; records the options it was given.</summary>
 internal sealed class FakeOutputSourceFactory : IOutputSourceFactory, IOutputSource
 {
     public List<string> Paths { get; } = [];
@@ -122,6 +122,9 @@ internal sealed class FakeLayoutService : IInstanceLayoutService
 
 internal sealed class FakeFirewall : IFirewallRules
 {
+    /// <summary>A fixed installation tag; real ones come from the DataRoot.</summary>
+    public const string Tag = "0123abcd";
+
     public List<(int InstanceId, int GamePort)> Ensured { get; } = [];
 
     /// <summary>Instance ids <see cref="InstanceRulesExist"/> answers true for; everything else answers false.</summary>
@@ -129,6 +132,8 @@ internal sealed class FakeFirewall : IFirewallRules
 
     /// <summary>Set to make <see cref="InstanceRulesExist"/> throw, the way an unreadable firewall does.</summary>
     public bool Unreadable { get; set; }
+
+    public string RuleName(int instanceId) => FirewallRuleNames.RuleName(Tag, instanceId);
 
     public void EnsureInstanceRules(int instanceId, int gamePort) => Ensured.Add((instanceId, gamePort));
 

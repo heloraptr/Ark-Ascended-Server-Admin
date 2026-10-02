@@ -9,6 +9,8 @@ $script:SettingsFileName = 'appsettings.Production.json'
 $script:MarkerFileName = 'install.json'
 $script:JournalFileName = 'install-pending.json'
 $script:PackageFileName = 'package.json'
+$script:FirewallTagFileName = 'firewall.tag'
+$script:InstanceRulePrefix = 'ArkAscendedServerAdmin-'
 $script:HealthPath = '/healthz'
 $script:HealthBody = 'ArkAscendedServerAdmin ok'
 $script:AuthCookieName = 'ArkAscendedServerAdmin.Auth'
@@ -363,7 +365,10 @@ function Set-InstallAcls([string]$installDir, [string]$dataRoot) {
         if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
         Set-ProtectedAcl $dir $true
     }
-    foreach ($name in 'keys', 'Data', 'Exports', 'Backups\_app') {
+    # Instances and Clusters hold the source INIs, the generated GameUserSettings.ini (admin password, RCON
+    # password) and the RCON history, so only SYSTEM and administrators may read them. The service runs as
+    # LocalSystem and launches the game servers itself, so nothing needs Users access there.
+    foreach ($name in 'keys', 'Data', 'Exports', 'Backups\_app', 'Instances', 'Clusters') {
         $dir = Join-Path $dataRoot $name
         if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
         Set-ProtectedAcl $dir $false
@@ -767,6 +772,59 @@ function Remove-WebFirewallRule([string]$serviceName) {
     }
 }
 
+# The app names each instance's two UDP rules ArkAscendedServerAdmin-<tag>-<instanceId>, where the tag (8
+# lowercase hex characters) comes from its DataRoot, and writes that tag to firewall.tag beside its binaries
+# on every start. The file is the only way the scripts learn the tag: they never derive it from the settings,
+# because they cannot resolve DataRoot the way the service account did, and a wrong guess (or a wildcard)
+# would select another installation's rules.
+function Test-InstanceFirewallTag([string]$tag) {
+    return $tag.Length -eq 8 -and $tag -cmatch '^[0-9a-f]{8}$'
+}
+
+# The trimmed text of a firewall.tag, or $null when it is missing or cannot be read.
+function Get-InstanceFirewallTagText([string]$path) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+    try { return ([System.IO.File]::ReadAllText($path)).Trim() } catch { return $null }
+}
+
+# The tag recorded in $installDir\firewall.tag, or $null with a warning when the file is missing, empty, or
+# holds anything but exactly 8 lowercase hex characters.
+function Read-InstanceFirewallTag([string]$installDir) {
+    $path = Join-Path $installDir $script:FirewallTagFileName
+    $tag = Get-InstanceFirewallTagText $path
+    if (Test-InstanceFirewallTag $tag) { return $tag }
+    $problem = if ($null -eq $tag) { 'is missing or unreadable' } else { 'does not hold an installation tag (8 lowercase hex characters)' }
+    Write-Warning "$path $problem, so the instance firewall rules were left in place. They are named $($script:InstanceRulePrefix)<tag>-<instance id>; remove them by hand if you no longer need them."
+    return $null
+}
+
+# Removes this installation's instance rules, and only those. The name the app sets through the firewall COM
+# API is the DisplayName in NetSecurity terms (-Name is the rule id), so the selection is by -DisplayName.
+function Remove-InstanceFirewallRules([string]$tag) {
+    if (-not (Test-InstanceFirewallTag $tag)) { throw "'$tag' is not an installation tag (8 lowercase hex characters); no firewall rule was removed." }
+    $pattern = "$($script:InstanceRulePrefix)$tag-*"
+    $lookupErrors = $null
+    $rules = @(Get-NetFirewallRule -DisplayName $pattern -ErrorAction SilentlyContinue -ErrorVariable lookupErrors)
+    foreach ($lookupError in @($lookupErrors | Where-Object { $null -ne $_ })) {
+        if ($lookupError.CategoryInfo.Category -ne 'ObjectNotFound') { throw $lookupError }
+    }
+    if ($rules.Count -gt 0) { $rules | Remove-NetFirewallRule -ErrorAction Stop }
+    Write-Host "$($rules.Count) instance firewall rule(s) removed ($pattern)."
+}
+
+# An upgrade swaps the whole application folder; the tag goes across with the settings so an upgrade with
+# -NoStart, or a first start that fails, still leaves uninstall.ps1 its record of which rules to remove.
+function Copy-InstanceFirewallTag([string]$fromDir, [string]$toDir) {
+    $path = Join-Path $fromDir $script:FirewallTagFileName
+    if (-not (Test-Path -LiteralPath $path)) { return }
+    $tag = Get-InstanceFirewallTagText $path
+    if (-not (Test-InstanceFirewallTag $tag)) {
+        Write-Warning "$path does not hold an installation tag (8 lowercase hex characters); it was not copied. The app writes a new one when it starts."
+        return
+    }
+    Write-Utf8File (Join-Path $toDir $script:FirewallTagFileName) "$tag`n"
+}
+
 # ---- HTTP probe ---------------------------------------------------------------------------------------
 
 # A static validation callback compiled once: a PowerShell script block cannot be invoked as the TLS
@@ -969,7 +1027,7 @@ function Get-Timestamp { return (Get-Date).ToString('yyyyMMdd-HHmmss') }
 # inherits down), exit codes below 8 are success.
 function Copy-PackageFiles([string]$source, [string]$destination) {
     New-Item -ItemType Directory -Path $destination -Force | Out-Null
-    & robocopy.exe $source $destination /E /NJH /NJS /NDL /NFL /NP /R:2 /W:2 /XF $script:SettingsFileName "$($script:SettingsFileName).bak" "$($script:SettingsFileName).tmp" $script:MarkerFileName | Out-Null
+    & robocopy.exe $source $destination /E /NJH /NJS /NDL /NFL /NP /R:2 /W:2 /XF $script:SettingsFileName "$($script:SettingsFileName).bak" "$($script:SettingsFileName).tmp" $script:MarkerFileName $script:FirewallTagFileName | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "robocopy from '$source' to '$destination' failed with exit code $LASTEXITCODE." }
     if (-not (Test-Path -LiteralPath (Join-Path $destination $script:ExeName))) { throw "The copy to '$destination' has no $($script:ExeName)." }
 }

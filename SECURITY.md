@@ -33,6 +33,18 @@ what they should not be able to read. For example:
 - Anything that requires an administrator account on the box. An administrator can already do
   everything the app can.
 
+## The service account
+
+The service runs as LocalSystem, and the game servers and SteamCMD it starts run under the same
+account. Managing firewall rules, querying WMI, and creating junctions all need that level of access,
+and 1.0.0 does not split the game processes off into an account of their own.
+
+The consequence is that a game server is only as contained as the game itself. If a flaw in ARK or in
+a mod lets a player run code inside the server process, that code runs as LocalSystem on the host.
+Keep this in mind when choosing mods and when deciding whether to host on a machine that holds
+anything else you care about. Running the game servers under a low-privilege account is planned for a
+later release.
+
 ## Versions
 
 Only the latest release receives fixes. There are no backports.

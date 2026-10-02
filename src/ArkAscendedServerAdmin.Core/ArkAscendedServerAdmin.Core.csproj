@@ -14,4 +14,10 @@
     <PackageReference Include="Cronos" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The login throttle tests read its per-address counters and verify-slot count (finding 6). -->
+    <InternalsVisibleTo Include="ArkAscendedServerAdmin.UnitTests" />
+    <InternalsVisibleTo Include="ArkAscendedServerAdmin.Infrastructure.IntegrationTests" />
+  </ItemGroup>
+
 </Project>

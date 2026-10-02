@@ -136,10 +136,10 @@ public class SteamCmdRunnerTests
         var result = await runner.InstallOrUpdateAsync(validate: false, cts.Token).WaitAsync(TimeSpan.FromSeconds(15), Ct);
 
         Assert.False(result.Succeeded);
-        Assert.Contains("cancelled", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("canceled", result.Error, StringComparison.OrdinalIgnoreCase);
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(10), $"took {stopwatch.Elapsed}");
         Assert.Null(runner.Current);
-        Assert.Contains(fixture.Console.Snapshot(ConsoleChannels.SteamCmd), line => line.Kind == ConsoleLineKind.Warning && line.Text.Contains("cancelled", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(fixture.Console.Snapshot(ConsoleChannels.SteamCmd), line => line.Kind == ConsoleLineKind.Warning && line.Text.Contains("canceled", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

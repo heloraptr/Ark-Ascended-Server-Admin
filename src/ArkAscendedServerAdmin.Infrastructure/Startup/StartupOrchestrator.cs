@@ -1,6 +1,7 @@
 using ArkAscendedServerAdmin.Backups;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Infrastructure.Data;
+using ArkAscendedServerAdmin.Infrastructure.Firewall;
 using ArkAscendedServerAdmin.Install;
 using ArkAscendedServerAdmin.Startup;
 using Microsoft.Extensions.Hosting;
@@ -23,6 +24,7 @@ public sealed class StartupOrchestrator(
     IGameInstallChecker installChecker,
     IGameInstaller installer,
     IRestoreJournals restoreJournals,
+    FirewallTagFile firewallTag,
     ReadinessMonitor monitor,
     IHostApplicationLifetime lifetime,
     ILogger<StartupOrchestrator> logger) : BackgroundService, IStartupControl
@@ -35,6 +37,7 @@ public sealed class StartupOrchestrator(
         {
             monitor.Publish(ReadinessPhase.Initializing, "Preparing the data directory");
             layout.EnsureDirectories();
+            await firewallTag.WriteAsync(stoppingToken); // for uninstall.ps1; a failure is only a warning
 
             monitor.Publish(ReadinessPhase.Initializing, "Migrating and seeding the database");
             await databaseInitializer.InitializeAsync(stoppingToken);
@@ -60,7 +63,7 @@ public sealed class StartupOrchestrator(
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            logger.LogInformation("Startup pipeline cancelled by shutdown.");
+            logger.LogInformation("Startup pipeline canceled by shutdown.");
         }
         catch (Exception ex)
         {

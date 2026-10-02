@@ -5,9 +5,14 @@
 
 .DESCRIPTION
     Refuses unless InstallDir\install.json exists and the service's binary path points into InstallDir.
-    Stops and deletes the service, removes the web firewall rule, deletes InstallDir and every
-    InstallDir.previous-* whose marker carries the same installId. The data folder (worlds, backups, keys,
-    database, certificate) stays; it is yours.
+    Stops the service, removes the web firewall rule and this installation's instance firewall rules, deletes
+    the service, then deletes InstallDir and every InstallDir.previous-* whose marker carries the same
+    installId. The data folder (worlds, backups, keys, database, certificate) stays; it is yours.
+
+    The instance rules are found by the tag the app records in InstallDir\firewall.tag. When that file is
+    missing or invalid the instance rules are left in place with a warning; other installations' rules are
+    never touched. If the firewall step fails, the service is stopped but still registered, so running the
+    script again finishes the job.
 
 .PARAMETER InstallDir
     Optional; derived from the service when omitted, and must match it when given.
@@ -17,12 +22,17 @@
 
 .PARAMETER ServiceName
     Testing parameter: the Windows service name (default ArkAscendedServerAdmin).
+
+.PARAMETER SimulateFirewallFailure
+    Testing parameter: throws inside the firewall step, after the service is stopped and before it is deleted,
+    so the stop-then-retry path can be exercised on a scratch install.
 #>
 [CmdletBinding()]
 param(
     [string]$InstallDir,
     [switch]$Quiet,
-    [string]$ServiceName = 'ArkAscendedServerAdmin'
+    [string]$ServiceName = 'ArkAscendedServerAdmin',
+    [switch]$SimulateFirewallFailure
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,20 +72,29 @@ try {
     Write-Host "App     : $installDir"
     foreach ($folder in $previous) { Write-Host "          $($folder.FullName) (previous version)" }
     Write-Host "DataRoot: $dataRoot (kept)"
+    $firewallTag = Read-InstanceFirewallTag $installDir
+    if ($firewallTag) { Write-Host "Firewall: $(Get-WebFirewallRuleName $ServiceName) and the instance rules $($script:InstanceRulePrefix)$firewallTag-*" }
+    else { Write-Host "Firewall: $(Get-WebFirewallRuleName $ServiceName) only" }
     if (-not $Quiet) {
         $answer = Read-Host -Prompt 'Remove the service and the app folder(s) above? DataRoot is kept. (y/N)'
         if ($answer -notin @('y', 'Y', 'yes')) { Write-Host 'Nothing removed.'; return }
     }
 
-    Write-Step "Stop and delete service $ServiceName"
+    Write-Step "Stop service $ServiceName"
     Stop-ArkService $ServiceName
+
+    # Before the service is deleted: if this step fails, the service is still registered and a second run
+    # of this script passes the check at the top and finishes the job.
+    Write-Step 'Firewall rules'
+    if ($SimulateFirewallFailure) { throw 'Simulated firewall failure (-SimulateFirewallFailure). The service is stopped but still registered; run uninstall.ps1 again without the switch.' }
+    Remove-WebFirewallRule $ServiceName
+    if ($firewallTag) { Remove-InstanceFirewallRules $firewallTag }
+
+    Write-Step "Delete service $ServiceName"
     & sc.exe delete $ServiceName | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "sc.exe delete returned exit code $LASTEXITCODE." }
     $deadline = (Get-Date).AddSeconds(30)
     while ((Get-Date) -lt $deadline -and (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)) { Start-Sleep -Milliseconds 500 }
-
-    Write-Step 'Firewall rule'
-    Remove-WebFirewallRule $ServiceName
 
     Write-Step "Delete $installDir"
     Remove-Item -LiteralPath $installDir -Recurse -Force

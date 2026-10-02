@@ -128,10 +128,12 @@ outcome as a toast; the console shows the details.
 6. Ports are checked again, this time also against the operating system's live UDP and TCP listener
    tables. A collision refuses the start, because the game does not report a failed bind; the server
    just never becomes reachable.
-7. Two inbound UDP allow rules named `ArkAscendedServerAdmin-<instance id>` are created (or
-   repaired) for the game port and game port + 1, on all profiles. If the firewall API fails, the
-   start continues with a warning in the console telling you which ports to open by hand. RCON stays
-   on loopback and gets no rule.
+7. Two inbound UDP allow rules named `ArkAscendedServerAdmin-<tag>-<instance id>` are created (or
+   repaired) for the game port and game port + 1, on all profiles. The tag is eight characters
+   derived from the data folder; it identifies the installation, so two installs on one machine
+   keep separate rules even when their instance ids match. The instance page's Connection card
+   shows the exact name. If the firewall API fails, the start continues with a warning in the
+   console telling you which ports to open by hand. RCON stays on loopback and gets no rule.
 8. The command line is built from the row, never from a shell string:
 
    ```
