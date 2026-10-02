@@ -15,6 +15,11 @@ public enum InstanceState
     Unknown,
     /// <summary>Process started but PID / start time could not be persisted after bounded retries.</summary>
     IdentityUnpersisted,
+    /// <summary>
+    /// Automatic restart gave up or was refused after an unexpected exit (B4); there is no process. Held in memory
+    /// only (never written to the database) and cleared by the next manual Start.
+    /// </summary>
+    Crashed,
 }
 
 /// <summary>Which of the two ASA configuration files a document or override targets.</summary>

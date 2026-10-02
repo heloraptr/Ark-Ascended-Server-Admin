@@ -74,6 +74,9 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
 
     public const string OperationInProgress = "operation in progress";
 
+    /// <summary>An automatic restart whose instance had <see cref="Instance.AutoRestart"/> turned off before the launch committed (B4).</summary>
+    public const string AutoRestartTurnedOff = "Automatic restart was turned off for this instance.";
+
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly DataRootLayout _paths;
     private readonly IAppSettingsStore _settings;
@@ -87,6 +90,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
     private readonly IProjectionSynchronizer _synchronizer;
     private readonly IRconClient _rcon;
     private readonly IGameProcessEnumerator _enumerator;
+    private readonly IGameProcessStarter _starter;
     private readonly IFirewallRules _firewall;
     private readonly IInstanceLayoutService _layout;
     private readonly IGeneratedConfigWriter _configWriter;
@@ -114,6 +118,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         IProjectionSynchronizer synchronizer,
         IRconClient rcon,
         IGameProcessEnumerator enumerator,
+        IGameProcessStarter starter,
         IFirewallRules firewall,
         IInstanceLayoutService layout,
         IGeneratedConfigWriter configWriter,
@@ -138,6 +143,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         _synchronizer = synchronizer;
         _rcon = rcon;
         _enumerator = enumerator;
+        _starter = starter;
         _firewall = firewall;
         _layout = layout;
         _configWriter = configWriter;
@@ -147,6 +153,9 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         _lifetime = lifetime.ApplicationStopping;
         _logger = logger;
     }
+
+    /// <summary>Pause points for the race tests (B4); never set in production.</summary>
+    internal ProcessManagerTestHooks TestHooks { get; } = new();
 
     public event Action<InstanceRuntime>? RuntimeChanged;
 
@@ -175,6 +184,11 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
 
         try
         {
+            if (kind != LaunchKind.AutoRestart)
+            {
+                ResetCrashRecovery(instanceId);
+            }
+
             return await StartCoreAsync(instanceId, kind, cancellationToken);
         }
         finally
@@ -184,13 +198,38 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
     }
 
     /// <summary>
+    /// A start that is not automatic (B4) takes over from crash recovery under its lease, before any check that could
+    /// reject it: the pending exit is answered, the automatic-restart count goes back to 0, and Crashed becomes Stopped,
+    /// even when the start is then refused. Skipped while a process is live or a session is registered, where the start
+    /// is refused anyway and the count still belongs to the running session.
+    /// </summary>
+    private void ResetCrashRecovery(int instanceId)
+    {
+        if (_sessions.ContainsKey(instanceId))
+        {
+            return;
+        }
+
+        UpdateIf(instanceId, runtime => runtime.HasLiveProcess
+            ? null
+            : runtime with
+            {
+                State = runtime.State == InstanceState.Crashed ? InstanceState.Stopped : runtime.State,
+                Detail = runtime.State == InstanceState.Crashed ? null : runtime.Detail,
+                PendingCrash = null,
+                AutoRestarts = 0,
+            });
+    }
+
+    /// <summary>
     /// The launch under a lease the caller holds: readiness and gate checks, then the queue. Refused while any
     /// session is registered for the instance, whatever its displayed state, so a stop that ended without a
-    /// verified exit can never be followed by a second process.
+    /// verified exit can never be followed by a second process. <paramref name="autoRestarts"/> is the count the
+    /// new session's runtime starts with (B4): 0 for every launch except an automatic restart.
     /// </summary>
-    private async Task<OperationOutcome> StartCoreAsync(int instanceId, LaunchKind kind, CancellationToken cancellationToken)
+    private async Task<OperationOutcome> StartCoreAsync(int instanceId, LaunchKind kind, CancellationToken cancellationToken, int autoRestarts = 0, LaunchReport? report = null)
     {
-        if (kind == LaunchKind.User && !_readiness.Current.IsReady)
+        if (kind is LaunchKind.User or LaunchKind.AutoRestart && !_readiness.Current.IsReady)
         {
             return OperationOutcome.Rejected($"The service is not ready yet ({_readiness.Current.Phase}: {_readiness.Current.Message}).");
         }
@@ -206,11 +245,16 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             return OperationOutcome.Rejected($"The instance is already {Describe(runtime.State)}.");
         }
 
-        return await _queue.EnqueueAsync(instanceId, kind, token => LaunchAsync(instanceId, token), cancellationToken);
+        return await _queue.EnqueueAsync(instanceId, kind, token => LaunchAsync(instanceId, kind, autoRestarts, report, token), cancellationToken);
     }
 
-    /// <summary>The launch callback run by the queue worker; the token is the queue's lifetime, not the caller's.</summary>
-    private async Task<OperationOutcome> LaunchAsync(int instanceId, CancellationToken cancellationToken)
+    /// <summary>
+    /// The launch callback run by the queue worker; the token is the queue's lifetime, not the caller's. For an
+    /// automatic restart the instance row read here is the commitment point (B4): <see cref="Instance.AutoRestart"/>
+    /// turned off before it cancels the relaunch with <see cref="AutoRestartTurnedOff"/>; turned off after it, the
+    /// launch runs like any other and can be stopped.
+    /// </summary>
+    private async Task<OperationOutcome> LaunchAsync(int instanceId, LaunchKind kind, int autoRestarts, LaunchReport? report, CancellationToken cancellationToken)
     {
         var channel = ConsoleChannels.Instance(instanceId);
         Instance? instance;
@@ -228,6 +272,11 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
                 return OperationOutcome.Rejected($"Instance {instanceId} no longer exists.");
             }
 
+            if (kind == LaunchKind.AutoRestart && !instance.AutoRestart)
+            {
+                return OperationOutcome.Rejected(AutoRestartTurnedOff);
+            }
+
             others = await db.Instances
                 .AsNoTracking()
                 .Where(i => i.Id != instanceId)
@@ -237,11 +286,13 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
 
         if (instance.ClusterId is { } clusterId && _locks.IsClusterReserved(clusterId))
         {
-            return OperationOutcome.Rejected("The cluster is reserved by a restore; try again when it finishes.");
+            report?.HeldByRestore = true;
+            return OperationOutcome.Rejected(InstanceLocks.ClusterReservedByRestore);
         }
 
         if (_restoreJournals.FindForInstance(instanceId) is { } journal)
         {
+            report?.HeldByRestore = true;
             return OperationOutcome.Rejected(journal.RefusalReason("this instance"));
         }
 
@@ -314,7 +365,8 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             }
 
             var startTime = ReadStartTime(process) ?? _time.GetUtcNow();
-            var session = Register(instance, process, startTime, attached: false, rconEndpoint);
+            var session = Register(instance, process, startTime, attached: false, rconEndpoint, autoRestarts);
+            report?.Registered = true;
             session.LaunchedAt = _time.GetUtcNow();
             Append(channel, $"Launched pid {process.Id}: {executable} {arguments.ToDisplayString()}", ConsoleLineKind.Info);
             _logger.LogInformation("Instance {InstanceId} ({Slug}) launched as pid {Pid}.", instanceId, slug, process.Id);
@@ -323,7 +375,8 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             StartLoops(session);
             if (persistError is not null)
             {
-                Update(instanceId, runtime => runtime with { State = InstanceState.IdentityUnpersisted, Detail = persistError });
+                // The liveness loop already runs: a process that exited meanwhile keeps the Stopped its exit published.
+                UpdateForSession(session, runtime => runtime with { State = InstanceState.IdentityUnpersisted, Detail = persistError });
                 Append(channel, $"The server is running (pid {process.Id}) but its identity could not be saved: {persistError}", ConsoleLineKind.Error);
                 return OperationOutcome.Rejected($"The server started (pid {process.Id}) but its identity could not be saved after {PersistRetryDelays.Count} retries: {persistError} Use 'Retry persist'.");
             }
@@ -350,7 +403,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             startInfo.ArgumentList.Add(argument);
         }
 
-        return Process.Start(startInfo) ?? throw new InvalidOperationException("Process.Start returned no process.");
+        return _starter.Start(startInfo);
     }
 
     private LaunchRequest BuildLaunchRequest(Instance instance)
@@ -407,7 +460,10 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
 
     // ---- identity persistence (plan step 19) ------------------------------------------------------
 
-    /// <summary>Returns null on success, else the last storage error after the bounded retries.</summary>
+    /// <summary>
+    /// Returns null on success (or when the process exited meanwhile, which leaves nothing to persist), else the last
+    /// storage error after the bounded retries.
+    /// </summary>
     private async Task<string?> PersistIdentityWithRetriesAsync(Session session, CancellationToken cancellationToken)
     {
         string? lastError = null;
@@ -433,7 +489,29 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         return lastError;
     }
 
+    /// <summary>
+    /// Writes the session's identity into its row under the session's write mutex (B4), so it lands before the exit
+    /// cleanup clears it, never after; once the exit has begun it writes nothing.
+    /// </summary>
     private async Task PersistIdentityAsync(Session session, CancellationToken cancellationToken)
+    {
+        await session.WriteMutex.WaitAsync(cancellationToken);
+        try
+        {
+            if (session.Exiting)
+            {
+                return;
+            }
+
+            await WriteIdentityAsync(session, cancellationToken);
+        }
+        finally
+        {
+            session.WriteMutex.Release();
+        }
+    }
+
+    private async Task WriteIdentityAsync(Session session, CancellationToken cancellationToken)
     {
         var state = session.ProbeSucceeded ? InstanceState.Running : InstanceState.Starting;
         int? pid = session.Pid;
@@ -479,12 +557,16 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             var error = await PersistIdentityWithRetriesAsync(session, cancellationToken);
             if (error is not null)
             {
-                Update(instanceId, runtime => runtime with { Detail = error });
+                UpdateForSession(session, runtime => runtime with { Detail = error });
                 return OperationOutcome.Rejected(error);
             }
 
             var state = session.ProbeSucceeded ? InstanceState.Running : InstanceState.Starting;
-            Update(instanceId, runtime => runtime with { State = state, Detail = null });
+            if (!UpdateForSession(session, runtime => runtime with { State = state, Detail = null }))
+            {
+                return OperationOutcome.Rejected("The instance is not running.");
+            }
+
             Append(ConsoleChannels.Instance(instanceId), $"Identity persisted (pid {session.Pid}).", ConsoleLineKind.Info);
             return OperationOutcome.Success;
         }
@@ -696,16 +778,35 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         return await job.WaitAsync(cancellationToken);
     }
 
-    /// <summary>Records the stop intent on the live session synchronously, under the caller's lease, before any job is dispatched.</summary>
+    /// <summary>
+    /// Records the stop intent on the live session synchronously, under the caller's lease, before any job is dispatched.
+    /// Decided under the session lock against the exit path (B4): a stop accepted before the exit was observed is carried
+    /// by the exit as its intent. A stop that finds the exit already begun is accepted too, because the owner asked for the
+    /// server to be down and it is: the crash is dismissed under the caller's lease (the exit captured its epoch in the
+    /// same critical section that set <c>Exiting</c>, so the dismissal always voids it), and the job only waits for the
+    /// exit signal (see <see cref="RunStopJobAsync"/>). The session stays registered until the exit is published, so
+    /// a stop during the cleanup always finds it.
+    /// </summary>
     private bool TryAcceptStop(int instanceId, out Session session, out OperationOutcome rejection)
     {
+        rejection = OperationOutcome.Rejected("The instance is not running.");
         if (!_sessions.TryGetValue(instanceId, out session!) || !GetRuntime(instanceId).HasLiveProcess)
         {
-            rejection = OperationOutcome.Rejected("The instance is not running.");
             return false;
         }
 
-        session.StopIntent = true;
+        bool exiting;
+        lock (session.Sync)
+        {
+            exiting = session.Exiting;
+            session.StopIntent = true;
+        }
+
+        if (exiting)
+        {
+            DismissCrash(instanceId);
+        }
+
         rejection = OperationOutcome.Success;
         return true;
     }
@@ -716,12 +817,24 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         var channel = ConsoleChannels.Instance(session.InstanceId);
         try
         {
+            // Accepted while the process's exit was already being cleaned up (B4): no countdown, doexit, kill, or Stopping.
+            if (session.Exiting)
+            {
+                return await ExitedOnItsOwnAsync(session, token);
+            }
+
             var settings = await _settings.GetAsync(token);
             var timeout = TimeSpan.FromSeconds(settings.RconCommandTimeoutSeconds);
             var deadline = options.SkipCountdown
                 ? null
                 : options.Deadline ?? (settings.PreStopBroadcastMinutes > 0 ? _time.GetUtcNow() + TimeSpan.FromMinutes(settings.PreStopBroadcastMinutes) : null);
-            await SetStateAsync(session.InstanceId, InstanceState.Stopping, null, token);
+
+            // The process can exit on its own after the stop was accepted (B4). Its exit carries the stop intent and owns the
+            // cleanup; the job then neither puts the dead instance back into Stopping nor broadcasts, sends doexit, or kills.
+            if (!await SetSessionStateAsync(session, InstanceState.Stopping, null, token))
+            {
+                return await ExitedOnItsOwnAsync(session, token);
+            }
 
             var killNow = false;
             if (session.Rcon is { } rcon)
@@ -731,9 +844,14 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
                     await CountdownAsync(session, rcon, countdownDeadline, StopCountdownTemplate, timeout, token);
                 }
 
+                if (session.Exited.Task.IsCompleted)
+                {
+                    return OperationOutcome.Success;
+                }
+
                 // No explicit saveworld: doexit saves the world itself ("Saving world..." twice in the log before "Closing by request", captured 2026-09-13).
                 session.StopRequested = true;
-                Update(session.InstanceId, runtime => runtime with { ExitRequested = true });
+                UpdateForSession(session, runtime => runtime with { ExitRequested = true });
                 var acknowledged = await TryRconAsync(session, rcon, RconCommands.DoExit, timeout, token);
                 if (deadline is { } expected && _time.GetUtcNow() - expected is { } late && late > LateExitTolerance)
                 {
@@ -753,13 +871,18 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
             else
             {
                 session.StopRequested = true;
-                Update(session.InstanceId, runtime => runtime with { ExitRequested = true });
+                UpdateForSession(session, runtime => runtime with { ExitRequested = true });
                 Append(channel, "No RCON credentials for this process; skipping doexit and waiting for the graceful timeout before killing.", ConsoleLineKind.Warning);
             }
 
             var graceful = TimeSpan.FromSeconds(settings.GracefulStopTimeoutSeconds);
             if (killNow || !await WaitForExitAsync(session, graceful, token))
             {
+                if (session.Exited.Task.IsCompleted)
+                {
+                    return OperationOutcome.Success;
+                }
+
                 if (!killNow)
                 {
                     Append(channel, $"The server did not exit within {settings.GracefulStopTimeoutSeconds} s; killing pid {session.Pid}.", ConsoleLineKind.Warning);
@@ -780,7 +903,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
                 {
                     // The session stays registered and supervised with the intent set: a later exit is still a requested one.
                     var detail = $"Pid {session.Pid} is still alive after kill; its exit could not be verified.";
-                    Update(session.InstanceId, runtime => runtime with { Detail = detail });
+                    UpdateForSession(session, runtime => runtime with { Detail = detail });
                     return OperationOutcome.Rejected(detail);
                 }
             }
@@ -823,7 +946,8 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
     /// is skipped). Each wait runs to the next whole-minute mark before the deadline, computed from the clock, so a
     /// slow reply never pushes <c>doexit</c> later than the deadline plus that one reply. The stop sequence and
     /// <see cref="BroadcastCountdownAsync"/> share this loop; <paramref name="messageTemplate"/> supplies the words
-    /// around "in N minute(s)" and, for the last broadcast, "now".
+    /// around "in N minute(s)" and, for the last broadcast, "now". A process that exits during the countdown ends it at
+    /// once without the last broadcast (B4): there is nobody left to tell.
     /// </summary>
     private async Task CountdownAsync(Session session, RconEndpoint rcon, DateTimeOffset deadline, string messageTemplate, TimeSpan timeout, CancellationToken token)
     {
@@ -833,6 +957,11 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         {
             while (!skip.IsCancellationRequested)
             {
+                if (session.Exited.Task.IsCompleted)
+                {
+                    return;
+                }
+
                 var remaining = deadline - _time.GetUtcNow();
                 if (remaining <= TimeSpan.Zero)
                 {
@@ -851,15 +980,28 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
                 var phrase = $"in {minutes} minute{(minutes == 1 ? string.Empty : "s")}";
                 await TryRconAsync(session, rcon, RconCommands.Broadcast(string.Format(CultureInfo.InvariantCulture, messageTemplate, phrase)), timeout, token);
                 var wait = remaining - TimeSpan.FromMinutes(minutes - 1);
+                var delay = Task.Delay(wait > TimeSpan.Zero ? wait : TimeSpan.Zero, _time, skip.Token);
+                await Task.WhenAny(delay, session.Exited.Task);
+                if (session.Exited.Task.IsCompleted)
+                {
+                    await skip.CancelAsync();
+                    return;
+                }
+
                 try
                 {
-                    await Task.Delay(wait > TimeSpan.Zero ? wait : TimeSpan.Zero, _time, skip.Token);
+                    await delay;
                 }
                 catch (OperationCanceledException) when (!token.IsCancellationRequested)
                 {
                     Append(ConsoleChannels.Instance(session.InstanceId), "Countdown skipped.", ConsoleLineKind.Info);
                     break;
                 }
+            }
+
+            if (session.Exited.Task.IsCompleted)
+            {
+                return;
             }
 
             await TryRconAsync(session, rcon, RconCommands.Broadcast(string.Format(CultureInfo.InvariantCulture, messageTemplate, "now")), timeout, token);
@@ -935,11 +1077,16 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
 
     // ---- sessions and loops (plan step 22) --------------------------------------------------------
 
-    private Session Register(Instance instance, Process process, DateTimeOffset startTime, bool attached, RconEndpoint? rcon)
+    /// <summary>
+    /// Registers the session and replaces the runtime record with a fresh one. The new record starts with
+    /// <paramref name="autoRestarts"/> (B4: 0 for every launch and attach except an automatic restart), no pending crash,
+    /// and the previous record's <see cref="InstanceRuntime.RecoveryEpoch"/>.
+    /// </summary>
+    private Session Register(Instance instance, Process process, DateTimeOffset startTime, bool attached, RconEndpoint? rcon, int autoRestarts = 0)
     {
         var session = new Session(instance.Id, instance.Slug, process, startTime, attached, rcon, _time.GetUtcNow(), _lifetime);
         _sessions[instance.Id] = session;
-        Update(instance.Id, _ => new InstanceRuntime(instance.Id, InstanceState.Starting, process.Id, startTime, null, null, null));
+        Update(instance.Id, current => new InstanceRuntime(instance.Id, InstanceState.Starting, process.Id, startTime, null, null, null, AutoRestarts: autoRestarts, RecoveryEpoch: current.RecoveryEpoch));
         return session;
     }
 
@@ -991,7 +1138,7 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         _console.Append(channel, new ConsoleLine(line.ObservedAt, line.Text, line.IsBackfill ? ConsoleLineKind.Backfill : ConsoleLineKind.Output));
         if (!line.IsBackfill && StartupMarkers.Classify(line.Text) is { } marker)
         {
-            Update(session.InstanceId, runtime => runtime with { LastMarker = marker });
+            UpdateForSession(session, runtime => runtime with { LastMarker = marker });
         }
 
         return ValueTask.CompletedTask;
@@ -1040,34 +1187,37 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
     {
         session.ProbeSucceeded = true;
         var now = _time.GetUtcNow();
-        var current = GetRuntime(session.InstanceId);
-        if (current.State is InstanceState.Starting or InstanceState.StartingUnconfirmed or InstanceState.Unreachable)
+        var promoted = false;
+        var applied = UpdateForSession(session, runtime =>
         {
-            await SetStateAsync(session.InstanceId, InstanceState.Running, null, token, runtime => runtime with { LastRconSuccessAt = now });
-        }
-        else
+            promoted = runtime.State is InstanceState.Starting or InstanceState.StartingUnconfirmed or InstanceState.Unreachable;
+            return promoted
+                ? runtime with { State = InstanceState.Running, Detail = null, LastRconSuccessAt = now }
+                : runtime with { LastRconSuccessAt = now };
+        });
+
+        if (applied && promoted)
         {
-            Update(session.InstanceId, runtime => runtime with { LastRconSuccessAt = now });
+            await MirrorForSessionAsync(session, InstanceState.Running, token);
         }
     }
 
     private async Task OnProbeFailedAsync(Session session, RconException failure, CancellationToken token)
     {
         _logger.LogDebug(failure, "RCON probe for instance {InstanceId} failed ({Failure}).", session.InstanceId, failure.Failure);
-        var current = GetRuntime(session.InstanceId);
-        if (current.State != InstanceState.Starting || _time.GetUtcNow() - session.RegisteredAt < StartupBound)
+        if (GetRuntime(session.InstanceId).State != InstanceState.Starting || _time.GetUtcNow() - session.RegisteredAt < StartupBound)
         {
             return;
         }
 
         var minutes = (int)StartupBound.TotalMinutes;
-        if (session.IsAttached)
+        var (state, detail) = session.IsAttached
+            ? (InstanceState.Unreachable, $"RCON has not answered in {minutes} minutes since re-attach ({failure.Failure}: {failure.Message}). Check ServerAdminPassword / RCONPort.")
+            : (InstanceState.StartingUnconfirmed, $"No successful RCON probe {minutes} minutes after launch ({failure.Failure}: {failure.Message}); still probing.");
+        var applied = UpdateIfForSession(session, runtime => runtime.State == InstanceState.Starting ? runtime with { State = state, Detail = detail } : null);
+        if (applied)
         {
-            await SetStateAsync(session.InstanceId, InstanceState.Unreachable, $"RCON has not answered in {minutes} minutes since re-attach ({failure.Failure}: {failure.Message}). Check ServerAdminPassword / RCONPort.", token);
-        }
-        else
-        {
-            await SetStateAsync(session.InstanceId, InstanceState.StartingUnconfirmed, $"No successful RCON probe {minutes} minutes after launch ({failure.Failure}: {failure.Message}); still probing.", token);
+            await MirrorForSessionAsync(session, state, token);
         }
     }
 
@@ -1156,39 +1306,203 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         RaiseTelemetry(session.InstanceId, sample);
     }
 
+    /// <summary>
+    /// The single owner of the "process exited" transition. Ordered so the instance is not launchable until the cleanup
+    /// is done (B4): the database write runs while the session is still registered and the runtime still shows a live
+    /// state, so a Start is refused until the one atomic update that publishes Stopped, clears the identity, and installs
+    /// the <see cref="InstanceRuntime.PendingCrash"/> marker. The stop intent and the recovery epoch are captured under
+    /// the session lock first, so a stop is either carried by this exit or, once the exit has begun, dismisses it; a
+    /// dismissal issued after the capture always voids the marker. Takes no lease and awaits nothing after the exit signal.
+    /// </summary>
     private async Task HandleExitAsync(Session session)
     {
-        var channel = ConsoleChannels.Instance(session.InstanceId);
+        var instanceId = session.InstanceId;
+        bool stopIntent;
+        int epoch;
+        lock (session.Sync)
+        {
+            session.Exiting = true;
+            stopIntent = session.StopIntent || session.StopRequested;
+            epoch = GetRuntime(instanceId).RecoveryEpoch;
+            TestHooks.InsideExitCapture?.Invoke(instanceId);
+        }
+
+        var channel = ConsoleChannels.Instance(instanceId);
         var exitCode = ReadExitCode(session.Process);
         var codeText = exitCode is { } code ? $" (code {code.ToString(CultureInfo.InvariantCulture)})" : string.Empty;
         var codeForLog = exitCode?.ToString(CultureInfo.InvariantCulture) ?? "unknown";
-        _sessions.TryRemove(new KeyValuePair<int, Session>(session.InstanceId, session));
+        var request = new RecoveryRequest(instanceId, session.Pid, session.StartTime, exitCode, stopIntent, _time.GetUtcNow(), _gate.IsHeldExclusively);
+        var detail = stopIntent ? null : $"Exited unexpectedly{codeText} at {request.ExitedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss}.";
 
-        string? detail = null;
-        if (session.StopRequested || session.StopIntent)
+        // Nothing here may skip the publication, the exit signal, or the post below: a failed or cancelled database write
+        // leaves only a stale row, while a skipped publication would leave a dead session registered forever.
+        try
         {
-            Append(channel, $"Server exited{codeText}.", ConsoleLineKind.Info);
-            _logger.LogInformation("Instance {InstanceId} pid {Pid} exited after a manager-initiated stop (code {Code}).", session.InstanceId, session.Pid, codeForLog);
+            // Every session-scoped database write holds this mutex; one in flight lands before the final Stopped, never after.
+            await session.WriteMutex.WaitAsync(CancellationToken.None);
+            try
+            {
+                await MirrorStateAsync(instanceId, InstanceState.Stopped, CancellationToken.None, clearIdentity: true);
+            }
+            finally
+            {
+                session.WriteMutex.Release();
+            }
+
+            if (stopIntent)
+            {
+                Append(channel, $"Server exited{codeText}.", ConsoleLineKind.Info);
+                _logger.LogInformation("Instance {InstanceId} pid {Pid} exited after a manager-initiated stop (code {Code}).", instanceId, session.Pid, codeForLog);
+            }
+            else
+            {
+                Append(channel, $"Server exited unexpectedly{codeText}.", ConsoleLineKind.Warning);
+                _logger.LogWarning("Instance {InstanceId} pid {Pid} exited without a manager-initiated stop (code {Code}).", instanceId, session.Pid, codeForLog);
+            }
         }
-        else
+        catch (Exception ex)
         {
-            detail = $"Exited unexpectedly{codeText} at {_time.GetUtcNow().ToLocalTime():yyyy-MM-dd HH:mm:ss}.";
-            Append(channel, $"Server exited unexpectedly{codeText}.", ConsoleLineKind.Warning);
-            _logger.LogWarning("Instance {InstanceId} pid {Pid} exited without a manager-initiated stop (code {Code}).", session.InstanceId, session.Pid, codeForLog);
+            _logger.LogError(ex, "The exit cleanup of instance {InstanceId} (pid {Pid}) failed part-way; publishing the exit anyway.", instanceId, session.Pid);
         }
 
-        Update(session.InstanceId, runtime => runtime with { State = InstanceState.Stopped, Pid = null, ProcessStartTime = null, Detail = detail, ExitRequested = false });
-        _telemetry.TryRemove(session.InstanceId, out _);
-        RaiseTelemetry(session.InstanceId, null);
-        await MirrorStateAsync(session.InstanceId, InstanceState.Stopped, _lifetime, clearIdentity: true);
+        // The session stays registered until the exit is published, so a stop issued during the cleanup always finds it
+        // (and the Exiting flag) rather than an instance that looks live with no session behind it.
+        var eligible = !stopIntent && !request.DuringMaintenance;
+        PublishExit(instanceId, request, epoch, eligible, detail);
+        _sessions.TryRemove(new KeyValuePair<int, Session>(instanceId, session));
+        _telemetry.TryRemove(instanceId, out _);
+        RaiseTelemetry(instanceId, null);
 
         session.Cancellation.Cancel();
         session.Process.Dispose();
         session.Exited.TrySetResult();
 
         // After the cleanup and the exit signal, never before: nothing in this path waits on recovery.
-        _recovery.TryPost(new RecoveryRequest(session.InstanceId, session.Pid, session.StartTime, exitCode, session.StopIntent, _time.GetUtcNow()));
+        _recovery.TryPost(request);
     }
+
+    /// <summary>The exit's one publishing update (B4); internal so the epoch race can be exercised directly.</summary>
+    internal void PublishExit(int instanceId, RecoveryRequest request, int capturedEpoch, bool eligible, string? detail) =>
+        Update(instanceId, runtime => ExitedRuntime(runtime, request, capturedEpoch, eligible, detail));
+
+    /// <summary>
+    /// The record an exit publishes (B4): Stopped, no identity, and the marker only for an eligible exit (no stop intent,
+    /// no maintenance) whose captured epoch still equals the record's. Compared against the record being replaced, so a
+    /// dismissal that bumped the epoch after the capture always wins.
+    /// </summary>
+    internal static InstanceRuntime ExitedRuntime(InstanceRuntime current, RecoveryRequest request, int capturedEpoch, bool eligible, string? detail) =>
+        current with
+        {
+            State = InstanceState.Stopped,
+            Pid = null,
+            ProcessStartTime = null,
+            Detail = detail,
+            ExitRequested = false,
+            PendingCrash = eligible && current.RecoveryEpoch == capturedEpoch ? request : null,
+        };
+
+    // ---- crash recovery (B4) ----------------------------------------------------------------------
+
+    public async Task<CrashRecovery> RecoverAsync(RecoveryRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var instanceId = request.InstanceId;
+        var lease = _locks.TryAcquire(instanceId);
+        if (lease is null)
+        {
+            return CrashRecovery.Busy;
+        }
+
+        try
+        {
+            var runtime = GetRuntime(instanceId);
+            if (!ReferenceEquals(runtime.PendingCrash, request) || _sessions.ContainsKey(instanceId) || runtime.State != InstanceState.Stopped)
+            {
+                return CrashRecovery.Stale;
+            }
+
+            bool? autoRestart;
+            await using (var db = await _dbFactory.CreateDbContextAsync(cancellationToken))
+            {
+                autoRestart = await db.Instances.AsNoTracking()
+                    .Where(i => i.Id == instanceId)
+                    .Select(i => (bool?)i.AutoRestart)
+                    .SingleOrDefaultAsync(cancellationToken);
+            }
+
+            if (autoRestart is null)
+            {
+                AnswerCrash(request, runtime => runtime);
+                return CrashRecovery.Stale;
+            }
+
+            if (autoRestart is false)
+            {
+                return AnswerCrash(request, runtime => runtime) ? CrashRecovery.Disabled : CrashRecovery.Stale;
+            }
+
+            var uptime = request.ExitedAt - request.ProcessStartTime;
+            if (CrashLoopRule.Next(runtime.AutoRestarts, uptime) is not CrashLoopDecision.Restart restart)
+            {
+                return AnswerCrash(request, current => current with { State = InstanceState.Crashed, Detail = CrashLoopRule.GaveUpMessage })
+                    ? new CrashRecovery(CrashRecoveryStatus.GaveUp, runtime.AutoRestarts)
+                    : CrashRecovery.Stale;
+            }
+
+            Append(ConsoleChannels.Instance(instanceId), $"Restarting after unexpected exit ({restart.Attempt}/{CrashLoopRule.MaxRestarts}).", ConsoleLineKind.Info);
+            _logger.LogInformation("Instance {InstanceId}: automatic restart {Attempt}/{Max} after pid {Pid} exited unexpectedly.", instanceId, restart.Attempt, CrashLoopRule.MaxRestarts, request.Pid);
+            var report = new LaunchReport();
+            var outcome = await StartCoreAsync(instanceId, LaunchKind.AutoRestart, cancellationToken, restart.Attempt, report);
+            if (outcome.Succeeded)
+            {
+                return new CrashRecovery(CrashRecoveryStatus.Launched, restart.Attempt);
+            }
+
+            var reason = outcome.Error ?? "the launch was refused";
+            if (report.Registered)
+            {
+                // A process was registered for this attempt (its identity could not be saved): the relaunch happened, and
+                // Register cleared the marker, so nothing is answered here; a later exit of that process posts its own request.
+                return new CrashRecovery(CrashRecoveryStatus.Launched, restart.Attempt, reason);
+            }
+
+            if (reason == AutoRestartTurnedOff)
+            {
+                return AnswerCrash(request, current => current)
+                    ? CrashRecovery.Disabled
+                    : new CrashRecovery(CrashRecoveryStatus.Refused, restart.Attempt, reason);
+            }
+
+            // An update, a service shutdown, or a restore (its cluster reservation or an unresolved journal) owns the
+            // instance: not a refusal, so the instance stays Stopped.
+            if (report.HeldByRestore || reason == MaintenanceGate.UpdateInProgress || _lifetime.IsCancellationRequested || cancellationToken.IsCancellationRequested)
+            {
+                return AnswerCrash(request, current => current)
+                    ? new CrashRecovery(CrashRecoveryStatus.Skipped, restart.Attempt, reason)
+                    : new CrashRecovery(CrashRecoveryStatus.Refused, restart.Attempt, reason);
+            }
+
+            AnswerCrash(request, current => current with { State = InstanceState.Crashed, Detail = $"Automatic restart was refused: {reason}" });
+            return new CrashRecovery(CrashRecoveryStatus.Refused, restart.Attempt, reason);
+        }
+        finally
+        {
+            lease.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Answers <paramref name="request"/> with one conditional update: applied, and the marker cleared, only while the
+    /// record's <see cref="InstanceRuntime.PendingCrash"/> is still this very request and no process is live.
+    /// </summary>
+    private bool AnswerCrash(RecoveryRequest request, Func<InstanceRuntime, InstanceRuntime> answer) =>
+        UpdateIf(request.InstanceId, runtime => ReferenceEquals(runtime.PendingCrash, request) && !runtime.HasLiveProcess
+            ? answer(runtime) with { PendingCrash = null }
+            : null);
+
+    public void DismissCrash(int instanceId) =>
+        UpdateIf(instanceId, runtime => runtime with { PendingCrash = null, RecoveryEpoch = runtime.RecoveryEpoch + 1 });
 
     // ---- session probe (B0) -----------------------------------------------------------------------
 
@@ -1316,16 +1630,101 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
     private InstanceRuntime Update(int instanceId, Func<InstanceRuntime, InstanceRuntime> update)
     {
         var updated = _runtimes.AddOrUpdate(instanceId, _ => update(Default(instanceId)), (_, current) => update(current));
+        RaiseRuntimeChanged(updated);
+        return updated;
+    }
+
+    /// <summary>
+    /// A compare-and-apply update (B4): <paramref name="change"/> sees the current record and returns its replacement,
+    /// or null to leave it alone; it is re-run when the record changed underneath it. False when nothing was applied,
+    /// including for an instance that has no record yet.
+    /// </summary>
+    private bool UpdateIf(int instanceId, Func<InstanceRuntime, InstanceRuntime?> change)
+    {
+        while (_runtimes.TryGetValue(instanceId, out var current))
+        {
+            if (change(current) is not { } next)
+            {
+                return false;
+            }
+
+            if (_runtimes.TryUpdate(instanceId, next, current))
+            {
+                RaiseRuntimeChanged(next);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// A write on behalf of <paramref name="session"/> (B4): applied only while the record still carries the session's
+    /// identity, which the exit's publishing update clears, so a late probe, stop-job, or identity-retry write can never
+    /// put a dead instance back into a live state. Reports whether it applied.
+    /// </summary>
+    private bool UpdateForSession(Session session, Func<InstanceRuntime, InstanceRuntime> change) =>
+        UpdateIfForSession(session, change);
+
+    /// <inheritdoc cref="UpdateForSession"/>
+    private bool UpdateIfForSession(Session session, Func<InstanceRuntime, InstanceRuntime?> change) =>
+        UpdateIf(session.InstanceId, runtime => runtime.Pid == session.Pid && runtime.ProcessStartTime == session.StartTime ? change(runtime) : null);
+
+    /// <summary>The session-scoped twin of <see cref="SetStateAsync"/>: false, with no database write, when the session's process is gone.</summary>
+    private async Task<bool> SetSessionStateAsync(Session session, InstanceState state, string? detail, CancellationToken cancellationToken)
+    {
+        if (!UpdateForSession(session, runtime => runtime with { State = state, Detail = detail }))
+        {
+            return false;
+        }
+
+        await MirrorForSessionAsync(session, state, cancellationToken);
+        return true;
+    }
+
+    /// <summary>
+    /// Mirrors a session-scoped state into the database under the session's write mutex (B4); skipped once the exit has
+    /// begun, so every such write lands before the exit's final Stopped and identity clear, never after.
+    /// </summary>
+    private async Task MirrorForSessionAsync(Session session, InstanceState state, CancellationToken cancellationToken)
+    {
+        if (TestHooks.BeforeSessionMirror is { } hook)
+        {
+            await hook(session.InstanceId, state);
+        }
+
+        await session.WriteMutex.WaitAsync(cancellationToken);
         try
         {
-            RuntimeChanged?.Invoke(updated);
+            if (session.Exiting)
+            {
+                return;
+            }
+
+            await MirrorStateAsync(session.InstanceId, state, cancellationToken);
+        }
+        finally
+        {
+            session.WriteMutex.Release();
+        }
+    }
+
+    /// <summary>A stop job whose process exited on its own after the stop was accepted: the exit owns the cleanup; wait for its signal.</summary>
+    private async Task<OperationOutcome> ExitedOnItsOwnAsync(Session session, CancellationToken token) =>
+        await WaitForExitAsync(session, ExitVerificationBound, token)
+            ? OperationOutcome.Success
+            : OperationOutcome.Rejected($"Pid {session.Pid} left the runtime but its exit was not signalled within {ExitVerificationBound.TotalSeconds:0} s.");
+
+    private void RaiseRuntimeChanged(InstanceRuntime runtime)
+    {
+        try
+        {
+            RuntimeChanged?.Invoke(runtime);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "A RuntimeChanged subscriber threw.");
         }
-
-        return updated;
     }
 
     /// <summary>Sets the in-memory state (plus <paramref name="extra"/> edits) and mirrors the state into the database.</summary>
@@ -1408,6 +1807,16 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
         _ => state.ToString().ToLowerInvariant(),
     };
 
+    /// <summary>What an automatic restart's launch callback did besides its outcome (B4); written on the queue worker, read after it completes.</summary>
+    private sealed class LaunchReport
+    {
+        /// <summary>A process was registered, so the relaunch happened even if the launch was then rejected.</summary>
+        public bool Registered { get; set; }
+
+        /// <summary>A restore's cluster reservation or unresolved journal refused the launch.</summary>
+        public bool HeldByRestore { get; set; }
+    }
+
     /// <summary>Everything the loops and the stop job share about one live process.</summary>
     private sealed class Session(int instanceId, string slug, Process process, DateTimeOffset startTime, bool isAttached, RconEndpoint? rcon, DateTimeOffset registeredAt, CancellationToken lifetime)
     {
@@ -1465,10 +1874,32 @@ public sealed class ProcessManager : IProcessManager, IProcessReconciler
 
         public CancellationTokenSource? SkipCountdown { get; set; }
 
+        /// <summary>Guards <see cref="Exiting"/> against stop acceptance and the exit's capture of intent and recovery epoch (B4).</summary>
+        public object Sync { get; } = new();
+
+        /// <summary>Set under <see cref="Sync"/> as the exit path begins (B4); from then on no stop is accepted and no session-scoped database write is made.</summary>
+        public volatile bool Exiting;
+
+        /// <summary>Orders this session's database writes against each other and against the exit cleanup (B4).</summary>
+        public SemaphoreSlim WriteMutex { get; } = new(1, 1);
+
         public Task? OutputTask { get; set; }
 
         public Task? ProbeTask { get; set; }
 
         public Task? LivenessTask { get; set; }
     }
+}
+
+/// <summary>
+/// Pause points inside <see cref="ProcessManager"/> for the B4 race tests, where no substituted fake sits at the point
+/// that must be held. Both are null in production.
+/// </summary>
+internal sealed class ProcessManagerTestHooks
+{
+    /// <summary>Called inside the session lock of the exit path, right after the intent and the recovery epoch were captured.</summary>
+    public Action<int>? InsideExitCapture { get; set; }
+
+    /// <summary>Awaited by a session-scoped database mirror after its runtime update applied and before it takes the session's write mutex.</summary>
+    public Func<int, InstanceState, Task>? BeforeSessionMirror { get; set; }
 }

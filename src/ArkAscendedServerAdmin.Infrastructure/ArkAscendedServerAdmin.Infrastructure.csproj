@@ -26,4 +26,9 @@
     <PackageReference Include="WindowsFirewallHelper" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The process manager's race tests reach its internal pause points and publishing step (B4). -->
+    <InternalsVisibleTo Include="ArkAscendedServerAdmin.Infrastructure.IntegrationTests" />
+  </ItemGroup>
+
 </Project>

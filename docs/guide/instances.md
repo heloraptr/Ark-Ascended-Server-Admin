@@ -127,6 +127,13 @@ way out.
 **Restart** is the stop job followed by a start. If the stop is refused or its exit cannot be
 verified, the start is not attempted and the toast carries the stop's reason.
 
+An instance with **Restart automatically after an unexpected exit** ticked on its Settings tab is also
+relaunched on its own when the process dies without a stop from the manager and no update is running.
+The manager waits 5 seconds, then starts it again. If a session ends within 10 minutes of starting, it
+counts; after three such restarts in a row the next exit is not answered and the state becomes
+**Crashed**. A session that lasts 10 minutes or longer resets the count, and so does any start you press.
+The attempts are written to the console (see [console-and-rcon.md](console-and-rcon.md)).
+
 ## Finding servers again after a service restart
 
 Game processes are not killed when the service stops. That is on purpose: the servers stay up through
@@ -160,7 +167,7 @@ The header shows the name, the crumb (`Instances / <cluster>`), the state, map, 
 the buttons **Start** / **Stop**, **Restart**, **Back up now**, **Stop now**, and the delete icon;
 while a process is live the slug is followed by `RAM 6.2 GB · CPU 14 %`, the same current reading as the
 dashboard row. The same `changed since launch` pill as the dashboard row closes the line when a mod this
-instance loads was updated on CurseForge after its last start; starting the server clears it. Under it, a notice appears for **Starting, unconfirmed**, **Unreachable**, **Unknown**, or
+instance loads was updated on CurseForge after its last start; starting the server clears it. Under it, a notice appears for **Starting, unconfirmed**, **Unreachable**, **Crashed**, **Unknown**, or
 **Identity not saved** (with **Retry persist**), and `Start would be refused.` whenever the launch
 preview finds a problem while the instance is stopped.
 
@@ -171,7 +178,7 @@ preview finds a problem while the instance is stopped.
 | **Config** | Standalone: the `GameUserSettings.ini` and `Game.ini` editors. Member: `INI files come from the <cluster> cluster.` Both: the **Overrides** table with **Add override**. [configuration-files.md](configuration-files.md). |
 | **Mods** | The ordered mod list: the map's mod and cluster mods locked, the instance's own below. Under it, "Not in the library?" takes a CurseForge project id, or a search when a key is set, and puts the mod in the library and on this list in one press. [mods.md](mods.md). |
 | **Launch** | The flags editor and `What a start would run`, the exact command line. [launch-options.md](launch-options.md). |
-| **Settings** | **Instance name**, **Session name**, **Max players**, **Game port**, **RCON port**, **Backup interval, minutes**, **Backups to keep**, **Ignore the cluster's schedule** (members only), **Admin whitelist**; **Save settings**, **Reset**. While the process is live: `Port and player changes apply at the next start.` The slug and the map cannot change. Under the form, the **Connection** card ([below](#connection)). |
+| **Settings** | **Instance name**, **Session name**, **Max players**, **Game port**, **RCON port**, **Backup interval, minutes**, **Backups to keep**, **Restart automatically after an unexpected exit**, **Ignore the cluster's schedule** (members only), **Admin whitelist**; **Save settings**, **Reset**. While the process is live: `Port and player changes apply at the next start.` The slug and the map cannot change. Under the form, the **Connection** card ([below](#connection)). |
 | **Backups** | The backup list with outcome, archive name, size, and trigger, a restore icon on each successful row, and the list of restores. [backups.md](backups.md). |
 | **Schedule** | The scheduled actions and their history ([below](#scheduled-actions)). |
 
@@ -315,8 +322,9 @@ files, not the list of them.
 The runtime state you see (**Starting**, **Running**, ...) lives in memory in the process manager and
 is mirrored into the instance row best-effort; the sidebar's `N instances up` and every state
 indicator update from the same events, without a page reload. A crash (an exit without a stop from the
-manager) prints `Server exited unexpectedly (code <n>).` and the state returns to **Stopped**; nothing
-restarts it.
+manager) prints `Server exited unexpectedly (code <n>).` and the state returns to **Stopped**. With automatic
+restart on, the manager then starts it again, up to three times in a row; if that runs out, or the
+relaunch is refused, the state is **Crashed** until you press **Start**. With it off, nothing restarts it.
 
 ## Refusals and failures
 

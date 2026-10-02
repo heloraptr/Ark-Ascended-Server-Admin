@@ -288,6 +288,14 @@ else
                         <label for="s-keep">Backups to keep</label>
                         <RadzenNumeric TValue="int?" id="s-keep" @bind-Value="_edit.BackupRetention" Min="1" Max="1000" Placeholder="default from Settings" ShowUpDown="false" />
                     </div>
+                    <div class="field">
+                        <label>Crash recovery</label>
+                        <div class="check-row">
+                            <RadzenCheckBox TValue="bool" @bind-Value="_edit.AutoRestart" Name="s-auto-restart" />
+                            <label for="s-auto-restart">Restart automatically after an unexpected exit</label>
+                        </div>
+                        <span class="hint">After three automatic restarts in a row that each end within 10 minutes, the manager stops trying and shows Crashed.</span>
+                    </div>
                     @if (instance.Cluster is not null)
                     {
                         <div class="field">
@@ -473,6 +481,7 @@ else
         public int? BackupIntervalMinutes { get; set; }
         public int? BackupRetention { get; set; }
         public bool OverridesClusterSchedule { get; set; }
+        public bool AutoRestart { get; set; }
     }
 
     private InstanceDetail? _detail;
@@ -617,6 +626,7 @@ else
             BackupIntervalMinutes = i.BackupIntervalMinutes,
             BackupRetention = i.BackupRetention,
             OverridesClusterSchedule = i.OverridesClusterSchedule,
+            AutoRestart = i.AutoRestart,
         };
         _settingsProblems = null;
     }
@@ -817,7 +827,7 @@ else
     /// <summary>The stop completes when the process is gone; the runtime mirror follows a moment later, and the restore checks it.</summary>
     private async Task WaitForStoppedAsync()
     {
-        for (var i = 0; i < 50 && Processes.GetRuntime(Id).State != InstanceState.Stopped; i++)
+        for (var i = 0; i < 50 && Processes.GetRuntime(Id).State is not (InstanceState.Stopped or InstanceState.Crashed); i++)
         {
             await Task.Delay(100);
         }
@@ -857,7 +867,7 @@ else
     {
         await GuardedAsync(async () =>
         {
-            var result = await Instances.SaveAsync(Id, new InstanceEdit(_edit.Name, _edit.SessionName, _edit.MaxPlayers, _edit.GamePort, _edit.RconPort, _edit.AdminWhitelist, _edit.BackupIntervalMinutes, _edit.BackupRetention, _edit.OverridesClusterSchedule));
+            var result = await Instances.SaveAsync(Id, new InstanceEdit(_edit.Name, _edit.SessionName, _edit.MaxPlayers, _edit.GamePort, _edit.RconPort, _edit.AdminWhitelist, _edit.BackupIntervalMinutes, _edit.BackupRetention, _edit.OverridesClusterSchedule, _edit.AutoRestart));
             _settingsProblems = result.Succeeded ? null : result.Errors;
             if (result.Succeeded)
             {

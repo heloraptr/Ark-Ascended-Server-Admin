@@ -15,8 +15,14 @@ public static class Presentation
         InstanceState.Running => "st-running",
         InstanceState.Starting or InstanceState.Stopping or InstanceState.StartingUnconfirmed => "st-transit",
         InstanceState.Stopped => "st-off",
+        InstanceState.Crashed => "st-bad",
         _ => "st-bad",
     };
+
+    /// <summary>The label with the count of automatic restarts that were tried, e.g. "Crashed · 3 restarts".</summary>
+    public static string Label(InstanceRuntime runtime) => runtime.State == InstanceState.Crashed && runtime.AutoRestarts > 0
+        ? $"{Label(runtime.State)} · {runtime.AutoRestarts.ToString(CultureInfo.InvariantCulture)} {(runtime.AutoRestarts == 1 ? "restart" : "restarts")}"
+        : Label(runtime.State);
 
     public static bool IsHollow(InstanceState state) => state == InstanceState.Stopped;
 
@@ -30,6 +36,7 @@ public static class Presentation
         InstanceState.Stopping => "Stopping",
         InstanceState.Unknown => "Unknown",
         InstanceState.IdentityUnpersisted => "Identity not saved",
+        InstanceState.Crashed => "Crashed",
         _ => state.ToString(),
     };
 
@@ -40,6 +47,7 @@ public static class Presentation
         InstanceState.Unreachable => runtime.Detail ?? "Alive, but RCON keeps failing. Check ServerAdminPassword and RCONPort.",
         InstanceState.Unknown => runtime.Detail ?? "More than one process matched; nothing is done automatically.",
         InstanceState.IdentityUnpersisted => runtime.Detail ?? "The process runs but its PID could not be saved.",
+        InstanceState.Crashed => runtime.Detail ?? "Automatic restart stopped trying. Start it to try again.",
         InstanceState.Starting => runtime.LastMarker switch
         {
             Consoles.StartupMarker.WorldLoaded => "World loaded, waiting to advertise.",

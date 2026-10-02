@@ -229,7 +229,7 @@ public sealed class FakeProcessManager(FakeMaintenanceGate? gate = null) : IProc
     /// </summary>
     public void Set(int instanceId, InstanceState state, DateTimeOffset? startTime = null)
     {
-        var live = state != InstanceState.Stopped;
+        var live = state is not (InstanceState.Stopped or InstanceState.Crashed);
         var runtime = new InstanceRuntime(instanceId, state, live ? 1000 + instanceId : null, live ? startTime ?? DefaultStartTime : null, null, null, null);
         _runtimes[instanceId] = runtime;
         RuntimeChanged?.Invoke(runtime);
@@ -314,6 +314,26 @@ public sealed class FakeProcessManager(FakeMaintenanceGate? gate = null) : IProc
     }
 
     public Task<OperationOutcome> RetryPersistIdentityAsync(int instanceId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+    /// <summary>Every <see cref="RecoverAsync"/> call in order, with the wall-clock instant it arrived.</summary>
+    public List<(RecoveryRequest Request, DateTimeOffset At)> Recoveries { get; } = [];
+
+    /// <summary>Scripted answers for <see cref="RecoverAsync"/>; Launched(1) when null. May block or throw.</summary>
+    public Func<RecoveryRequest, CancellationToken, Task<CrashRecovery>>? RecoverHandler { get; set; }
+
+    public async Task<CrashRecovery> RecoverAsync(RecoveryRequest request, CancellationToken cancellationToken)
+    {
+        lock (Recoveries)
+        {
+            Recoveries.Add((request, DateTimeOffset.UtcNow));
+        }
+
+        return RecoverHandler is { } handler ? await handler(request, cancellationToken) : new CrashRecovery(CrashRecoveryStatus.Launched, 1);
+    }
+
+    public ConcurrentQueue<int> Dismissals { get; } = new();
+
+    public void DismissCrash(int instanceId) => Dismissals.Enqueue(instanceId);
 }
 
 /// <summary>In-memory console that keeps every appended line per channel.</summary>

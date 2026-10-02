@@ -28,7 +28,8 @@ never mix. On top of that:
   what it owns (session name, ports, RCON, player cap) and warns when your text contradicts it.
 - Start goes through a stagger queue and a port check against live OS listeners; stop broadcasts a
   countdown, asks the server to save and exit over RCON, and verifies the exit. A restarted service
-  re-attaches to servers that kept running.
+  re-attaches to servers that kept running. An instance can be set to restart itself after an
+  unexpected exit, up to three times in a row, before it shows Crashed.
 - Each server's `ShooterGame.log` is tailed live in a console, with startup markers and an RCON
   input.
 - Every backup is checked: `saveworld`, wait for the files to settle, snapshot, zip, verify every

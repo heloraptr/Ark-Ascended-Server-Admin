@@ -8,6 +8,9 @@ namespace ArkAscendedServerAdmin.Processes;
 /// </summary>
 public sealed class InstanceLocks : IInstanceLocks
 {
+    /// <summary>The refusal for anything a restore's cluster reservation (<see cref="TryReserveCluster"/>) holds off.</summary>
+    public const string ClusterReservedByRestore = "The cluster is reserved by a restore; try again when it finishes.";
+
     private readonly ConcurrentDictionary<int, SemaphoreSlim> _semaphores = new();
     private readonly ConcurrentDictionary<int, SemaphoreSlim> _clusters = new();
 

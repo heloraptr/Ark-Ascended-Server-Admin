@@ -182,7 +182,7 @@ else
                 }
 
                 var i = detail.Instance;
-                var result = await Instances.SaveAsync(id, new InstanceEdit(i.Name, i.SessionName, i.MaxPlayers, i.GamePort, i.RconPort, Append(i.AdminWhitelist, player.EosId), i.BackupIntervalMinutes, i.BackupRetention, i.OverridesClusterSchedule));
+                var result = await Instances.SaveAsync(id, new InstanceEdit(i.Name, i.SessionName, i.MaxPlayers, i.GamePort, i.RconPort, Append(i.AdminWhitelist, player.EosId), i.BackupIntervalMinutes, i.BackupRetention, i.OverridesClusterSchedule, i.AutoRestart));
                 Notifications.Report(result, ActionVerb.AddedTo, $"{i.Name}'s whitelist");
             }
         });

@@ -371,7 +371,7 @@ public sealed class InstanceCommands(
             }
             else if (locks.IsClusterReserved(clusterId))
             {
-                problems.Add("The cluster is reserved by a restore; try again when it finishes.");
+                problems.Add(InstanceLocks.ClusterReservedByRestore);
             }
             else if (restoreJournals.FindForCluster(clusterId) is { } journal)
             {
@@ -514,6 +514,7 @@ public sealed class InstanceCommands(
         instance.BackupIntervalMinutes = edit.BackupIntervalMinutes;
         instance.BackupRetention = edit.BackupRetention;
         instance.OverridesClusterSchedule = edit.OverridesClusterSchedule;
+        instance.AutoRestart = edit.AutoRestart;
         await db.SaveChangesAsync(cancellationToken);
         return CommandResult.Ok;
     }

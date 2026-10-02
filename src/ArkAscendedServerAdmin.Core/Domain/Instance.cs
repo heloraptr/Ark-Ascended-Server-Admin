@@ -49,6 +49,12 @@ public sealed class Instance
     /// </summary>
     public bool OverridesClusterSchedule { get; set; }
 
+    /// <summary>
+    /// True lets the manager relaunch the game server after it exits without a manager-initiated stop (B4). A crash
+    /// loop ends in <see cref="InstanceState.Crashed"/>, which a manual Start clears. Off by default.
+    /// </summary>
+    public bool AutoRestart { get; set; }
+
     public int? LastPid { get; set; }
 
     /// <summary>When the manager issued the launch (wall clock).</summary>

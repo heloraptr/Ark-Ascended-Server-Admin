@@ -153,6 +153,24 @@ public class RestoreServiceTests
         Assert.False(await db.RestoreRecords.AnyAsync(ct));
     }
 
+    /// <summary>B4: Crashed has no process, so it counts as stopped; the restore supersedes any pending automatic restart.</summary>
+    [Fact]
+    public async Task Restore_AcceptsACrashedTarget_AndDismissesItsPendingCrash_WhenOwningAndReleasing()
+    {
+        using var root = new TempDataRoot();
+        var ct = TestContext.Current.CancellationToken;
+        var f = await Fixture.CreateAsync(root, clustered: false, ct);
+        var file = await f.BackupAsync(ct);
+        f.Processes.Set(f.Instance.Id, InstanceState.Crashed);
+        Assert.Null(f.Processes.GetRuntime(f.Instance.Id).Pid);
+
+        var outcome = await f.Restore.RestoreAsync(f.Instance.Id, file, includeCluster: false, ct);
+
+        Assert.True(outcome.Succeeded, outcome.Error);
+        Assert.Equal([f.Instance.Id, f.Instance.Id], f.Processes.Dismissals);
+        Assert.Empty(f.Locks.Holders);
+    }
+
     [Fact]
     public async Task Restore_IsRejected_WhenTheArchiveIsTampered_OrGrowsAnUnlistedEntry()
     {

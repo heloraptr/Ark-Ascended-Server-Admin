@@ -885,7 +885,7 @@ public class InstanceCommandsTests
         {
             var created = await host.Instances.CreateAsync(Draft(mapId), ct);
 
-            var result = await host.Instances.SaveAsync(created.Value, new InstanceEdit(" Renamed ", " New session ", 50, 7800, 27050, " a \r\n\r\n b\n", 15, 3, false), ct);
+            var result = await host.Instances.SaveAsync(created.Value, new InstanceEdit(" Renamed ", " New session ", 50, 7800, 27050, " a \r\n\r\n b\n", 15, 3, false, false), ct);
 
             Assert.True(result.Succeeded, result.Error);
             var instance = await host.InstanceAsync(created.Value, ct);
@@ -895,6 +895,40 @@ public class InstanceCommandsTests
             Assert.Equal((50, 7800, 27050), (instance.MaxPlayers, instance.GamePort, instance.RconPort));
             Assert.Equal("a\r\nb", instance.AdminWhitelist);
             Assert.Equal((15, 3), (instance.BackupIntervalMinutes, instance.BackupRetention));
+        }
+    }
+
+    /// <summary>
+    /// B4: AutoRestart round-trips through the save, and an edit rebuilt from the stored row the way the Players page's
+    /// whitelist append builds it keeps the setting instead of resetting it.
+    /// </summary>
+    [Fact]
+    public async Task Save_RoundTripsAutoRestart_AndAWhitelistAppendFromTheStoredRowKeepsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (host, mapId) = await StartAsync(ct);
+        using (host)
+        {
+            var created = await host.Instances.CreateAsync(Draft(mapId), ct);
+            Assert.False((await host.InstanceAsync(created.Value, ct)).AutoRestart);
+
+            var on = await host.Instances.SaveAsync(created.Value, new InstanceEdit("My Island", "My session", 20, 7777, 27020, string.Empty, null, null, false, true), ct);
+
+            Assert.True(on.Succeeded, on.Error);
+            var i = await host.InstanceAsync(created.Value, ct);
+            Assert.True(i.AutoRestart);
+
+            var appended = await host.Instances.SaveAsync(created.Value, new InstanceEdit(i.Name, i.SessionName, i.MaxPlayers, i.GamePort, i.RconPort, i.AdminWhitelist + "\nplayer-eos-id", i.BackupIntervalMinutes, i.BackupRetention, i.OverridesClusterSchedule, i.AutoRestart), ct);
+
+            Assert.True(appended.Succeeded, appended.Error);
+            var after = await host.InstanceAsync(created.Value, ct);
+            Assert.True(after.AutoRestart);
+            Assert.Equal("player-eos-id", after.AdminWhitelist);
+
+            var off = await host.Instances.SaveAsync(created.Value, new InstanceEdit(after.Name, after.SessionName, after.MaxPlayers, after.GamePort, after.RconPort, after.AdminWhitelist, null, null, false, false), ct);
+
+            Assert.True(off.Succeeded, off.Error);
+            Assert.False((await host.InstanceAsync(created.Value, ct)).AutoRestart);
         }
     }
 
@@ -908,10 +942,10 @@ public class InstanceCommandsTests
             var one = await host.Instances.CreateAsync(Draft(mapId, "One"), ct);
             var two = await host.Instances.CreateAsync(Draft(mapId, "Two", 7779, 27021), ct);
 
-            var keep = await host.Instances.SaveAsync(two.Value, new InstanceEdit("Two", "Two session", 20, 7779, 27021, string.Empty, null, null, false), ct);
-            var stealName = await host.Instances.SaveAsync(two.Value, new InstanceEdit("ONE", "Two session", 20, 7779, 27021, string.Empty, null, null, false), ct);
-            var stealPorts = await host.Instances.SaveAsync(two.Value, new InstanceEdit("Two", "Two session", 20, 7777, 27020, string.Empty, null, null, false), ct);
-            var gone = await host.Instances.SaveAsync(999, new InstanceEdit("X", "X", 20, 7790, 27030, string.Empty, null, null, false), ct);
+            var keep = await host.Instances.SaveAsync(two.Value, new InstanceEdit("Two", "Two session", 20, 7779, 27021, string.Empty, null, null, false, false), ct);
+            var stealName = await host.Instances.SaveAsync(two.Value, new InstanceEdit("ONE", "Two session", 20, 7779, 27021, string.Empty, null, null, false, false), ct);
+            var stealPorts = await host.Instances.SaveAsync(two.Value, new InstanceEdit("Two", "Two session", 20, 7777, 27020, string.Empty, null, null, false, false), ct);
+            var gone = await host.Instances.SaveAsync(999, new InstanceEdit("X", "X", 20, 7790, 27030, string.Empty, null, null, false, false), ct);
 
             Assert.True(keep.Succeeded, keep.Error);
             Assert.Equal("An instance named 'ONE' already exists.", stealName.Error);

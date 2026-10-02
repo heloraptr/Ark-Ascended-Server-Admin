@@ -165,4 +165,8 @@ and the web UI (which sits behind HTTPS and the login) is the way to reach it re
 | Console | `Log tail stopped: ...` | The tail loop threw; the state is still tracked by the liveness poll. Restart the instance to get the console back. |
 | Console | `Cannot probe RCON: <problem> Check ServerAdminPassword / RCONPort; the process is still watched for exit.` | On re-attach, no credentials could be read; the state is **Unreachable**. |
 | Console | `RCON 'doexit' failed (Connect): ... Continuing with the next step.` | During a stop; nothing took the command, so the job kills the process straight away instead of waiting the graceful timeout out (`doexit was not acknowledged; killing pid <n> now ...`). |
-| Console | `Server exited unexpectedly (code <n>).` | An exit the manager did not ask for. The log above it is the evidence; nothing restarts the server automatically. |
+| Console | `Server exited unexpectedly (code <n>).` | An exit the manager did not ask for. The log above it is the evidence. The server is restarted only if **Restart automatically after an unexpected exit** is on for the instance. |
+| Console | `Restarting after unexpected exit (n/3).` | Automatic restart is relaunching the server after a 5-second pause. |
+| Console | `The server exited unexpectedly again after 3 automatic restarts; automatic restart gave up. Start it to try again.` | Three restarts in a row each ended within 10 minutes. The state is **Crashed** until you press **Start**. |
+| Console | `Automatic restart was refused: <reason>` | The relaunch hit a problem such as a port conflict or a missing executable. The state is **Crashed** with that reason. |
+| Console | `Automatic restart skipped: <reason>.` or `Automatic restart skipped: another operation is using this instance.` | Nothing was relaunched, for example because an update or a restore was running, or another operation held the instance for 2 minutes. The state stays **Stopped**. |

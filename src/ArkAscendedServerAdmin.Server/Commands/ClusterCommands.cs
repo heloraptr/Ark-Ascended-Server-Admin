@@ -237,7 +237,7 @@ public sealed class ClusterCommands(
         await guard.EnsureAuthorizedAsync(cancellationToken);
         if (locks.IsClusterReserved(clusterId))
         {
-            return CommandResult.Fail("The cluster is reserved by a restore; try again when it finishes.");
+            return CommandResult.Fail(InstanceLocks.ClusterReservedByRestore);
         }
 
         if (restoreJournals.FindForCluster(clusterId) is { } journal)
