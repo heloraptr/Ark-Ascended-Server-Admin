@@ -44,3 +44,6 @@ Thumbs.db
 
 # Claude Code local state
 .claude/
+
+# Screenshot tool dependencies
+tools/screenshots/node_modules/
