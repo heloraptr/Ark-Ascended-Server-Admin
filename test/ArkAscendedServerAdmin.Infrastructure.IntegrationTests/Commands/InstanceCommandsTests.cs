@@ -898,6 +898,40 @@ public class InstanceCommandsTests
         }
     }
 
+    /// <summary>
+    /// B4: AutoRestart round-trips through the save, and an edit rebuilt from the stored row the way the Players page's
+    /// whitelist append builds it keeps the setting instead of resetting it.
+    /// </summary>
+    [Fact]
+    public async Task Save_RoundTripsAutoRestart_AndAWhitelistAppendFromTheStoredRowKeepsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (host, mapId) = await StartAsync(ct);
+        using (host)
+        {
+            var created = await host.Instances.CreateAsync(Draft(mapId), ct);
+            Assert.False((await host.InstanceAsync(created.Value, ct)).AutoRestart);
+
+            var on = await host.Instances.SaveAsync(created.Value, new InstanceEdit("My Island", "My session", 20, 7777, 27020, string.Empty, null, null, false, true), ct);
+
+            Assert.True(on.Succeeded, on.Error);
+            var i = await host.InstanceAsync(created.Value, ct);
+            Assert.True(i.AutoRestart);
+
+            var appended = await host.Instances.SaveAsync(created.Value, new InstanceEdit(i.Name, i.SessionName, i.MaxPlayers, i.GamePort, i.RconPort, i.AdminWhitelist + "\nplayer-eos-id", i.BackupIntervalMinutes, i.BackupRetention, i.OverridesClusterSchedule, i.AutoRestart), ct);
+
+            Assert.True(appended.Succeeded, appended.Error);
+            var after = await host.InstanceAsync(created.Value, ct);
+            Assert.True(after.AutoRestart);
+            Assert.Equal("player-eos-id", after.AdminWhitelist);
+
+            var off = await host.Instances.SaveAsync(created.Value, new InstanceEdit(after.Name, after.SessionName, after.MaxPlayers, after.GamePort, after.RconPort, after.AdminWhitelist, null, null, false, false), ct);
+
+            Assert.True(off.Succeeded, off.Error);
+            Assert.False((await host.InstanceAsync(created.Value, ct)).AutoRestart);
+        }
+    }
+
     [Fact]
     public async Task Save_RefusesAnotherInstancesNameOrPorts_ButAllowsKeepingItsOwn()
     {

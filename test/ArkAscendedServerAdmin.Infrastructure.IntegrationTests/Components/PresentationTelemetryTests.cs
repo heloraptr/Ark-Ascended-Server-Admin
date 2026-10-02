@@ -1,4 +1,5 @@
 using ArkAscendedServerAdmin.Components.Shared;
+using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Processes;
 
 namespace ArkAscendedServerAdmin.Infrastructure.IntegrationTests.Components;
@@ -25,6 +26,20 @@ public class PresentationTelemetryTests
     [InlineData(100.0, "100 %")]
     public void Percent_IsAWholeNumber(double percent, string expected) =>
         Assert.Equal(expected, Presentation.Percent(percent));
+
+    /// <summary>B4: Crashed is a solid red lamp labelled "Crashed", and its hint is the reason the manager recorded.</summary>
+    [Fact]
+    public void Crashed_IsSolidRed_WithItsDetailAsTheHint()
+    {
+        var runtime = new InstanceRuntime(1, InstanceState.Crashed, null, null, null, null, "Automatic restart was refused: Port conflict.", AutoRestarts: 2);
+
+        Assert.Equal("st-bad", Presentation.Tone(InstanceState.Crashed));
+        Assert.False(Presentation.IsHollow(InstanceState.Crashed));
+        Assert.Equal("Crashed", Presentation.Label(InstanceState.Crashed));
+        Assert.Equal("Automatic restart was refused: Port conflict.", Presentation.Hint(runtime));
+        Assert.NotNull(Presentation.Hint(runtime with { Detail = null }));
+        Assert.False(runtime.HasLiveProcess);
+    }
 
     [Fact]
     public void Telemetry_IsTheRamAndCpuLine()
