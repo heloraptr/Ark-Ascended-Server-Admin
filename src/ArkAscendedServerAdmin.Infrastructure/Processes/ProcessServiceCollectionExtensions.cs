@@ -34,6 +34,7 @@ public static class ProcessServiceCollectionExtensions
         services.AddSingleton<IRconClient, CoreRconClient>();
         services.AddSingleton<IRconHistoryStore, RconHistoryStore>();
         services.AddSingleton<IGameProcessEnumerator, WmiGameProcessEnumerator>();
+        services.AddSingleton<IGameProcessStarter, GameProcessStarter>();
         services.AddSingleton<IFirewallRules, FirewallRules>();
 
         services.AddSingleton<ProcessManager>();

@@ -1,8 +1,11 @@
 using System.ComponentModel;
+using System.Data.Common;
 using System.Diagnostics;
 using ArkAscendedServerAdmin.Configuration;
 using ArkAscendedServerAdmin.Consoles;
+using ArkAscendedServerAdmin.Domain;
 using ArkAscendedServerAdmin.Infrastructure.Backups;
+using ArkAscendedServerAdmin.Infrastructure.Data;
 using ArkAscendedServerAdmin.Infrastructure.Processes;
 using ArkAscendedServerAdmin.Firewall;
 using ArkAscendedServerAdmin.Ini;
@@ -10,6 +13,8 @@ using ArkAscendedServerAdmin.Processes;
 using ArkAscendedServerAdmin.Provisioning;
 using ArkAscendedServerAdmin.Rcon;
 using ArkAscendedServerAdmin.Startup;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -47,7 +52,10 @@ internal sealed class FakeRconClient(RconFailure? failure) : IRconClient
     /// <summary>Every command with the wall-clock instant it arrived; for countdown timing assertions.</summary>
     public List<(string Command, DateTimeOffset At)> Log { get; } = [];
 
-    public Task<string> ExecuteAsync(RconEndpoint endpoint, string command, TimeSpan timeout, CancellationToken cancellationToken)
+    /// <summary>When set, awaited before each reply (or failure) is returned; a test holds a probe with it (B4).</summary>
+    public Func<string, Task>? BeforeReply { get; set; }
+
+    public async Task<string> ExecuteAsync(RconEndpoint endpoint, string command, TimeSpan timeout, CancellationToken cancellationToken)
     {
         lock (Commands)
         {
@@ -55,9 +63,14 @@ internal sealed class FakeRconClient(RconFailure? failure) : IRconClient
             Log.Add((command, DateTimeOffset.UtcNow));
         }
 
+        if (BeforeReply is { } hold)
+        {
+            await hold(command);
+        }
+
         return failure is { } kind
             ? throw new RconException(kind, $"fake {kind}")
-            : Task.FromResult(command == RconCommands.ListPlayers ? RconCommands.NoPlayersReply : "ok");
+            : command == RconCommands.ListPlayers ? RconCommands.NoPlayersReply : "ok";
     }
 }
 
@@ -230,7 +243,8 @@ internal sealed class ProcessManagerHarness : IDisposable
         string? generatedIni = GeneratedIni,
         bool ready = true,
         AppSettings? settings = null,
-        IProjectionSynchronizer? synchronizer = null)
+        IProjectionSynchronizer? synchronizer = null,
+        IDbContextFactory<AppDbContext>? database = null)
     {
         var store = Substitute.For<IAppSettingsStore>();
         store.GetAsync(Arg.Any<CancellationToken>()).Returns(settings ?? new AppSettings());
@@ -251,8 +265,9 @@ internal sealed class ProcessManagerHarness : IDisposable
         Recovery = new RecoveryRequests();
         Enumerator = new StubEnumerator(processes);
         Synchronizer = synchronizer ?? new NoProjectionSynchronizer();
+        Starter = new StandInStarter();
         Manager = new ProcessManager(
-            root,
+            database ?? root,
             root.Layout,
             store,
             new HostConfiguration(root.Layout.Root, ["https://localhost:5001"], [], false, true, false, "0.0.0-test"),
@@ -265,6 +280,7 @@ internal sealed class ProcessManagerHarness : IDisposable
             Synchronizer,
             rcon,
             Enumerator,
+            Starter,
             new FakeFirewall(),
             new FakeLayoutService(),
             new FakeConfigWriter(generatedIni),
@@ -289,6 +305,9 @@ internal sealed class ProcessManagerHarness : IDisposable
 
     public IProjectionSynchronizer Synchronizer { get; }
 
+    /// <summary>Launches a stand-in <c>cmd.exe</c> in place of the game; see <see cref="StandInStarter"/>.</summary>
+    public StandInStarter Starter { get; }
+
     public void SetReady() => _readiness.Current.Returns(new ReadinessState(ReadinessPhase.Ready, "Ready", null, DateTimeOffset.UtcNow));
 
     public void Dispose()
@@ -296,5 +315,178 @@ internal sealed class ProcessManagerHarness : IDisposable
         _stopping.Cancel();
         Queue.Dispose();
         _stopping.Dispose();
+        Starter.Dispose();
+    }
+}
+
+/// <summary>
+/// The launch seam's test double (B4). By default it is the real starter, which fails for want of a game install, so
+/// the older tests see the launch they always saw. With <see cref="UseStandIn"/> every launch starts a stand-in
+/// <c>cmd.exe</c> instead, so a relaunch can succeed. <see cref="Barrier"/> holds a launch just before the process
+/// starts; <see cref="Failure"/> makes every start throw. Every stand-in started is killed on dispose.
+/// </summary>
+internal sealed class StandInStarter : IGameProcessStarter, IDisposable
+{
+    private readonly List<StandInProcess> _started = [];
+
+    public bool UseStandIn { get; set; }
+
+    /// <summary>When set, each start signals <see cref="Waiting"/> and blocks until this completes.</summary>
+    public TaskCompletionSource? Barrier { get; set; }
+
+    /// <summary>Completed when a start reaches <see cref="Barrier"/>.</summary>
+    public TaskCompletionSource Waiting { get; private set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>When set, every start throws it instead of starting anything.</summary>
+    public Exception? Failure { get; set; }
+
+    public IReadOnlyList<StandInProcess> Started
+    {
+        get
+        {
+            lock (_started)
+            {
+                return [.. _started];
+            }
+        }
+    }
+
+    public StandInProcess Last => Started[^1];
+
+    public Process Start(ProcessStartInfo startInfo)
+    {
+        if (Barrier is { } barrier)
+        {
+            Waiting.TrySetResult();
+            barrier.Task.Wait(TestContext.Current.CancellationToken);
+        }
+
+        if (Failure is { } failure)
+        {
+            throw failure;
+        }
+
+        if (!UseStandIn)
+        {
+            return new GameProcessStarter().Start(startInfo);
+        }
+
+        var process = StandInProcess.Start();
+        lock (_started)
+        {
+            _started.Add(process);
+        }
+
+        return process.Process;
+    }
+
+    public void ResetWaiting() => Waiting = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public void Dispose()
+    {
+        foreach (var process in Started)
+        {
+            process.Dispose();
+        }
+    }
+}
+
+/// <summary>
+/// A context factory over a <see cref="TempDataRoot"/>'s database with EF interceptors added, so a test can hold or fail
+/// one particular database write (B4).
+/// </summary>
+internal sealed class InterceptedDatabase(TempDataRoot root, params IInterceptor[] interceptors) : IDbContextFactory<AppDbContext>
+{
+    private readonly DbContextOptions<AppDbContext> _options = new DbContextOptionsBuilder<AppDbContext>()
+        .UseSqlite($"Data Source={root.Layout.DatabasePath}")
+        .AddInterceptors(interceptors)
+        .Options;
+
+    public AppDbContext CreateDbContext() => new(_options);
+}
+
+/// <summary>
+/// Holds or fails the database commands that match a predicate (B4). <see cref="Hold"/> arms a barrier: the next matching
+/// command completes the task Hold returned and waits for <see cref="Release"/>. <see cref="FailWhen"/> makes matching commands
+/// throw. Both look at the command text and its parameter values.
+/// </summary>
+internal sealed class CommandGate : DbCommandInterceptor
+{
+    private readonly object _sync = new();
+    private Func<DbCommand, bool>? _hold;
+    private TaskCompletionSource? _held;
+    private TaskCompletionSource? _release;
+
+    public Func<DbCommand, bool>? FailWhen { get; set; }
+
+    /// <summary>Arms the barrier for the next command matching <paramref name="match"/>; the task completes once one is held.</summary>
+    public Task Hold(Func<DbCommand, bool> match)
+    {
+        lock (_sync)
+        {
+            _hold = match;
+            _held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            return _held.Task;
+        }
+    }
+
+    public void Release()
+    {
+        lock (_sync)
+        {
+            _release?.TrySetResult();
+        }
+    }
+
+    /// <summary>True when the command sets <c>State</c> to <paramref name="state"/> (an ExecuteUpdate of the instance row).</summary>
+    public static bool SetsState(DbCommand command, InstanceState state) =>
+        command.CommandText.Contains("UPDATE \"Instances\"", StringComparison.Ordinal)
+        && command.Parameters.Cast<DbParameter>().Any(p => Equals(p.Value, state.ToString()));
+
+    /// <summary>True when the command writes a non-null <c>LastPid</c> (an identity persist).</summary>
+    public static bool PersistsIdentity(DbCommand command) =>
+        command.CommandText.Contains("UPDATE \"Instances\"", StringComparison.Ordinal)
+        && command.CommandText.Contains("\"LastPid\" = @", StringComparison.Ordinal);
+
+    /// <summary>True when the command writes a null <c>LastPid</c> (the exit cleanup's identity clear).</summary>
+    public static bool ClearsIdentity(DbCommand command) =>
+        command.CommandText.Contains("UPDATE \"Instances\"", StringComparison.Ordinal)
+        && command.CommandText.Contains("\"LastPid\" = NULL", StringComparison.Ordinal);
+
+    public override async ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+    {
+        await GateAsync(command);
+        return result;
+    }
+
+    public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+    {
+        await GateAsync(command);
+        return result;
+    }
+
+    private async Task GateAsync(DbCommand command)
+    {
+        Task? wait = null;
+        lock (_sync)
+        {
+            if (_hold is { } match && match(command))
+            {
+                _hold = null;
+                _held!.TrySetResult();
+                wait = _release!.Task;
+            }
+        }
+
+        if (wait is not null)
+        {
+            await wait;
+        }
+
+        if (FailWhen is { } fail && fail(command))
+        {
+            throw new InvalidOperationException("Simulated database failure.");
+        }
     }
 }

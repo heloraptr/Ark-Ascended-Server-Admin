@@ -66,9 +66,45 @@ public sealed record ProbeObservation(int InstanceId, int Pid, DateTimeOffset Pr
 /// <summary>
 /// Posted once per confirmed process exit after the manager's own cleanup (B0); the crash policy decides whether to
 /// relaunch. <paramref name="StopIntent"/> is true when the manager had accepted a stop for this session, and such an
-/// exit is never a crash.
+/// exit is never a crash. <paramref name="DuringMaintenance"/> is true when the maintenance gate was held exclusively
+/// as the exit was handled (B4); an update owns the instance then, so the exit is never answered with a relaunch.
+/// The manager keeps the request it published as <see cref="InstanceRuntime.PendingCrash"/> and compares it by
+/// reference, so a request is answered at most once.
 /// </summary>
-public sealed record RecoveryRequest(int InstanceId, int Pid, DateTimeOffset ProcessStartTime, int? ExitCode, bool StopIntent, DateTimeOffset ExitedAt);
+public sealed record RecoveryRequest(int InstanceId, int Pid, DateTimeOffset ProcessStartTime, int? ExitCode, bool StopIntent, DateTimeOffset ExitedAt, bool DuringMaintenance);
+
+/// <summary>How <see cref="IProcessManager.RecoverAsync"/> answered one <see cref="RecoveryRequest"/> (B4).</summary>
+public enum CrashRecoveryStatus
+{
+    /// <summary>A relaunch was registered as automatic restart <see cref="CrashRecovery.Attempt"/>.</summary>
+    Launched,
+    /// <summary>The crash-loop guard gave up; the instance is <see cref="InstanceState.Crashed"/>.</summary>
+    GaveUp,
+    /// <summary>The relaunch was refused (the reason says why); the instance is Crashed unless a newer exit superseded it.</summary>
+    Refused,
+    /// <summary>Automatic restart is off for the instance; nothing was launched and the request is answered.</summary>
+    Disabled,
+    /// <summary>An update or a service shutdown stood in the way; the instance stays Stopped and the request is answered.</summary>
+    Skipped,
+    /// <summary>The request is no longer the instance's pending crash (answered, dismissed, or superseded); nothing changed.</summary>
+    Stale,
+    /// <summary>Another operation holds the instance lock; nothing changed and the request may be retried.</summary>
+    Busy,
+}
+
+/// <summary>
+/// The answer to one <see cref="RecoveryRequest"/> (B4): the <paramref name="Status"/>, the automatic-restart count it
+/// launched or gave up at (<paramref name="Attempt"/>, 0 when neither), and the rejection <paramref name="Reason"/>
+/// for <see cref="CrashRecoveryStatus.Refused"/> and <see cref="CrashRecoveryStatus.Skipped"/>.
+/// </summary>
+public sealed record CrashRecovery(CrashRecoveryStatus Status, int Attempt = 0, string? Reason = null)
+{
+    public static readonly CrashRecovery Busy = new(CrashRecoveryStatus.Busy);
+
+    public static readonly CrashRecovery Stale = new(CrashRecoveryStatus.Stale);
+
+    public static readonly CrashRecovery Disabled = new(CrashRecoveryStatus.Disabled);
+}
 
 /// <summary>
 /// One resource sample of a live game process (B7): its working set, and the share of the whole box's CPU it used
@@ -100,6 +136,11 @@ public enum LaunchKind
     User,
     /// <summary>Update-recovery launch (plan step 11); allowed before <c>Ready</c> once the install is verified and the gate is free.</summary>
     Recovery,
+    /// <summary>
+    /// Relaunch after an unexpected exit (B4), issued only by <see cref="IProcessManager.RecoverAsync"/>; refused until
+    /// <c>Ready</c> like <see cref="User"/>, and the only kind that keeps the automatic-restart count.
+    /// </summary>
+    AutoRestart,
 }
 
 /// <summary>
@@ -109,6 +150,13 @@ public enum LaunchKind
 /// <see cref="InstanceState.IdentityUnpersisted"/>. <see cref="ExitRequested"/> is true once a stop job is past
 /// the countdown and has asked the server to exit (or has nothing to ask and is waiting for the graceful
 /// timeout); the UI turns "Stop now" into a disabled "Closing…" at that point.
+/// <para>
+/// Crash recovery (B4) lives in the same record so one atomic update reads and writes it together with the state:
+/// <see cref="PendingCrash"/> is the unexpected exit not answered yet (compared by reference), <see cref="AutoRestarts"/>
+/// counts consecutive automatic restarts (the crash-loop guard's input and the number the UI shows), and
+/// <see cref="RecoveryEpoch"/> is bumped by <see cref="IProcessManager.DismissCrash"/> so an exit still in cleanup when
+/// a delete or restore dismissed it publishes no marker.
+/// </para>
 /// </summary>
 public sealed record InstanceRuntime(
     int InstanceId,
@@ -118,7 +166,10 @@ public sealed record InstanceRuntime(
     StartupMarker? LastMarker,
     DateTimeOffset? LastRconSuccessAt,
     string? Detail,
-    bool ExitRequested = false)
+    bool ExitRequested = false,
+    RecoveryRequest? PendingCrash = null,
+    int AutoRestarts = 0,
+    int RecoveryEpoch = 0)
 {
     /// <summary>True for every state that has (or may have) a live process behind it.</summary>
     public bool HasLiveProcess => State is InstanceState.Starting
@@ -213,6 +264,23 @@ public interface IProcessManager
 
     /// <summary>Re-attempts persisting <c>LastPid</c> / <c>LastProcessStartTime</c> for an <see cref="InstanceState.IdentityUnpersisted"/> instance.</summary>
     Task<OperationOutcome> RetryPersistIdentityAsync(int instanceId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Answers one unexpected exit (B4) under the instance lease, never waiting for it (<see cref="CrashRecoveryStatus.Busy"/>
+    /// when it is held). Only the request that is still the instance's <see cref="InstanceRuntime.PendingCrash"/>, with no
+    /// session registered and the state Stopped, is acted on; anything else is <see cref="CrashRecoveryStatus.Stale"/>.
+    /// The instance row's <see cref="Instance.AutoRestart"/> and <see cref="CrashLoopRule"/> then decide between a
+    /// relaunch, giving up (<see cref="InstanceState.Crashed"/>), and nothing. Every write is conditional on the marker
+    /// still being this request, so a request is answered once and a newer exit's marker is never touched.
+    /// </summary>
+    Task<CrashRecovery> RecoverAsync(RecoveryRequest request, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Forgets any unexpected exit pending for the instance and voids one still in cleanup (B4). Delete and restore call
+    /// it for every instance they own, when they take the lease and again just before they release it, so a crash they
+    /// superseded is never relaunched afterwards. Changes nothing else; the caller holds the instance lease.
+    /// </summary>
+    void DismissCrash(int instanceId);
 }
 
 /// <summary>A held instance lock; disposing releases it once. Not reentrant: the holder passes it to work that needs it (B0).</summary>

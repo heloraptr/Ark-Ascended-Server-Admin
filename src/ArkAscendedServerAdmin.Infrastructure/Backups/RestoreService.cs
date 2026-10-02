@@ -510,7 +510,7 @@ public sealed class RestoreService(
     /// </summary>
     private OperationOutcome TryOwn(int? clusterId, IReadOnlyList<(int Id, string Name)> affected, out Ownership ownership)
     {
-        ownership = new Ownership();
+        ownership = new Ownership(processManager);
         if (clusterId is { } id)
         {
             var reservation = locks.TryReserveCluster(id);
@@ -531,13 +531,13 @@ public sealed class RestoreService(
                 return OperationOutcome.Rejected($"An operation is in progress for {name}; try again when it finishes.");
             }
 
-            ownership.Leases.Add(lease);
+            ownership.Add(lease);
         }
 
         return OperationOutcome.Success;
     }
 
-    /// <summary>Under the locks: no journal other than the one being recovered may reference an affected instance or the cluster, and every affected instance must be stopped.</summary>
+    /// <summary>Under the locks: no journal other than the one being recovered may reference an affected instance or the cluster, and every affected instance must be stopped (Crashed counts as stopped: it has no process, B4).</summary>
     private OperationOutcome CheckReady(int? clusterId, IReadOnlyList<(int Id, string Name)> affected, string? ownJournal = null)
     {
         foreach (var (id, name) in affected)
@@ -554,7 +554,7 @@ public sealed class RestoreService(
         }
 
         var running = affected
-            .Where(a => processManager.GetRuntime(a.Id).State != InstanceState.Stopped)
+            .Where(a => processManager.GetRuntime(a.Id).State is not (InstanceState.Stopped or InstanceState.Crashed))
             .Select(a => $"{a.Name} ({processManager.GetRuntime(a.Id).State})")
             .ToList();
         return running.Count == 0
@@ -837,21 +837,32 @@ public sealed class RestoreService(
         ZipArchive Archive,
         RestoreArchiveRules.CheckResult Check);
 
-    /// <summary>The cluster reservation and instance leases one operation holds; disposal releases the leases first.</summary>
-    private sealed class Ownership : IDisposable
+    /// <summary>
+    /// The cluster reservation and instance leases one operation holds; disposal releases the leases first. A pending
+    /// crash of each owned instance is dismissed when its lease is taken and again just before it is released (B4), so a
+    /// restore always supersedes an automatic restart, even one whose exit was still in cleanup.
+    /// </summary>
+    private sealed class Ownership(IProcessManager processManager) : IDisposable
     {
+        private readonly List<IInstanceLease> _leases = [];
+
         public IDisposable? Reservation { get; set; }
 
-        public List<IInstanceLease> Leases { get; } = [];
+        public void Add(IInstanceLease lease)
+        {
+            processManager.DismissCrash(lease.InstanceId);
+            _leases.Add(lease);
+        }
 
         public void Dispose()
         {
-            for (var i = Leases.Count - 1; i >= 0; i--)
+            for (var i = _leases.Count - 1; i >= 0; i--)
             {
-                Leases[i].Dispose();
+                processManager.DismissCrash(_leases[i].InstanceId);
+                _leases[i].Dispose();
             }
 
-            Leases.Clear();
+            _leases.Clear();
             Reservation?.Dispose();
             Reservation = null;
         }

@@ -85,9 +85,13 @@ public sealed class InstanceDeleteService(
             return OperationOutcome.Rejected("An operation is in progress for this instance; try again when it finishes.");
         }
 
+        // B4: the delete owns the instance now, so a crash pending for it is never relaunched; dismissed again just before
+        // the lease is released, which also voids an exit that was still in cleanup meanwhile.
+        processManager.DismissCrash(instanceId);
         var registration = jobs.TryBegin($"delete {slug}");
         if (registration is null)
         {
+            processManager.DismissCrash(instanceId);
             lease.Dispose();
             return OperationOutcome.Rejected("The service is stopping; the delete was not started.");
         }
@@ -148,6 +152,7 @@ public sealed class InstanceDeleteService(
         }
         finally
         {
+            processManager.DismissCrash(instanceId);
             lease.Dispose();
             registration.Dispose();
         }
