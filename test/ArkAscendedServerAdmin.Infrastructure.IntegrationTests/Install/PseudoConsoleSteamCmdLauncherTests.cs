@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using ArkAscendedServerAdmin.Infrastructure.Install;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -15,6 +16,16 @@ public sealed class PseudoConsoleSteamCmdLauncherTests : IDisposable
 
     private readonly string _directory = Directory.CreateTempSubdirectory("asa-conpty ").FullName;
     private readonly PseudoConsoleSteamCmdLauncher _launcher = new(NullLogger<PseudoConsoleSteamCmdLauncher>.Instance);
+
+    static PseudoConsoleSteamCmdLauncherTests()
+    {
+        // Launching a file that is not a program makes Windows show an "Unsupported 16-Bit Application" box on an
+        // interactive desktop before CreateProcessW returns the error. The service never has a desktop; a test run
+        // does, so the box is turned off for this process and the error comes back silently, as the test expects.
+        const uint failCriticalErrors = 0x0001;
+        const uint noOpenFileErrorBox = 0x8000;
+        _ = NativeMethods.SetErrorMode(NativeMethods.SetErrorMode(0) | failCriticalErrors | noOpenFileErrorBox);
+    }
 
     [Fact]
     public async Task ALineBeforeAPause_ArrivesBeforeTheChildExits()
@@ -286,5 +297,12 @@ public sealed class PseudoConsoleSteamCmdLauncherTests : IDisposable
 
             base.Dispose(disposing);
         }
+    }
+
+    private static class NativeMethods
+    {
+        [DllImport("kernel32.dll", ExactSpelling = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        internal static extern uint SetErrorMode(uint uMode);
     }
 }
