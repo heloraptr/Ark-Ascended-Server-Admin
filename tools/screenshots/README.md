@@ -67,6 +67,11 @@ Each picture is 1440 by 900 pixels at twice the pixel density, so the PNG is 288
 | `settings.png` | Global Settings page, top (see below) |
 | `settings-export.png` | Global Settings page scrolled to the Host and Configuration data sections (see below) |
 | `update.png` | Update page as it is, never starting a run (see below) |
+| `update-running.png` | Update page during a run; taken by hand (see below) |
+
+## The wizard pictures
+
+The `wizard-*.png` pictures of the New instance wizard are not part of this script. Walking the wizard ends with a new instance on the server, so they are taken by hand against a throwaway cluster, one step per picture, and the instance is left stopped.
 
 ## The Settings and Update pictures
 

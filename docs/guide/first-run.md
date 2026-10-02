@@ -67,6 +67,8 @@ because members cannot start without it. See [clusters.md](clusters.md).
 
 ## The first instance
 
+![The last step of the New instance wizard: a summary of the choices and the "Start the server right away" box](../images/wizard-8-summary.png)
+
 On **Instances** (the sidebar's first entry, or the home page) click **New instance** or
 **Create the first instance**. The wizard has eight steps: **Name**, **Cluster**, **Map**, **Config
 source**, **Mods**, **Launch options**, **Ports**, **Summary**. For a first server: type a name and a

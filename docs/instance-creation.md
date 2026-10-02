@@ -17,6 +17,37 @@ the last click. Paths are relative to the `DataRoot` configured in `appsettings.
 | Ports | Game port, RCON port, max players, admin whitelist | Suggested from the port ranges in Settings, skipping every other instance and the web UI's own port. |
 | Summary | Review, then **Create instance**, optionally with **Start the server right away** | |
 
+The steps, as they look when adding an Aberration server to a cluster named Demo (the Config source
+step is left out: for a cluster member it has nothing to choose):
+
+**Name**
+
+![The Name step, with the instance name and the session name filled in](images/wizard-1-name.png)
+
+**Cluster**
+
+![The Cluster step: standalone, or one of the existing clusters](images/wizard-2-cluster.png)
+
+**Map**
+
+![The Map step, with Aberration picked from the official story maps](images/wizard-3-map.png)
+
+**Mods**
+
+![The Mods step, showing the cluster's four mods locked and room to add the instance's own](images/wizard-5-mods.png)
+
+**Launch options**
+
+![The Launch options step, every flag set to inherit from the cluster](images/wizard-6-launch-options.png)
+
+**Ports**
+
+![The Ports step, with the suggested game and RCON ports, max players, and the admin whitelist](images/wizard-7-ports.png)
+
+**Summary**
+
+![The Summary step, with the choices listed and "Start the server right away" unticked](images/wizard-8-summary.png)
+
 ## Clicking "Create instance"
 
 Everything below runs inside one call to the instance command facade. Steps 1 to 4 touch only the
