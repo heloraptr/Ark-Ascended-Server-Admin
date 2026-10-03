@@ -3,6 +3,9 @@
 # build/publish-release.ps1 builds, runs both test executables, publishes the self-contained and the
 # framework-dependent packages, and writes SHA256SUMS. The MinVer version (without build metadata) must
 # equal the tag without its "v", otherwise the job fails before anything is published.
+#
+# The tag decides whether the release is a pre-release: a version with a SemVer pre-release part
+# (v1.0.0-rc.1, v1.1.0-preview.2) is marked as one; a bare vX.Y.Z is a full release.
 name: Release
 
 on:
@@ -20,6 +23,21 @@ jobs:
   release:
     runs-on: windows-latest
     steps:
+      # Runs before checkout so a mistyped tag fails in seconds, not after the build. "v" plus strict
+      # SemVer 2.0 core with an optional pre-release part; build metadata (+...) is rejected because the
+      # version check below compares the tag to the MinVer version without it.
+      - name: Check the tag is v + SemVer
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          $semver = '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-(0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?$'
+          if ($env:TAG -cnotmatch $semver) {
+            Write-Error "Tag '$env:TAG' is not 'v' followed by a SemVer 2.0 version without build metadata (expected vX.Y.Z or vX.Y.Z-pre.N)."
+            exit 1
+          }
+          Write-Host "Tag $env:TAG is well formed."
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # MinVer needs the tags
@@ -45,6 +63,9 @@ jobs:
             exit 1
           }
           Write-Host "Version $env:VERSION matches tag $tag."
+          $prerelease = if ($env:VERSION -like '*-*') { 'true' } else { 'false' }
+          "PRERELEASE=$prerelease" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Pre-release: $prerelease"
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -61,5 +82,16 @@ jobs:
         run: |
           $zips = Get-ChildItem artifacts/release -Filter 'ArkAscendedServerAdmin-*.zip' | ForEach-Object { $_.FullName }
           if ($zips.Count -ne 2) { Write-Error "Expected two zips in artifacts/release, found $($zips.Count)."; exit 1 }
-          gh release create "$env:TAG" --generate-notes --prerelease @zips artifacts/release/SHA256SUMS
+          # Generated notes cover the changes since the previous tag of the same kind: a pre-release
+          # since the tag before it (pre-release or not), a full release since the last full release.
+          # Only tags reachable from this commit count; versionsort.suffix=- sorts v1.0.0-rc.1 below v1.0.0.
+          $tags = git -c versionsort.suffix=- tag --list 'v*' --merged HEAD --sort=-v:refname
+          $older = $tags | Select-Object -Skip ([array]::IndexOf([string[]]$tags, $env:TAG) + 1)
+          $start = if ($env:PRERELEASE -eq 'true') { $older | Select-Object -First 1 }
+                   else { $older | Where-Object { $_ -notlike '*-*' } | Select-Object -First 1 }
+          $flags = @('--generate-notes', '--verify-tag')
+          if ($start) { $flags += @('--notes-start-tag', $start); Write-Host "Notes since $start." }
+          else { Write-Host "No earlier tag of the right kind; notes cover the whole history." }
+          if ($env:PRERELEASE -eq 'true') { $flags += '--prerelease' }
+          gh release create "$env:TAG" @flags @zips artifacts/release/SHA256SUMS
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
