@@ -23,6 +23,21 @@ jobs:
   release:
     runs-on: windows-latest
     steps:
+      # Runs before checkout so a mistyped tag fails in seconds, not after the build. "v" plus strict
+      # SemVer 2.0 core with an optional pre-release part; build metadata (+...) is rejected because the
+      # version check below compares the tag to the MinVer version without it.
+      - name: Check the tag is v + SemVer
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          $semver = '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-(0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?$'
+          if ($env:TAG -cnotmatch $semver) {
+            Write-Error "Tag '$env:TAG' is not 'v' followed by a SemVer 2.0 version without build metadata (expected vX.Y.Z or vX.Y.Z-pre.N)."
+            exit 1
+          }
+          Write-Host "Tag $env:TAG is well formed."
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # MinVer needs the tags
