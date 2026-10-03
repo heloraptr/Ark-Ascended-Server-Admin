@@ -22,6 +22,10 @@ something works.
 - Every change goes on a branch and arrives on `main` through a pull request. The owner reviews
   and squash-merges; do not merge, and do not commit directly to `main`.
 - Never create or push a git tag. Versions come from tags via MinVer, and the owner tags releases.
+- Patches for a released minor come from `rel/vX.Y`, created from the last `vX.Y.N` tag when the
+  first patch is needed and kept afterwards. PRs into `rel/vX.Y` are squash-merged like any other.
+  The PR from `rel/vX.Y` back into `main` is merged with a merge commit, never squashed: a squash
+  leaves the merge base behind, and the next back-merge conflicts on changes that already landed.
 - Commit messages and pull request descriptions carry no AI attribution trailers (no
   `Co-Authored-By`, no "Generated with" line). The tooling is disclosed once, in
   `docs/how-this-was-built.md`, and the commit carries the name of the person accountable for it.
