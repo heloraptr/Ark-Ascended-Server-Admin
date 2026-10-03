@@ -11,6 +11,10 @@ Built for one owner running a handful of servers, clustered or standalone, on on
 This is a personal project I run for my own servers. Issues are read; fixes and features land when I
 have the time and bandwidth. No schedule, no guarantees.
 
+It was built with the assistance of Claude Code, with OpenAI Codex hardening the plans; I designed
+it, reviewed every change, and run it. [How this was built](docs/how-this-was-built.md) covers the process, who did what,
+and the projects that inspired it.
+
 Not affiliated with, sponsored by, or endorsed by Studio Wildcard or Snail Games. ARK: Survival
 Ascended and related marks are trademarks of their respective owners.
 
