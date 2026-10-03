@@ -62,10 +62,10 @@ the answer you get here is a check rather than the only correction the table eve
 
 Every instance console is a tail of
 `Instances\<slug>\ShooterGame\Saved\Logs\ShooterGame.log`. The tracker watches each console for a
-line of this shape (captured from a live server):
+line of this shape (the shape is from a live server; the id here is made up):
 
 ```
-[2026.09.13-18.48.40:782][696]2026.09.13_18.48.40: PlayerName [UniqueNetId:0002f16bad3d4330b6097fcec38c5610 Platform:None] joined this ARK!
+[2026.09.13-18.48.40:782][696]2026.09.13_18.48.40: PlayerName [UniqueNetId:0002c0ffee11d00d4242beef00c0ffee Platform:None] joined this ARK!
 ```
 
 and the matching `left this ARK!`. The id is a 32-hex-digit EOS id or a 17-digit Steam id; the
