@@ -116,8 +116,11 @@ What I did:
   or the plan gave me a reason to; the tests and the second-model review covered the rest. Some
   work went back for rework: the scheduled-actions feature was rebuilt after I saw the first version
   and asked for cron expressions, a builder dialog, and an existing cron library instead of a
-  hand-written parser. One feature, crash restart, I handed to Claude and Codex to design between
-  them and reviewed only the result.
+  hand-written parser. One feature, crash restart, I handed off at the planning stage: the decisions that mattered —
+  a per-instance toggle, off by default, what counts as a crash, a cap on restarts before giving
+  up — were already made in the post-1.0 interview, it was the last item of a long day, and the
+  implementation plan was something Claude and Codex could settle between them. I reviewed the
+  pull request. The review log records the hand-off as it happened.
 - Ran the spikes that needed a real player or a live server: joining a test server to capture the
   real join and `ListPlayers` output, sending the ban commands on my own box to see what the game
   did with the file.
