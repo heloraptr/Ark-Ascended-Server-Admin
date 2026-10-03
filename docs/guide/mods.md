@@ -16,9 +16,11 @@ one, you add ids by hand and name them yourself.
 
 The field is on Settings, under *Game install*, as **CurseForge API key**. Its hint on the page:
 "Stored in plain text in the database. Enables mod search and metadata; without it mods are added
-by id. The key is your own and its use is subject to CurseForge's API terms." Get a key from
-CurseForge's developer console; the manager sends it as the `x-api-key` header on every request and
-picks up a changed key without a restart.
+by id. The key is your own and its use is subject to CurseForge's API terms." Get a key from the
+[CurseForge for Studios console](https://console.curseforge.com/): sign in, create an organization if
+it asks for one, then generate a key under *API keys*. CurseForge may ask what the key is for;
+"personal server administration" is accurate. The manager sends it as the `x-api-key` header on every
+request and picks up a changed key without a restart.
 
 The key is stored exactly as you type it. It is a read-only key on your own box and it only ever
 goes to CurseForge, so the installer restricts the database folder to `SYSTEM` and administrators
