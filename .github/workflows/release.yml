@@ -82,7 +82,16 @@ jobs:
         run: |
           $zips = Get-ChildItem artifacts/release -Filter 'ArkAscendedServerAdmin-*.zip' | ForEach-Object { $_.FullName }
           if ($zips.Count -ne 2) { Write-Error "Expected two zips in artifacts/release, found $($zips.Count)."; exit 1 }
+          # Generated notes cover the changes since the previous tag of the same kind: a pre-release
+          # since the tag before it (pre-release or not), a full release since the last full release.
+          # Only tags reachable from this commit count; versionsort.suffix=- sorts v1.0.0-rc.1 below v1.0.0.
+          $tags = git -c versionsort.suffix=- tag --list 'v*' --merged HEAD --sort=-v:refname
+          $older = $tags | Select-Object -Skip ([array]::IndexOf([string[]]$tags, $env:TAG) + 1)
+          $start = if ($env:PRERELEASE -eq 'true') { $older | Select-Object -First 1 }
+                   else { $older | Where-Object { $_ -notlike '*-*' } | Select-Object -First 1 }
           $flags = @('--generate-notes', '--verify-tag')
+          if ($start) { $flags += @('--notes-start-tag', $start); Write-Host "Notes since $start." }
+          else { Write-Host "No earlier tag of the right kind; notes cover the whole history." }
           if ($env:PRERELEASE -eq 'true') { $flags += '--prerelease' }
           gh release create "$env:TAG" @flags @zips artifacts/release/SHA256SUMS
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
